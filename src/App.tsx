@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { classifyFinalShot, classifyServe, courtSide, selectServeLanding } from "./tennis-rules";
+import PracticeCourt from "./PracticeCourt";
 type PlayerIndex = 0 | 1;
 type TennisMode = "manual" | "swipe";
 type ShotPosition = "Behind baseline" | "On baseline" | "Inside baseline" | "At net";
@@ -640,6 +641,7 @@ function loadSaved(): SavedState {
   } catch { return { match: null, history: [], player: null }; }
 }
 export default function App() {
+  const [view, setView] = useState<"scorer" | "practice">("scorer");
   const [saved, setSaved] = useState(loadSaved);
   const [saveError, setSaveError] = useState(false);
   useEffect(() => {
@@ -658,8 +660,10 @@ export default function App() {
   }
   return <div className="site-shell">
     <header className="site-header"><a className="wordmark" href="/" aria-label="SwipeTennis home"><span className="brand-ball" aria-hidden="true"/>swipe<span>tennis</span><span className="brand-period">.</span></a><span className="header-note">A feel for every point.</span><a className="header-link" href="#scorer">{saved.match ? "Back to match" : "Play a match"} ↗</a></header>
-    {!saved.match && <section className="hero"><div className="hero-copy"><p className="eyebrow">THE COURT IS YOUR CANVAS</p><h1>Every point.<br/>A little <em>more felt.</em></h1><p className="hero-description">Trace the rally. Capture the score.<br/>Turn your time on court into a story you can replay.</p><a href="#scorer" className="hero-link">Make your next match count <span>↓</span></a></div><div className="court-art" aria-hidden="true"><div className="art-court"><div className="art-singles"/><div className="art-service"/><div className="art-net"/><div className="art-trace"/><span className="art-ball"/></div><span className="art-caption">LOVE THE GAME. REMEMBER THE MATCH.</span></div></section>}
-    <main id="scorer"><TennisApp match={saved.match} history={saved.history} defaultPlayer={saved.player} onDefaultPlayerChange={player => setSaved(current => ({ ...current, player }))} onChange={changeMatch} onCancel={() => changeMatch(null)} /></main>
-    <footer className="site-footer"><span>swipetennis<span className="brand-period">.</span></span><p role="status">{saveError ? "Storage is full or unavailable. Keep this tab open to retain your match." : "Your matches are saved in this browser on this device."}</p><span>See you on court ↗</span></footer>
+    <nav className="mode-navigation" aria-label="Tennis activities"><button aria-pressed={view === "scorer"} onClick={() => setView("scorer")}>Match scorer</button><button aria-pressed={view === "practice"} onClick={() => setView("practice")}>Play & practice ↗</button></nav>
+    {view === "scorer" && !saved.match && <section className="hero"><div className="hero-copy"><p className="eyebrow">THE COURT IS YOUR CANVAS</p><h1>Every point.<br/>A little <em>more felt.</em></h1><p className="hero-description">Trace the rally. Capture the score.<br/>Turn your time on court into a story you can replay.</p><a href="#scorer" className="hero-link">Make your next match count <span>↓</span></a></div><div className="court-art" aria-hidden="true"><div className="art-court"><div className="art-singles"/><div className="art-service"/><div className="art-net"/><div className="art-trace"/><span className="art-ball"/></div><span className="art-caption">LOVE THE GAME. REMEMBER THE MATCH.</span></div></section>}
+
+    <main id="scorer"><div hidden={view !== "practice"}><PracticeCourt visible={view === "practice"} /></div><div hidden={view !== "scorer"}><TennisApp match={saved.match} history={saved.history} defaultPlayer={saved.player} onDefaultPlayerChange={player => setSaved(current => ({ ...current, player }))} onChange={changeMatch} onCancel={() => changeMatch(null)} /></div></main>
+    <footer className="site-footer"><span>swipetennis<span className="brand-period">.</span></span><p role="status">{view === "practice" ? "Practice sessions stay in this tab." : saveError ? "Storage is full or unavailable. Keep this tab open to retain your match." : "Your matches are saved in this browser on this device."}</p><span>See you on court ↗</span></footer>
   </div>;
 }
