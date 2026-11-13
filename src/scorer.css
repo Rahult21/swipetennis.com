@@ -1,0 +1,169 @@
+.tennis-app,.tennis-setup { --tennis-green:#174f39; --tennis-deep:#0d3527; --tennis-cream:#f7f2df; --tennis-lime:#d9e86c; }
+.tennis-setup { border-top-color:var(--tennis-green); }
+.tennis-kicker { color:var(--tennis-green); font-size:.68rem; font-weight:900; letter-spacing:.18em; }
+.tennis-setup-head { display:flex; justify-content:space-between; align-items:end; gap:28px; margin:13px 0 30px; }
+.tennis-setup-head p:last-child { margin:10px 0 0; color:var(--muted); }
+.tennis-mode-switch { display:flex; flex-wrap:wrap; gap:6px; }
+.tennis-mode-switch button { min-height:42px; border:1px solid #cad0c8; background:white; color:var(--tennis-deep); padding:0 16px; font-size:.72rem; font-weight:900; }
+.tennis-mode-switch button.active { border-color:var(--tennis-deep); background:var(--tennis-deep); color:white; }
+.tennis-setup-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.tennis-setup fieldset { display:grid; grid-template-columns:1fr 130px; gap:14px; margin:0; border:1px solid var(--line); background:#faf9f4; padding:20px; }
+.tennis-setup fieldset.match-format { grid-column:1/-1; grid-template-columns:1.4fr 1fr 1fr; }
+.tennis-setup legend { padding:0 8px; color:var(--tennis-green); font-family:var(--font-serif),serif; font-size:1.25rem; }
+.tennis-setup label { display:grid; gap:7px; color:var(--muted); font-size:.68rem; font-weight:900; letter-spacing:.07em; text-transform:uppercase; }
+.tennis-setup input,.tennis-setup select { min-width:0; height:46px; border:1px solid var(--line); background:white; color:var(--ink); padding:0 11px; }
+.tennis-setup .default-player-flag { grid-column:1/-1; display:flex; align-items:center; justify-content:flex-start; gap:8px; width:max-content; border:1px solid #c8c7bc; background:white; color:#70776f; padding:8px 11px; cursor:pointer; letter-spacing:.04em; }
+.tennis-setup .default-player-flag.selected { border-color:var(--gold); background:#fff8e7; color:#76591c; }
+.tennis-setup .default-player-flag input { position:absolute; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; }
+.default-player-flag span { color:#b1aa9a; font-size:1rem; }.default-player-flag.selected span{color:var(--gold)}
+.default-player-flag b { font-size:.65rem; }
+.start-match { min-height:50px; margin-top:18px; border:0; background:var(--tennis-green); color:white; padding:0 28px; font-weight:900; }
+.start-match:disabled { opacity:.4; }
+.tennis-app { display:grid; gap:18px; }
+.tennis-scoreboard { overflow:hidden; border:1px solid #0d352744; background:var(--tennis-deep); color:white; box-shadow:0 18px 45px #0d352720; }
+.scoreboard-title { display:flex; justify-content:space-between; align-items:end; gap:20px; padding:17px 22px; border-bottom:1px solid #ffffff20; }
+.scoreboard-title>div { display:grid; gap:3px; }
+.scoreboard-title span { color:var(--tennis-lime); font-size:.62rem; font-weight:900; letter-spacing:.17em; }
+.scoreboard-title strong { font-family:var(--font-serif),serif; font-size:1.35rem; font-weight:400; }
+.scoreboard-title small { color:#c9d7ce; font-size:.66rem; }
+.score-grid { padding:0 22px 10px; }
+.score-head { display:none; }
+.score-row { display:flex; align-items:center; min-height:58px; border-bottom:1px solid #ffffff16; }
+.score-row:last-child { border-bottom:0; }
+.score-player { min-width:150px; display:flex; flex:1; gap:10px; align-items:center; }
+.score-player i { width:8px; height:8px; flex:none; border-radius:50%; background:var(--tennis-lime); box-shadow:0 0 0 4px #d9e86c25; }
+.score-player>span { display:grid; gap:1px; }
+.score-player strong { font-size:.82rem; }
+.score-player small { color:#9eb3a6; font-size:.6rem; }
+.score-row>b,.score-row>em { width:54px; flex:none; text-align:center; font-style:normal; font-size:1rem; }
+.score-row>em { width:65px; color:var(--tennis-lime); font-size:1.2rem; font-weight:900; }
+.tennis-live-toolbar { display:flex; justify-content:space-between; gap:18px; }
+.match-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:12px; }
+.new-match,.cancel-match { border:0; background:transparent; font-size:.7rem; font-weight:900; }
+.new-match { color:#875c54; }
+.cancel-match { color:#8e3427; }
+.tennis-mode-switch .revert-point { border-style:dashed; color:#4f6257; }
+.tennis-mode-switch .revert-point:disabled { cursor:not-allowed; opacity:.38; }
+.swipe-demo-launch { display:flex; justify-content:space-between; align-items:center; gap:16px; border:1px solid #d5cfb8; background:#f7f2df; padding:11px 14px; color:#5b665f; font-size:.72rem; }
+.swipe-demo-launch>div { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+.swipe-demo-launch button { flex:none; border:0; background:var(--tennis-green); color:white; min-height:37px; padding:0 14px; font-size:.66rem; font-weight:900; }
+.swipe-demo-launch .ongoing-replay-button { border:1px solid var(--tennis-green); background:white; color:var(--tennis-green); }
+.swipe-demo-launch button:disabled { cursor:not-allowed; opacity:.42; }
+.swipe-demo-video { display:grid; grid-template-columns:minmax(230px,360px) minmax(220px,1fr); gap:18px; border:1px solid #c9c09d; background:#f5f0d9; padding:18px; }
+.swipe-demo-video>header { grid-column:1/-1; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #cec7aa; padding-bottom:12px; }
+.swipe-demo-video>header>div { display:flex; gap:16px; align-items:center; }
+.swipe-demo-video>header span { color:var(--tennis-green); font-size:.62rem; font-weight:900; letter-spacing:.14em; }
+.swipe-demo-video>header strong { color:var(--tennis-deep); font-family:var(--font-serif),serif; font-size:1.45rem; font-weight:400; }
+.swipe-demo-video>header button { border:1px solid #bdb69b; background:transparent; min-height:36px; padding:0 13px; color:#4d5c52; font-size:.66rem; font-weight:900; }
+.demo-stage { position:relative; width:min(100%,300px); margin:auto; background:#eee6c5; padding:12px; box-shadow:0 10px 24px #263d2c20; }
+.demo-stage svg { display:block; width:100%; aspect-ratio:100/160; filter:drop-shadow(0 6px 9px #0b2f2228); }
+.demo-trace { fill:none; stroke:#edf47a; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:240; animation:demo-draw .8s ease-out both; filter:drop-shadow(0 0 2px #263b1f); }
+.demo-trace.fault { stroke:#e5a08d; }
+@keyframes demo-draw { from{stroke-dashoffset:240}to{stroke-dashoffset:0} }
+.demo-hit { fill:none; stroke:#f6f19c; stroke-width:1; animation:court-bounce .75s ease-out infinite; }
+.demo-finger { position:absolute; z-index:2; transform:translate(-45%,-80%); font-size:1.6rem; line-height:1; filter:drop-shadow(0 2px 2px #0005); transition:left .75s ease,top .75s ease; }
+.demo-player-label { position:absolute; left:50%; transform:translateX(-50%); color:var(--tennis-deep); font-size:.58rem; font-weight:900; }.demo-player-label.top{top:1px}.demo-player-label.bottom{bottom:1px}
+.demo-journal { position:absolute; inset:50% auto auto 50%; z-index:3; display:grid; grid-template-columns:repeat(3,1fr); gap:5px; width:82%; transform:translate(-50%,-50%); border-top:4px solid var(--tennis-lime); background:#fffdf5f2; box-shadow:0 10px 28px #071b1466; padding:10px; }
+.demo-journal b,.demo-journal strong { grid-column:1/-1; font-size:.54rem; letter-spacing:.08em; }.demo-journal span{border:1px solid #cbc8b9;background:white;padding:7px 5px;color:#455248;font-size:.48rem;font-weight:900}.demo-journal strong{background:var(--tennis-green);color:white;padding:7px;text-align:center}
+.demo-score-flash { position:absolute; inset:50% auto auto 50%; z-index:3; transform:translate(-50%,-50%); border:2px solid var(--tennis-lime); background:#0d3527ed; color:white; padding:15px 22px; font-family:var(--font-serif),serif; font-size:1.35rem; animation:score-pop 1s ease both; }
+.swipe-demo-video>p { align-self:center; margin:0; color:#34473c; font-family:var(--font-serif),serif; font-size:1.35rem; line-height:1.35; }
+.demo-scenarios { grid-column:2; display:flex; flex-wrap:wrap; gap:6px; align-self:start; }
+.demo-scenarios span { border:1px solid #c9c09d; background:#fffdf4; padding:6px 8px; color:#68736b; font-size:.57rem; font-weight:900; text-transform:uppercase; }
+.point-confirm-backdrop { position:fixed; inset:0; z-index:20; display:grid; place-items:center; overflow:auto; background:#0d1f18b8; padding:20px; backdrop-filter:blur(4px); }
+.point-confirm { width:min(100%,620px); border-top:7px solid var(--tennis-lime); background:#fffdf5; box-shadow:0 24px 80px #0007; padding:26px; }
+.point-confirm>span { color:var(--tennis-green); font-size:.62rem; font-weight:900; letter-spacing:.15em; }
+.point-confirm h2 { margin:7px 0 20px; font-family:var(--font-serif),serif; font-size:clamp(1.7rem,4vw,2.35rem); font-weight:400; line-height:1.05; }
+.point-confirm-summary { display:grid; grid-template-columns:repeat(3,1fr); border:1px solid #d8d3c0; }
+.point-confirm-summary>div,.point-confirm-summary>label { display:grid; gap:6px; min-width:0; padding:13px; border-right:1px solid #d8d3c0; }.point-confirm-summary>div:last-child,.point-confirm-summary>label:last-child{border-right:0}
+.point-confirm-summary small,.point-position-review>small { color:#788079; font-size:.57rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase; }
+.point-confirm-summary strong { overflow:hidden; font-size:.78rem; text-overflow:ellipsis; white-space:nowrap; }
+.point-confirm-summary select { width:100%; min-width:0; height:40px; border:1px solid #cbc8b9; border-radius:0; background:white; color:#24392e; padding:0 8px; font-size:.72rem; font-weight:800; }
+.point-position-review { display:grid; gap:9px; margin-top:18px; }
+.point-position-review>div { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.point-position-review button { min-height:42px; border:1px solid #cbc8b9; background:#f4f1e6; color:#59655d; padding:6px; font-size:.64rem; font-weight:800; }
+.point-position-review button.active { border-color:var(--tennis-green); background:var(--tennis-green); color:white; }
+.point-confirm>p { margin:12px 0 20px; color:#707870; font-size:.68rem; line-height:1.45; }
+.point-confirm footer { display:flex; justify-content:flex-end; gap:9px; }
+.point-confirm footer button { min-height:45px; border:0; padding:0 17px; font-size:.7rem; font-weight:900; }
+.retry-point { background:#eee9da; color:#725c52; }.confirm-point { background:var(--tennis-green); color:white; }
+.match-winner { display:flex; justify-content:space-between; align-items:center; border-left:6px solid var(--tennis-lime); background:var(--tennis-green); color:white; padding:26px 30px; }
+.match-winner span { color:#c7d7cc; font-size:.68rem; font-weight:900; letter-spacing:.14em; text-transform:uppercase; }
+.match-winner strong { font-family:var(--font-serif),serif; font-size:2rem; font-weight:400; }
+.manual-scorer { display:grid; gap:15px; }
+.shot-position { display:flex; justify-content:space-between; align-items:center; gap:15px; border:1px solid var(--line); background:white; padding:12px 15px; }
+.shot-position>span { color:var(--muted); font-size:.68rem; font-weight:900; text-transform:uppercase; }
+.shot-position>div { display:flex; flex-wrap:wrap; gap:5px; }
+.shot-position button { min-height:35px; border:1px solid var(--line); background:#f7f6f1; color:var(--muted); padding:0 10px; font-size:.66rem; font-weight:800; }
+.shot-position button.active { border-color:var(--tennis-green); background:var(--tennis-green); color:white; }
+.scoring-panels { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.scoring-panel { border:1px solid var(--line); background:white; }
+.scoring-panel header { display:grid; gap:4px; padding:18px 20px; border-top:5px solid var(--tennis-green); border-bottom:1px solid var(--line); }
+.return-panel header { border-top-color:var(--gold); }
+.scoring-panel header span { color:var(--muted); font-size:.61rem; font-weight:900; letter-spacing:.12em; }
+.scoring-panel header strong { font-family:var(--font-serif),serif; font-size:1.65rem; font-weight:400; }
+.point-buttons { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:14px; }
+.point-buttons button { min-height:50px; border:1px solid #d8d9d3; background:#f8f7f2; color:var(--ink); padding:8px; font-size:.69rem; font-weight:900; text-transform:uppercase; }
+.point-buttons button:hover { border-color:var(--tennis-green); }
+.point-buttons .fault { grid-column:1/-1; border-color:#b79287; background:#f5ebe7; color:#824b3e; }
+.swipe-scorer { display:grid; grid-template-columns:minmax(250px,440px) minmax(220px,1fr); gap:22px; align-items:start; padding:22px; background:var(--tennis-cream); border:1px solid #d5cfb8; }
+.swipe-instructions { grid-column:2; display:grid; gap:7px; padding-top:12px; }
+.swipe-instructions strong { font-family:var(--font-serif),serif; font-size:1.7rem; font-weight:400; }
+.swipe-instructions span { color:#667069; line-height:1.5; }
+.court-frame { position:relative; grid-column:1; grid-row:1/3; width:min(100%,440px); margin:auto; padding:27px 34px; background:#f5f0d9; border:1px solid #c9c09d; box-shadow:0 15px 40px #263d2c25; }
+.tennis-court { display:block; width:100%; aspect-ratio:100/160; touch-action:none; user-select:none; filter:drop-shadow(0 8px 13px #0b2f2233); }
+.court-grass { fill:#2e7755; }
+.court-lines { fill:none; stroke:#f8f3df; stroke-width:.7; vector-effect:non-scaling-stroke; }
+.court-lines .net { stroke:#fdfdf8; stroke-width:1.8; filter:drop-shadow(0 1px 1px #0008); }
+.girl-player { fill:#f7f2df; stroke:#173e2e; stroke-width:.8; vector-effect:non-scaling-stroke; pointer-events:none; }
+.girl-player path { fill:#f7f2df; }
+.court-player { transition:transform .42s cubic-bezier(.2,.8,.2,1); transform-box:view-box; transform-origin:0 0; }
+.ball-trace { fill:none; stroke:#e9ef77; stroke-width:1.4; stroke-linecap:round; stroke-linejoin:round; filter:drop-shadow(0 0 2px #263b1f); pointer-events:none; }
+.court-ball { fill:#eaf06d; stroke:white; stroke-width:.5; pointer-events:none; }
+.court-bounce { fill:none; stroke:#f6f19c; stroke-width:1; pointer-events:none; animation:court-bounce .75s ease-out infinite; }
+@keyframes court-bounce { from{r:1;opacity:1}to{r:5;opacity:0} }
+.court-name { position:absolute; left:50%; z-index:1; display:grid; transform:translateX(-50%); color:var(--tennis-deep); text-align:center; font-size:.7rem; font-weight:900; pointer-events:none; }
+.court-name small { color:#7a7a68; font-size:.48rem; letter-spacing:.12em; }
+.court-name.top { top:6px; }.court-name.bottom { bottom:5px; }
+.swipe-legend { grid-column:2; display:grid; gap:10px; color:#59635c; font-size:.7rem; }
+.swipe-legend span { display:flex; gap:8px; align-items:center; }
+.swipe-legend i { width:9px; height:9px; border-radius:50%; }.swipe-legend .inside{background:var(--tennis-green)}.swipe-legend .wide{background:#a76657}.swipe-legend .bounce{border:1px solid #6f7d30;background:#e9ef77}
+.tennis-stats { border:1px solid #c9c09d; background:#fffdf5; }
+.tennis-stats>header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px 18px; border-bottom:1px solid #d9d4bf; }
+.tennis-stats>header>div { display:grid; gap:4px; }.tennis-stats>header span { color:var(--tennis-green); font-size:.62rem; font-weight:900; letter-spacing:.14em; }.tennis-stats>header strong{font-family:var(--font-serif),serif;font-size:1.3rem;font-weight:400}
+.tennis-stats>header button { border:0; background:var(--tennis-green); color:white; min-height:40px; padding:0 16px; font-size:.66rem; font-weight:900; }
+.stats-table { display:grid; grid-template-columns:minmax(150px,1.4fr) repeat(2,minmax(90px,1fr)); }
+.stats-head { padding:10px 14px; background:#edf0e4; color:#526258; font-size:.64rem; font-weight:900; }
+.stats-row { display:contents; }.stats-row>* { padding:10px 14px; border-top:1px solid #e2dfd2; }.stats-row span{color:#667069;font-size:.68rem}.stats-row b{text-align:center;font-size:.78rem}
+.point-log { border-top:4px solid var(--tennis-green); background:white; }
+.point-log header { padding:15px 18px; border-bottom:1px solid var(--line); }
+.point-log header>div { display:flex; justify-content:space-between; gap:20px; }
+.point-log header span { color:var(--tennis-green); font-size:.64rem; font-weight:900; letter-spacing:.14em; }
+.point-log header strong { color:var(--muted); font-size:.68rem; }
+.point-log>div { max-height:330px; overflow:auto; }
+.point-log article { display:grid; grid-template-columns:30px minmax(0,1fr) auto; gap:12px; align-items:center; min-height:55px; padding:9px 18px; border-bottom:1px solid var(--line); }
+.point-log article>span { color:var(--gold); font-size:.62rem; font-weight:900; }
+.point-log article>div { display:grid; gap:3px; }
+.point-log article strong { font-size:.78rem; }.point-log article small { color:var(--muted); font-size:.65rem; }
+.point-log article em { color:var(--tennis-green); font-size:.61rem; font-style:normal; font-weight:900; text-transform:uppercase; }
+.point-log>p { margin:0; padding:24px; color:var(--muted); text-align:center; }
+.tennis-history-bar { display:flex; justify-content:space-between; align-items:center; gap:18px; }
+.tennis-history-bar>button,.history-match { min-height:40px; border:1px solid #174f3950; background:#f7f2df; color:#174f39; padding:0 14px; font-size:.68rem; font-weight:900; }
+.tennis-history-bar button b,.history-match b { display:inline-grid; min-width:20px; height:20px; place-items:center; margin-left:6px; border-radius:50%; background:#174f39; color:white; font-size:.58rem; }
+.tennis-moment { display:flex; justify-content:space-between; align-items:center; gap:15px; border-bottom:1px solid #ffffff20; background:#1e5e45; color:#eff5dc; padding:10px 22px; font-size:.68rem; font-weight:900; letter-spacing:.08em; }
+.tennis-moment.set-point { background:#6b5a22; }.tennis-moment.match-point{background:#7f3528;animation:moment-pulse 1.1s ease-in-out infinite alternate}
+.tennis-moment small { color:#d5e1d8; font-size:.6rem; }
+@keyframes moment-pulse { from{box-shadow:inset 0 0 0 0 #fff0}to{box-shadow:inset 0 0 0 2px #fff7} }
+.score-flash { position:fixed; inset:50% auto auto 50%; z-index:60; transform:translate(-50%,-50%); min-width:min(86vw,320px); border:2px solid #d9e86c; background:#0d3527ed; color:white; box-shadow:0 22px 65px #0008; padding:22px 28px; text-align:center; font-family:var(--font-serif),serif; font-size:1.55rem; animation:score-pop 1s ease both; pointer-events:none; }
+@keyframes score-pop { 0%{opacity:0;transform:translate(-50%,-42%) scale(.94)}18%,78%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-54%) scale(.98)} }
+.tennis-modal-backdrop { --tennis-green:#174f39; --tennis-deep:#0d3527; --tennis-cream:#f7f2df; --tennis-lime:#d9e86c; position:fixed; inset:0; z-index:55; display:grid; place-items:center; overflow:auto; background:#071b14d9; padding:20px; backdrop-filter:blur(5px); }
+.match-history,.match-report-modal,.match-replay { width:min(100%,960px); max-height:calc(100dvh - 40px); overflow:auto; border-top:7px solid var(--tennis-lime); background:#fffdf5; box-shadow:0 24px 80px #0009; }
+.match-history>header,.match-report-modal>header,.match-replay>header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:start; gap:20px; border-bottom:1px solid #d8d3c0; background:#fffdf5; padding:20px 24px; }
+.match-history header span,.match-report-modal header span,.match-replay header span { color:var(--tennis-green); font-size:.6rem; font-weight:900; letter-spacing:.15em; }
+.match-history h2,.match-report-modal h2,.match-replay h2 { margin:3px 0 0; font-family:var(--font-serif),serif; font-size:clamp(1.6rem,4vw,2.4rem); font-weight:400; }
+.match-history header>button,.match-report-modal header>button,.match-replay header>button { width:38px; height:38px; flex:none; border:1px solid #cbc8b9; background:transparent; color:#536058; font-size:1.25rem; }
+.history-grid { display:grid; grid-template-columns:minmax(210px,1.5fr) minmax(110px,.7fr) minmax(140px,1fr) 100px; padding:0 24px 24px; }
+.history-head { border-bottom:1px solid #d8d3c0; color:#778079; padding:13px 10px 8px; font-size:.58rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase; }
+.history-row { display:contents; }.history-row>*{display:flex;align-items:center;min-width:0;min-height:66px;border-bottom:1px solid #e2dfd2;padding:10px;color:#4f5d54;font-size:.72rem}.history-row>div:first-child{display:grid;gap:4px}.history-row strong{overflow:hidden;color:#14241b;font-size:.82rem;text-overflow:ellipsis;white-space:nowrap}.history-row small{color:#7d867f;font-size:.62rem}.history-row>b{font-size:.78rem}.history-actions{display:flex!important;justify-content:flex-end;gap:6px}.history-actions button{width:36px;height:36px;border:1px solid #c9c9bd;background:white;color:var(--tennis-green);font-weight:900}.history-actions .history-play{border-color:var(--tennis-green);background:var(--tennis-green);color:white}.history-empty{margin:0;padding:50px 24px;color:#727d75;text-align:center}
+.match-report-modal { width:min(100%,700px); }.match-report-modal header small{color:#747f77;font-size:.66rem}.match-report-modal pre{margin:0;padding:25px;overflow:auto;color:#24392e;font-family:inherit;font-size:.78rem;line-height:1.7;white-space:pre-wrap}
+.match-replay { width:min(100%,760px); }.replay-meta{display:flex;justify-content:space-between;gap:16px;padding:12px 24px;background:#f1eedf;color:#526057;font-size:.68rem}.replay-meta strong{color:#7f3528;letter-spacing:.08em}.replay-court-wrap{position:relative;width:min(100% - 36px,430px);margin:20px auto;padding:28px 34px;background:#f5f0d9;border:1px solid #c9c09d}.replay-court{filter:drop-shadow(0 8px 13px #0b2f2233)}.replay-trace{fill:none;stroke:#f0f573;stroke-width:1.45;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:360;animation:replay-draw 1.25s ease-out both;filter:drop-shadow(0 0 2px #173e2e)}@keyframes replay-draw{from{stroke-dashoffset:360}to{stroke-dashoffset:0}}.replay-bounce{fill:#eff56f;stroke:white;stroke-width:.5}.replay-name{position:absolute;left:50%;transform:translateX(-50%);color:#173e2e;font-size:.62rem;font-weight:900}.replay-name.top{top:7px}.replay-name.bottom{bottom:7px}.manual-replay-card{position:absolute;inset:50% auto auto 50%;display:grid;gap:4px;transform:translate(-50%,-50%);background:#fffdf5e8;padding:14px 20px;text-align:center}.manual-replay-card span{font-size:.7rem}.replay-score-pop{position:absolute;inset:50% auto auto 50%;display:grid;gap:4px;min-width:180px;transform:translate(-50%,-50%);border:2px solid var(--tennis-lime);background:#0d3527ed;color:white;padding:16px 20px;text-align:center;animation:replay-score 1s ease both}.replay-score-pop small{color:var(--tennis-lime);font-size:.58rem;font-weight:900;letter-spacing:.14em}.replay-score-pop strong{font-family:var(--font-serif),serif;font-size:1.4rem;font-weight:400}@keyframes replay-score{0%{opacity:0;transform:translate(-50%,-45%) scale(.94)}20%,80%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-54%) scale(.98)}}.match-replay>footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;border-top:1px solid #d8d3c0;padding:14px 20px}.match-replay>footer button{min-height:40px;border:1px solid #bdc4be;background:white;color:var(--tennis-green);padding:0 15px;font-size:.68rem;font-weight:900}.match-replay>footer button:last-child{border-color:var(--tennis-green);background:var(--tennis-green);color:white}.replay-speed{display:flex;margin-right:auto;border:1px solid #bdc4be}.match-replay>footer .replay-speed button{min-width:42px;border:0;border-right:1px solid #d4d2c8;padding:0 8px}.match-replay>footer .replay-speed button:last-child{border-right:0;background:white;color:var(--tennis-green)}.match-replay>footer .replay-speed button.active{background:var(--tennis-green);color:white}
+
