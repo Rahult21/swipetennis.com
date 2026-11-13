@@ -1,5 +1,5 @@
 {
-  "name": "swipetennis",
+  "name": "swipetennis-com",
   "compatibility_date": "2026-11-12",
   "build": {
     "command": "npm run build"
