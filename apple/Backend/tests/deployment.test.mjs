@@ -14,7 +14,7 @@ test('only Cloudflare production builds apply remote migrations', () => {
 test('API routing leaves website assets intact', async () => {
   const env = {ASSETS: {fetch: request => new Response(`asset:${new URL(request.url).pathname}`)}};
   assert.deepEqual(await (await site.fetch(new Request('https://swipetennis.com/api/health'), env)).json(),
-    {ok: true, rulesVersion: 2});
+    {ok: true, rulesVersion: 3});
   assert.equal(await (await site.fetch(new Request('https://swipetennis.com/'), env)).text(), 'asset:/');
   assert.equal(await (await site.fetch(new Request('https://swipetennis.com/assets/site.css'), env)).text(), 'asset:/assets/site.css');
 });

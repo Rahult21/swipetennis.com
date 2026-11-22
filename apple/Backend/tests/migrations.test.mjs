@@ -4,7 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {maskEmail} from '../src/rules.mjs';
 
-test('Username-mask migration preserves accounts and results until Apple refreshes the suffix', () => {
+test('Legacy masks preserve accounts and results until Apple refreshes the five-character name', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(readFileSync(new URL('../migrations/0001_coachability.sql', import.meta.url), 'utf8'));
@@ -15,6 +15,6 @@ test('Username-mask migration preserves accounts and results until Apple refresh
     assert.equal(db.prepare("SELECT email_mask FROM users WHERE id='person'").get().email_mask, 'ra•••');
     assert.equal(db.prepare('SELECT cp FROM coach_points').get().cp, 4);
     db.prepare("UPDATE users SET email_mask=? WHERE apple_sub=?").run(maskEmail('rahul@example.com'), 'private-apple-id');
-    assert.equal(db.prepare('SELECT email_mask FROM users').get().email_mask, 'ra•••l');
+    assert.equal(db.prepare('SELECT email_mask FROM users').get().email_mask, 'rahul');
   } finally { db.close(); }
 });

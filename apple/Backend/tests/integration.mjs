@@ -34,7 +34,7 @@ function point(sessionID, index, negative = false) {
     points: 99999}; // A forged client total must be ignored.
 }
 try {
-  assert.deepEqual(await api('/health'), {ok: true, rulesVersion: 2});
+  assert.deepEqual(await api('/health'), {ok: true, rulesVersion: 3});
   await api('/points', {method: 'POST', body: {points: []}, status: 401});
   const challenge = await api('/auth/challenge', {method: 'POST'});
   assert.equal(challenge.nonce.length, 64);
@@ -54,9 +54,11 @@ try {
   for (const [metric, expected] of [['point', 4], ['game', 10], ['set', 50]]) {
     board = await api(`/leaderboard?metric=${metric}`);
     assert.deepEqual(board.entries.find(p => p.id === accounts[0].id),
-      {id: accounts[0].id, emailMask: accounts[0].mask, score: expected});
+      {id: accounts[0].id, emailMask: accounts[0].mask.split('•')[0], score: expected});
     assert(!JSON.stringify(board).includes('local-test-'), 'Apple subjects must remain private');
   }
+  sql(`UPDATE users SET email_mask='test0' WHERE id='${accounts[0].id}';`);
+  assert.equal((await api('/leaderboard?metric=point')).entries.find(p => p.id === accounts[0].id).emailMask, 'test0');
   await api('/points', {method: 'POST', token: accounts[1].token, body: {points: [points[0]]}, status: 409});
   await api('/points', {method: 'POST', token, body: {points: [{...points[0], events: []}]}, status: 409});
   await api('/points', {method: 'POST', token, body: {points: [{...point(randomUUID(), 0), gameCompleted: true}]}, status: 409});

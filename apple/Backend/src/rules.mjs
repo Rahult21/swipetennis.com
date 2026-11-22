@@ -3,7 +3,13 @@ export function maskEmail(email) {
   const at = address.lastIndexOf('@');
   if (at <= 0 || at === address.length - 1) return '•••';
   const chars = Array.from(address.slice(0, at));
-  return chars.slice(0, 2).join('') + '•••' + chars.at(-1);
+  return chars.slice(0, 5).join('');
+}
+
+// Old records cannot reveal five characters that were never stored. Show only their
+// retained prefix until a verified Apple sign-in refreshes the name.
+export function publicPlayerName(mask) {
+  return Array.from(String(mask ?? '').split('•')[0].split('@')[0]).slice(0, 5).join('') || 'Player';
 }
 
 export function validatePoint(value) {
@@ -51,7 +57,7 @@ export function validateSequence(points) {
   }
 }
 
-export const DEMO_NAMES = ['al•••e','be•••n','ca•••a','di•••o','el•••a','fi•••n','gi•••a','ha•••y','iv•••y','jo•••e'];
+export const DEMO_NAMES = ['alice','benny','carla','diego','elena','finns','ginaa','harry','ivory','joann'];
 export function demoEntries(metric) {
   const scores = metric === 'point' ? [4,4,3,3,3,2,2,2,1,1]
     : metric === 'game' ? [10,10,9,9,8,8,7,7,6,6] : [31,30,29,28,27,26,25,24,22,21];

@@ -1,20 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID, webcrypto} from 'node:crypto';
-import {maskEmail, validatePoint, validateSequence, demoEntries} from '../src/rules.mjs';
+import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from '../src/rules.mjs';
 import {verifyAppleToken} from '../src/apple-auth.mjs';
 
 const point = (index = 1, changes = {}) => ({id: randomUUID(), sessionID: '160a41d6-2e93-4f19-9711-3b603621e858',
   pointIndex: index, gameIndex: 1, format: 'tennis', winner: 0, events: [],
   gameCompleted: false, setCompleted: false, ...changes});
 
-test('Email mask uses the first two and final username characters, excluding the domain', () => {
-  assert.equal(maskEmail('rahul@example.com'), 'ra•••l');
-  assert.equal(maskEmail('ab123@privaterelay.appleid.com'), 'ab•••3');
-  assert.equal(maskEmail('a@b'), 'a•••a');
-  assert.equal(maskEmail('ab@example.org'), 'ab•••b');
-  assert.equal(maskEmail('  élise@different.net  '), 'él•••e');
+test('Player names expose at most the first five username characters, excluding the domain', () => {
+  assert.equal(maskEmail('rahul@example.com'), 'rahul');
+  assert.equal(maskEmail('ab123456@privaterelay.appleid.com'), 'ab123');
+  assert.equal(maskEmail('a@b'), 'a');
+  assert.equal(maskEmail('ab@example.org'), 'ab');
+  assert.equal(maskEmail('  élise@different.net  '), 'élise');
   assert.equal(maskEmail('invalid'), '•••');
+  assert.equal(publicPlayerName('ra•••l'), 'ra');
+  assert.equal(publicPlayerName('rahul'), 'rahul');
+  assert.equal(publicPlayerName('•••'), 'Player');
 });
 test('Recovery consistency awards once per point and can stack with other rules', () => {
   const recovery = {rule: 7, opportunity: 0, success: true};
@@ -50,7 +53,7 @@ test('Demo boards contain ten labeled fixtures in the requested ranges', () => {
   for (const [metric, min, max] of [['point',1,4],['game',6,10],['set',21,31]]) {
     const rows = demoEntries(metric);
     assert.equal(rows.length, 10); assert.equal(rows[0].score, max); assert.equal(rows.at(-1).score, min);
-    assert.ok(rows.every(r => r.id.startsWith('example-') && r.emailMask.length === 6));
+    assert.ok(rows.every(r => r.id.startsWith('example-') && r.emailMask.length === 5));
   }
 });
 

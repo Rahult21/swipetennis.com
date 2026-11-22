@@ -1,5 +1,5 @@
 import {verifyAppleToken, randomToken, digest} from './apple-auth.mjs';
-import {maskEmail, validatePoint, validateSequence, demoEntries} from './rules.mjs';
+import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from './rules.mjs';
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store','X-Content-Type-Options': 'nosniff'}});
 const fail = (status, message) => Object.assign(new Error(message), {status});
 async function body(request) {
@@ -42,7 +42,7 @@ export default {
           : 'signin:' + (request.headers.get('CF-Connecting-IP') ?? 'local');
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
-      if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 2});
+      if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 3});
       if (path === '/auth/challenge' && request.method === 'POST') {
         const id = crypto.randomUUID(), nonce = randomToken();
         await env.DB.batch([
@@ -122,7 +122,8 @@ export default {
         const rows = await env.DB.prepare(`SELECT u.id,u.email_mask AS emailMask,MAX(s.score) AS score FROM (${scoreQuery}) s JOIN users u ON u.id=s.user_id GROUP BY u.id ORDER BY score DESC,u.id ASC LIMIT 10`).all();
         const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM coach_points').first();
         const isDemo = count.n === 0;
-        return json({metric, isDemo, entries: isDemo ? demoEntries(metric) : rows.results});
+        return json({metric, isDemo, entries: isDemo ? demoEntries(metric)
+          : rows.results.map(row => ({...row, emailMask: publicPlayerName(row.emailMask)}))});
       }
       return json({error: 'Not found'}, 404);
     } catch (error) {
