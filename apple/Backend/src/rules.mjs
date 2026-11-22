@@ -1,6 +1,9 @@
 export function maskEmail(email) {
-  const chars = Array.from(String(email ?? '').trim());
-  return chars.length >= 5 && chars.includes('@') ? chars.slice(0, 2).join('') + '•••' + chars.at(-1) : '•••';
+  const address = String(email ?? '').trim();
+  const at = address.lastIndexOf('@');
+  if (at <= 0 || at === address.length - 1) return '•••';
+  const chars = Array.from(address.slice(0, at));
+  return chars.slice(0, 2).join('') + '•••' + chars.at(-1);
 }
 
 export function validatePoint(value) {
@@ -13,10 +16,11 @@ export function validatePoint(value) {
     || !Array.isArray(value.events) || value.events.length > 128) throw new Error('Invalid point');
   const seen = new Set();
   const events = value.events.map(event => {
-    if (!Number.isInteger(event.rule) || event.rule < 1 || event.rule > 6
+    if (!Number.isInteger(event.rule) || event.rule < 1 || event.rule > 7
       || !Number.isInteger(event.opportunity) || event.opportunity < 0 || event.opportunity > 1000000
       || typeof event.success !== 'boolean') throw new Error('Invalid coaching event');
     const id = `${event.rule}:${event.opportunity}`;
+    if (event.rule === 7 && event.opportunity !== 0) throw new Error('Recovery consistency is scored once per point');
     if (seen.has(id)) throw new Error('Duplicate coaching opportunity');
     seen.add(id);
     return {rule: event.rule, opportunity: event.opportunity, success: event.success};
@@ -47,7 +51,7 @@ export function validateSequence(points) {
   }
 }
 
-export const DEMO_NAMES = ['al•••m','be•••m','ca•••m','di•••m','el•••m','fi•••m','gi•••m','ha•••m','iv•••m','jo•••m'];
+export const DEMO_NAMES = ['al•••e','be•••n','ca•••a','di•••o','el•••a','fi•••n','gi•••a','ha•••y','iv•••y','jo•••e'];
 export function demoEntries(metric) {
   const scores = metric === 'point' ? [4,4,3,3,3,2,2,2,1,1]
     : metric === 'game' ? [10,10,9,9,8,8,7,7,6,6] : [31,30,29,28,27,26,25,24,22,21];

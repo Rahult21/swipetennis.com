@@ -42,7 +42,7 @@ export default {
           : 'signin:' + (request.headers.get('CF-Connecting-IP') ?? 'local');
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
-      if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 1});
+      if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 2});
       if (path === '/auth/challenge' && request.method === 'POST') {
         const id = crypto.randomUUID(), nonce = randomToken();
         await env.DB.batch([

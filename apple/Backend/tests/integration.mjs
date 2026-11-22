@@ -30,11 +30,11 @@ function point(sessionID, index, negative = false) {
   return {id: randomUUID(), sessionID, pointIndex: index + 1, gameIndex: Math.floor(index / 4) + 1,
     winner: 0, format: 'tennis', gameCompleted: index % 4 === 3, setCompleted: index === 23,
     events: [{rule: 2, opportunity: 1, success: !negative},
-      ...(!negative && index === 0 ? [{rule: 6, opportunity: 2, success: true}] : [])],
+      ...(!negative && index === 0 ? [{rule: 7, opportunity: 0, success: true}] : [])],
     points: 99999}; // A forged client total must be ignored.
 }
 try {
-  assert.deepEqual(await api('/health'), {ok: true, rulesVersion: 1});
+  assert.deepEqual(await api('/health'), {ok: true, rulesVersion: 2});
   await api('/points', {method: 'POST', body: {points: []}, status: 401});
   const challenge = await api('/auth/challenge', {method: 'POST'});
   assert.equal(challenge.nonce.length, 64);

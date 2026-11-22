@@ -8,10 +8,22 @@ const point = (index = 1, changes = {}) => ({id: randomUUID(), sessionID: '160a4
   pointIndex: index, gameIndex: 1, format: 'tennis', winner: 0, events: [],
   gameCompleted: false, setCompleted: false, ...changes});
 
-test('Email mask exposes only the first two and final character', () => {
-  assert.equal(maskEmail('rahul@example.com'), 'ra•••m');
-  assert.equal(maskEmail('ab123@privaterelay.appleid.com'), 'ab•••m');
-  assert.equal(maskEmail('a@b'), '•••');
+test('Email mask uses the first two and final username characters, excluding the domain', () => {
+  assert.equal(maskEmail('rahul@example.com'), 'ra•••l');
+  assert.equal(maskEmail('ab123@privaterelay.appleid.com'), 'ab•••3');
+  assert.equal(maskEmail('a@b'), 'a•••a');
+  assert.equal(maskEmail('ab@example.org'), 'ab•••b');
+  assert.equal(maskEmail('  élise@different.net  '), 'él•••e');
+  assert.equal(maskEmail('invalid'), '•••');
+});
+test('Recovery consistency awards once per point and can stack with other rules', () => {
+  const recovery = {rule: 7, opportunity: 0, success: true};
+  assert.equal(validatePoint(point(1, {events: [recovery]})).cp, 2);
+  assert.equal(validatePoint(point(1, {events: [{...recovery, success: false}]})).cp, -1);
+  assert.equal(validatePoint(point(1, {events: [recovery, {rule: 3, opportunity: 1, success: true}]})).cp, 4);
+  assert.throws(() => validatePoint(point(1, {events: [recovery, recovery]})));
+  assert.throws(() => validatePoint(point(1, {events: [{...recovery, opportunity: 1}]})));
+  assert.throws(() => validatePoint(point(1, {events: [{rule: 8, opportunity: 0, success: true}]})));
 });
 test('Scores are recomputed and multiple opportunities can stack without duplicate credit', () => {
   const events = [{rule: 1, opportunity: 3, success: true}, {rule: 6, opportunity: 3, success: true},
