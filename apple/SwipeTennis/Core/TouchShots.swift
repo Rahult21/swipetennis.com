@@ -40,7 +40,7 @@ enum SlicePath {
 }
 
 /// Randomize which chase fails in each group, while preserving the requested success ratio.
-struct DropShotReturns {
+struct DropShotReturns: Codable {
   private var slot = 0
   private var missSlot = 0
   private var level: Difficulty?

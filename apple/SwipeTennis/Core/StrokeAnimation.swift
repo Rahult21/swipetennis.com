@@ -3,7 +3,7 @@ import Foundation
 /// Animation coordinates are player-relative: +x is the right-handed player's forehand side.
 /// The far-court figure mirrors those coordinates because it faces the opposite direction.
 enum StrokeStance: Equatable { case forehand, backhand }
-enum TennisStrokeStyle: Equatable { case groundstroke, volley, lob, serve, overhead, drop, slice }
+enum TennisStrokeStyle: String, Codable, Equatable { case groundstroke, volley, lob, serve, overhead, drop, slice }
 
 struct StrokePose {
   var grip: Vec

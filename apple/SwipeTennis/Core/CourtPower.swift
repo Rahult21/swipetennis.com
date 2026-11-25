@@ -28,7 +28,7 @@ enum CourtPower: String, Codable, CaseIterable {
 }
 
 /// A committed assisted stroke tracks a position on the current ball flight.
-struct AssistedContact {
+struct AssistedContact: Codable {
   let power: CourtPower
   let from: Vec
   let feet: Vec

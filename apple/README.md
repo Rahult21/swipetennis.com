@@ -22,7 +22,7 @@ For a physical device, choose your Apple development team under Signing & Capabi
 | Footwork, reach, settling, recovery, red-zone risk, coaching | Swift port with fixed 120 Hz simulation; per-point explanations and contact statistics |
 | First to seven, win by two; pause/restart | Practice defaults to a six-game advantage set; seven-point tiebreak is optional. Pause, restart, and rematch remain available. |
 
-Completed matches archive automatically. Closing an unfinished match also keeps it in the journal. Active matches survive termination. Practice sessions remain in memory, as on the website; practice configuration is saved. Website browser storage is not automatically imported or synchronized.
+Completed matches archive automatically. Closing an unfinished match also keeps it in the journal. Active matches survive termination. On the practice court, the result card’s × advances to the next point. The courtside × pauses play and asks whether to save and leave, leave without saving, or cancel. Play & practice offers one saved match on this device to the account that played it. Resuming restores the rally and score. Starting a new match replaces the save. Website browser storage is not automatically imported or synchronized.
 
 ## Native play
 

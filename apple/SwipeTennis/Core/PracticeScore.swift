@@ -11,9 +11,9 @@ enum PracticeScoring: String, Codable, CaseIterable {
   }
 }
 
-enum PracticeAward: String { case point, game, set, tiebreak }
+enum PracticeAward: String, Codable { case point, game, set, tiebreak }
 
-struct PracticeScore {
+struct PracticeScore: Codable {
   let format: PracticeScoring
   let firstServer: Int
   private(set) var points = [0, 0]

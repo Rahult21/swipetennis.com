@@ -31,9 +31,20 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(pause.waitForExistence(timeout: 5))
     pause.tap()
     XCTAssertTrue(app.staticTexts["Take a breath."].waitForExistence(timeout: 3))
-    app.buttons["Resume practice"].tap()
+    app.buttons["startPractice"].tap()
     app.buttons["Leave practice"].tap()
-    XCTAssertTrue(app.buttons["takeCourt"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.buttons["saveAndLeave"].waitForExistence(timeout: 3))
+    app.buttons["Cancel"].tap()
+    app.buttons["Leave practice"].tap()
+    app.buttons["saveAndLeave"].tap()
+    XCTAssertTrue(app.buttons["resumeSavedMatch"].waitForExistence(timeout: 5))
+    app.buttons["resumeSavedMatch"].tap()
+    let leave = app.buttons["Leave practice"]
+    XCTAssertTrue(leave.waitForExistence(timeout: 5))
+    leave.tap()
+    app.buttons["Leave without saving"].tap()
+    XCTAssertTrue(app.buttons["takeCourt"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.buttons["resumeSavedMatch"].exists)
   }
   func testManualMatchAndRelaunch() {
     let app = XCUIApplication()

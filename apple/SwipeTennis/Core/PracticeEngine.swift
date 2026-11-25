@@ -146,7 +146,7 @@ struct PracticeSettings: Codable {
     return entered.isEmpty ? (side == 0 ? "You" : "Opponent") : entered
   }
 }
-struct CourtPlayer {
+struct CourtPlayer: Codable {
   var pos: Vec
   var destination: Vec
   var velocity = Vec.zero
@@ -154,7 +154,7 @@ struct CourtPlayer {
   var aim: Vec?
   var kind: ShotKind = .cross
 }
-struct BallFlight {
+struct BallFlight: Codable {
   var from: Vec, landing: Vec, contact: Vec
   var elapsed = 0.0
   var duration: Double
@@ -214,8 +214,17 @@ struct Coaching: Codable, Identifiable {
   var reason: String
   var tip: String
 }
-enum PracticePhase { case ready, serving, serveFault, live, point, finished }
-struct PracticeEngine {
+enum PracticePhase: String, Codable { case ready, serving, serveFault, live, point, finished }
+struct PracticeEngine: Codable {
+  // The saved match contains simulation state. Guided lessons have a separate progress store.
+  private enum CodingKeys: String, CodingKey {
+    case settings, players, scoring, phase, flight, pointResolution, servePreparation, serveLanding
+    case landingSerial, ball, rally, bestRally, time, reactAt, approach, balanced, attempts, feedback
+    case history, contactSerial, bounceSerial, attacking, followingApproach, approachAvailable
+    case splitStarted, splitTimed, tactics, opponentErrors, coach, dropGestureEpoch, dropReturns
+    case inventory, powerEarnedThisPoint, queuedPower, assist, momentum
+  }
+
   static let width = 8.23, length = 23.77, net = 11.885
   static let contactRadius = 0.85
   static let recoveryOffsetLimit = 3 * 0.3048  // Three feet in the court's meter coordinates.

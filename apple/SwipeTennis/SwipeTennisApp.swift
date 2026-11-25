@@ -4,9 +4,11 @@ import SwiftUI
   @StateObject private var store = AppStore()
   @StateObject private var coachAccount = CoachAccountStore()
   @StateObject private var demos = ShotDemoStore()
+  @StateObject private var practiceSlot = PracticeMatchSlot()
   var body: some Scene {
     WindowGroup {
       RootView().environmentObject(store).environmentObject(coachAccount).environmentObject(demos)
+        .environmentObject(practiceSlot)
         .onChange(of: coachAccount.identity?.userID, initial: true) { _, id in demos.activate(userID: id) }
         .task { await coachAccount.restore() }.tint(TennisTheme.accent)
     }

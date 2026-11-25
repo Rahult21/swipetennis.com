@@ -1,7 +1,7 @@
 import Foundation
 
 /// A completed point keeps its ball visible before the result card covers the court.
-struct PointResolution {
+struct PointResolution: Codable {
   static let markerDuration = 0.3
   static let resultDelay = 0.75
   var elapsed = 0.0
@@ -18,7 +18,7 @@ struct PointResolution {
   var showsMarker: Bool { impact != nil && elapsed < Self.markerDuration - 0.000001 }
 }
 
-struct FaultImpact {
+struct FaultImpact: Codable {
   let point: Vec
   let direction: Vec
   let speed: Double

@@ -1,6 +1,6 @@
 import Foundation
 
-struct TacticalStats {
+struct TacticalStats: Codable {
   var approaches = 0
   var splitSteps = 0
   var timedSplits = 0

@@ -8,9 +8,11 @@ import SwiftUI
   @Published var coachMiss: CoachMiss?
   let scene: TennisScene
   private var inventoryKey: String?
-  init(settings: PracticeSettings) {
-    snapshot = PracticeEngine(settings: settings)
-    scene = TennisScene(settings: settings)
+  init(engine: PracticeEngine) {
+    snapshot = engine
+    scene = TennisScene(settings: engine.settings)
+    scene.engine = engine
+    scene.restorePresentation()
     scene.publish = { [weak self] engine in
       guard let self else { return }
       if snapshot.inventory != engine.inventory, let key = inventoryKey,
@@ -25,16 +27,24 @@ import SwiftUI
     guard inventoryKey == nil, !scene.engine.settings.local, let owner else { return }
     let key = "matchPowers." + owner
     inventoryKey = key
-    if let data = UserDefaults.standard.data(forKey: key),
+    if scene.engine.phase == .ready, let data = UserDefaults.standard.data(forKey: key),
       let saved = try? JSONDecoder().decode(PowerInventory.self, from: data) {
       scene.engine.inventory = saved
     }
   }
-  func start() {
+  func start(owner: String, slot: PracticeMatchSlot) throws {
+    var next = scene.engine
+    if next.phase == .finished {
+      next = PracticeEngine(settings: next.settings)
+      next.inventory = scene.engine.inventory
+    }
+    guard next.phase == .ready || next.phase == .point else { return }
+    next.start()
+    try slot.save(next, owner: owner)
+    scene.engine = next
     paused = false
     scene.suspended = false
     scene.resetRallyPresentation()
-    scene.engine.start()
     snapshot = scene.engine
     scene.resetClock()
     scene.configureMotion()
@@ -445,6 +455,11 @@ import SwiftUI
       }
     }
   }
+  func restorePresentation() {
+    resetRallyPresentation()
+    missPresentation.restore(from: engine.coach)
+  }
+
   func resetRallyPresentation() {
     swipeCoach.dismiss()
     actors.forEach { $0.reset() }

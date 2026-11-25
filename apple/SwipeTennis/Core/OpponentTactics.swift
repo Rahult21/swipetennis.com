@@ -1,6 +1,6 @@
 import Foundation
 
-enum ApproachReply: String { case volley, miss, lob, passing }
+enum ApproachReply: String, Codable { case volley, miss, lob, passing }
 
 extension Difficulty {
   var shortBallChance: Double { self == .easy ? 1 / 3 : self == .medium ? 1 / 5 : 1 / 7.5 }

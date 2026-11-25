@@ -1,6 +1,6 @@
 import Foundation
 
-struct CoachMiss: Identifiable, Equatable {
+struct CoachMiss: Identifiable, Equatable, Codable {
   let id: Int
   let rule: CoachRule
   let correction: String
@@ -37,6 +37,12 @@ struct CoachMissPresentation {
   var ringProgress: Double? {
     guard let ringElapsed, ringElapsed < Self.ringDuration else { return nil }
     return ringElapsed / Self.ringDuration
+  }
+
+  mutating func restore(from coach: Coachability) {
+    self = CoachMissPresentation()
+    sessionID = coach.sessionID
+    lastSerial = coach.misses.last?.id ?? 0
   }
 
   mutating func update(coach: Coachability, delta: Double) {

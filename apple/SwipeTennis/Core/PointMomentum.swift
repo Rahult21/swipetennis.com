@@ -1,6 +1,6 @@
 import Foundation
 
-struct TennisAffirmation: Equatable {
+struct TennisAffirmation: Codable, Equatable {
   let text: String
   var author: String? = nil
   /// A short reset still gets a calm pause; longer quotes get up to eight seconds.
@@ -39,7 +39,7 @@ struct TennisAffirmation: Equatable {
   ]
 }
 
-struct PointReaction {
+struct PointReaction: Codable {
   static let smiles = ["🙂", "😊", "😄", "😁", "😌", "😎", "🤗", "☺️"]
   var affirmation: TennisAffirmation?
   var smile = "🙂"
@@ -62,7 +62,7 @@ struct PointReaction {
   }
 }
 
-struct PointMomentum {
+struct PointMomentum: Codable {
   private(set) var winsInRow = 0
   private(set) var lossesInRow = 0
   private var affirmationGame: Int?

@@ -6,11 +6,27 @@ struct PracticeSetupView: View {
   @EnvironmentObject var account: CoachAccountStore
   @EnvironmentObject private var demos: ShotDemoStore
   @State private var settings = PracticeSettings()
-  @State private var playing = false
+  @EnvironmentObject private var slot: PracticeMatchSlot
+  @State private var presentedMatch: SavedPracticeMatch?
+  private var savedMatch: SavedPracticeMatch? { slot.match(for: account.identity?.userID) }
   @State private var signingIn = false
   @State private var showGuide = false
   var body: some View {
     Form {
+      if let savedMatch, demos.progress.unlocksCourt {
+        Section {
+          Button { presentedMatch = savedMatch } label: {
+            Label {
+              VStack(alignment: .leading, spacing: 4) {
+                Text("Resume match").font(.headline)
+                Text(resumeScore(savedMatch.engine)).font(.subheadline).foregroundStyle(.secondary)
+              }
+            } icon: { Image(systemName: "play.circle.fill") }
+          }.accessibilityIdentifier("resumeSavedMatch")
+        } footer: { Text("Starting a new match replaces this save.") }
+      } else if let error = slot.loadError {
+        Section { Text(error).foregroundStyle(.secondary) }
+      }
       if !demos.progress.unlocksCourt {
         Section {
           Label("Master the first five skills", systemImage: "lock.fill").font(.headline)
@@ -63,7 +79,7 @@ struct PracticeSetupView: View {
     }.navigationTitle("Play & practice")
       .safeAreaInset(edge: .bottom) {
         Button { takeCourt(using: settings) } label: {
-          Label("Take the court", systemImage: demos.progress.unlocksCourt ? "play.fill" : "lock.fill").frame(maxWidth: .infinity)
+          Label(savedMatch == nil ? "Take the court" : "Start new match", systemImage: demos.progress.unlocksCourt ? "play.fill" : "lock.fill").frame(maxWidth: .infinity)
         }.buttonStyle(.borderedProminent).controlSize(.large)
           .disabled(!demos.progress.unlocksCourt)
           .accessibilityHint(demos.progress.unlocksCourt ? "Start with your selected settings" : "Master the first five guided-demo skills to unlock")
@@ -75,13 +91,15 @@ struct PracticeSetupView: View {
         settings.playerName = ApplePlayerName.display(account.identity?.emailMask)
       }
       .onChange(of: account.identity?.emailMask) { _, mask in settings.playerName = ApplePlayerName.display(mask) }
-      .onChange(of: demos.progress.unlocksCourt) { _, unlocked in if !unlocked { playing = false } }
+      .onChange(of: demos.progress.unlocksCourt) { _, unlocked in if !unlocked { presentedMatch = nil } }
       .sensoryFeedback(.selection, trigger: settings.difficulty)
-      .fullScreenCover(isPresented: $playing) { PracticeGameView(settings: settings) }
+      .fullScreenCover(item: $presentedMatch) { match in
+        PracticeGameView(match: match)
+      }
       .sheet(isPresented: $showGuide) { CourtGuideView() }
       .sheet(isPresented: $signingIn, onDismiss: {
         demos.activate(userID: account.identity?.userID)
-        if account.isSignedIn && demos.progress.unlocksCourt { playing = true }
+        if demos.progress.unlocksCourt { openNewMatch() }
       }) {
         NavigationStack {
           CoachAccountScreen()
@@ -90,6 +108,15 @@ struct PracticeSetupView: View {
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
       }
   }
+  private func resumeScore(_ engine: PracticeEngine) -> String {
+    let score = engine.scoring
+    if score.format == .tiebreak { return engine.scoreSummary }
+    return "Games \(score.games[0])–\(score.games[1]) · Points \(score.pointLabel(0))–\(score.pointLabel(1))"
+  }
+  private func openNewMatch() {
+    guard let owner = account.identity?.userID else { return }
+    presentedMatch = SavedPracticeMatch(owner: owner, engine: PracticeEngine(settings: settings))
+  }
   private func takeCourt(using selected: PracticeSettings) {
     demos.activate(userID: account.identity?.userID)
     guard demos.progress.unlocksCourt else { return }
@@ -97,7 +124,7 @@ struct PracticeSetupView: View {
     settings.playerName = ApplePlayerName.display(account.identity?.emailMask)
     store.data.practice = settings
     store.save()
-    if account.isSignedIn { playing = true } else { signingIn = true }
+    if account.isSignedIn { openNewMatch() } else { signingIn = true }
   }
 }
 struct PracticeGameView: View {
@@ -109,9 +136,14 @@ struct PracticeGameView: View {
   @State private var showCoach = false
   @State private var resumeAfterGuide = false
   @State private var showPointDetails = false
-  @State private var sessionOwner: String?
-  init(settings: PracticeSettings) {
-    _session = StateObject(wrappedValue: PracticeSession(settings: settings))
+  @EnvironmentObject private var slot: PracticeMatchSlot
+  @State private var confirmingExit = false
+  @State private var resumeAfterCancel = false
+  @State private var saveError: String?
+  let owner: String
+  init(match: SavedPracticeMatch) {
+    owner = match.owner
+    _session = StateObject(wrappedValue: PracticeSession(engine: match.engine))
   }
   var game: PracticeEngine { session.snapshot }
   private var courtView: some View {
@@ -135,7 +167,7 @@ struct PracticeGameView: View {
   var body: some View {
     VStack(spacing: 0) {
       VStack(spacing: 0) {
-        CourtBillboard(game: game, paused: session.paused, miss: session.coachMiss, onLeave: { dismiss() }, onHelp: {
+        CourtBillboard(game: game, paused: session.paused, miss: session.coachMiss, onLeave: requestExit, onHelp: {
           resumeAfterGuide = !session.paused
           session.pause()
           showCoach = true
@@ -199,10 +231,7 @@ struct PracticeGameView: View {
       .accessibilityHidden(game.showsPointResult && !session.paused && !showCoach)
       .overlay {
         if game.showsPointResult && !session.paused && !showCoach {
-          PointResultOverlay(game: game, onContinue: {
-            if game.phase == .finished { session.restart() }
-            session.start()
-          }, onDetails: { showPointDetails = true }, onLeave: { dismiss() })
+          PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true })
         }
       }
       .sheet(isPresented: $showPointDetails) {
@@ -216,8 +245,8 @@ struct PracticeGameView: View {
         }.presentationDragIndicator(.visible)
       }
       .onAppear {
-        if sessionOwner == nil { sessionOwner = account.identity?.userID }
-        session.restoreInventory(owner: sessionOwner)
+        session.restoreInventory(owner: owner)
+        if game.phase.isPlaying && !session.paused { session.scene.configureMotion() }
         session.scene.engine.settings.playerName = ApplePlayerName.display(account.identity?.emailMask)
         session.snapshot = session.scene.engine
         session.scene.reduceMotion = reduceMotion
@@ -230,6 +259,7 @@ struct PracticeGameView: View {
       .onChange(of: scenePhase) { _, phase in
         if phase != .active {
           session.pause()
+          checkpoint()
           UIApplication.shared.isIdleTimerDisabled = false
         } else {
           UIApplication.shared.isIdleTimerDisabled = true
@@ -237,57 +267,127 @@ struct PracticeGameView: View {
       }
       .onChange(of: reduceMotion) { _, value in session.scene.reduceMotion = value }
       .onChange(of: game.coach.records.last?.id) { _, id in
-        if id != nil, !game.settings.local, let owner = sessionOwner, let point = game.coach.records.last {
-          account.enqueue([point], owner: owner)
+        if id != nil {
+          if !game.settings.local, let point = game.coach.records.last { account.enqueue([point], owner: owner) }
+          checkpoint()
         }
       }
+      .onChange(of: game.inventory) { _, _ in checkpoint() }
       .fullScreenCover(isPresented: $showCoach, onDismiss: {
         if resumeAfterGuide && scenePhase == .active { session.resume() }
       }) { CourtGuideView() }
       .sheet(isPresented: Binding(
         get: { !showCoach && (game.phase == .ready || session.paused) },
-        set: { shown in if !shown && session.paused { session.resume() } }
+        set: { shown in if !shown && session.paused && !confirmingExit { session.resume() } }
       )) {
-        PracticeSessionSheet(session: session, onLeave: { dismiss() })
+        PracticeSessionSheet(session: session, confirmingExit: confirmingExit, saveError: saveError,
+          onStart: advance, onLeave: requestExit, onCancel: cancelExit,
+          onSave: { leave(saving: true) }, onDiscard: { leave(saving: false) })
           .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-          .interactiveDismissDisabled(!session.paused)
+          .interactiveDismissDisabled(confirmingExit || !session.paused || game.phase == .ready)
       }
+  }
+  private func advance() {
+    do {
+      try session.start(owner: owner, slot: slot)
+      saveError = nil
+    } catch { showSaveError(error) }
+  }
+  private func checkpoint() {
+    let engine = session.scene.engine
+    guard slot.match(for: owner)?.id == engine.coach.sessionID else { return }
+    do {
+      if engine.phase == .finished { try slot.discard(engine.coach.sessionID, owner: owner) }
+      else { try slot.save(engine, owner: owner) }
+    } catch { showSaveError(error) }
+  }
+  private func showSaveError(_ error: Error) {
+    saveError = "Match storage is unavailable. \(error.localizedDescription)"
+    session.pause()
+  }
+  private func requestExit() {
+    resumeAfterCancel = game.phase != .ready && !session.paused
+    if resumeAfterCancel { session.pause() }
+    confirmingExit = true
+  }
+  private func cancelExit() {
+    confirmingExit = false
+    if resumeAfterCancel && scenePhase == .active { session.resume() }
+    resumeAfterCancel = false
+  }
+  private func leave(saving: Bool) {
+    let engine = session.scene.engine
+    do {
+      if saving { try slot.save(engine, owner: owner) }
+      else { try slot.discard(engine.coach.sessionID, owner: owner) }
+      dismiss()
+    } catch { showSaveError(error) }
   }
 }
 
 struct PracticeSessionSheet: View {
   @ObservedObject var session: PracticeSession
+  let confirmingExit: Bool
+  let saveError: String?
+  let onStart: () -> Void
   let onLeave: () -> Void
+  let onCancel: () -> Void
+  let onSave: () -> Void
+  let onDiscard: () -> Void
   @State private var confirmRestart = false
   @State private var showGuide = false
   var game: PracticeEngine { session.snapshot }
-  var title: String { session.paused ? "Paused" : "Ready to play" }
-  var actionTitle: String { session.paused ? "Resume rally" : "Start practice" }
+  var title: String { confirmingExit ? "Leave the court?" : session.paused ? "Paused" : "Ready to play" }
+  var actionTitle: String { game.phase == .ready ? "Start practice" : "Resume rally" }
   var body: some View {
     NavigationStack {
       List {
-        Section {
-          Label(session.paused ? "Take a breath." : "Make the court your own.",
-            systemImage: session.paused ? "pause.circle" : "tennisball")
-            .font(.title2.bold()).padding(.vertical, 4)
-          Text(session.paused ? "Your rally is paused."
-            : "Swipe from your player to choose a shot. Swipe elsewhere to move. Tap yellow to receive and white to recover.")
-            .font(.subheadline).foregroundStyle(.secondary)
+        if let saveError { Section { Text(saveError).foregroundStyle(.red) } }
+        if confirmingExit {
+          Section {
+            if game.phase != .ready && game.phase != .finished {
+              Button("Save & leave", systemImage: "bookmark", action: onSave)
+                .accessibilityIdentifier("saveAndLeave")
+              Button("Leave without saving", role: .destructive, action: onDiscard)
+            } else {
+              Button("Leave court", role: .destructive, action: onDiscard)
+            }
+            Button("Cancel", role: .cancel, action: onCancel)
+          } footer: {
+            if game.phase != .ready && game.phase != .finished {
+              Text("Save this match on your iPhone to pick up at this point from Play & practice.")
+            }
+          }
+        } else {
+          Section {
+            Label(session.paused ? "Take a breath." : "Make the court your own.",
+              systemImage: session.paused ? "pause.circle" : "tennisball")
+              .font(.title2.bold()).padding(.vertical, 4)
+            Text(session.paused ? "Your rally is paused."
+              : "Swipe from your player to choose a shot. Swipe elsewhere to move. Tap yellow to receive and white to recover.")
+              .font(.subheadline).foregroundStyle(.secondary)
+          }
+          if session.paused && game.phase != .ready {
+            Section { Button("Restart session", role: .destructive) { confirmRestart = true } }
+          }
         }
-        if session.paused { Section { Button("Restart session", role: .destructive) { confirmRestart = true } } }
       }.listStyle(.insetGrouped).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
-          Button(actionTitle) {
-            if session.paused { session.resume() }
-            else { session.start() }
-          }.buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth: .infinity)
-            .accessibilityIdentifier("startPractice").padding(.horizontal, 20).padding(.vertical, 10)
-            .background(.bar)
+          if !confirmingExit {
+            Button(actionTitle) {
+              if game.phase == .ready { onStart() }
+              else { session.resume() }
+            }.buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth: .infinity)
+              .accessibilityIdentifier("startPractice").padding(.horizontal, 20).padding(.vertical, 10)
+              .background(.bar)
+          }
         }
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) { Button("Leave", action: onLeave) }
-          ToolbarItem(placement: .topBarTrailing) {
-            Button("How to play", systemImage: "questionmark.circle") { showGuide = true }.labelStyle(.iconOnly)
+          if !confirmingExit {
+            ToolbarItem(placement: .cancellationAction) { Button("Leave", action: onLeave) }
+            ToolbarItem(placement: .topBarTrailing) {
+              Button("How to play", systemImage: "questionmark.circle") { showGuide = true }.labelStyle(.iconOnly)
+            }
           }
         }
         .sheet(isPresented: $showGuide) { CourtGuideView() }
@@ -302,7 +402,6 @@ struct PointResultOverlay: View {
   let game: PracticeEngine
   let onContinue: () -> Void
   let onDetails: () -> Void
-  let onLeave: () -> Void
   var body: some View {
     GeometryReader { geometry in
       ZStack {
@@ -319,7 +418,7 @@ struct PointResultOverlay: View {
   }
   private func card(compact: Bool) -> some View {
     PointResultCard(game: game, compact: compact,
-      onContinue: onContinue, onDetails: onDetails, onLeave: onLeave)
+      onContinue: onContinue, onDetails: onDetails)
   }
 }
 
@@ -329,7 +428,6 @@ struct PointResultCard: View {
   var compact = false
   let onContinue: () -> Void
   let onDetails: () -> Void
-  let onLeave: () -> Void
   private var rows: [CoachPointSummary] { CoachPointSummary.rows(for: game.coach.events) }
   private var nextTitle: String {
     game.phase == .finished ? "Play again" : game.scoring.lastAward == .game ? "Next game" : "Next point"
@@ -350,8 +448,8 @@ struct PointResultCard: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         Spacer(minLength: 0)
-        Button(action: onLeave) { Image(systemName: "xmark").frame(width: 44, height: 44) }
-          .buttonStyle(.plain).accessibilityLabel("Leave practice")
+        Button(action: onContinue) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+          .buttonStyle(.plain).accessibilityLabel(nextTitle).accessibilityIdentifier("closePointResult")
       }
       VStack(spacing: 3) {
         Text(game.scoreSummary).font(.caption.weight(.semibold))

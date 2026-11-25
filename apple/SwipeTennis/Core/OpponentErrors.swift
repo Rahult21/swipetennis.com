@@ -1,6 +1,6 @@
 import Foundation
 
-enum OpponentError: String, CaseIterable {
+enum OpponentError: String, Codable, CaseIterable {
   case net, wide, unreachable, long
 }
 
@@ -16,7 +16,7 @@ extension Difficulty {
 }
 
 /// Counts ordinary opponent return opportunities across points; controlled lob feeds are excluded.
-struct OpponentErrors {
+struct OpponentErrors: Codable {
   private(set) var remaining: Int?
 
   mutating func next(

@@ -56,7 +56,7 @@ struct CoachPointRecord: Codable, Identifiable {
   var points: Int { events.reduce(0) { $0 + $1.points } }
 }
 
-struct CoachReceiving {
+struct CoachReceiving: Codable {
   let opportunity: Int
   let shortBall: Bool
   let deepBall: Bool
@@ -64,7 +64,7 @@ struct CoachReceiving {
   let wideServe: Bool?
 }
 
-struct CoachApproach {
+struct CoachApproach: Codable {
   let rule: CoachRule
   let opportunity: Int
   let from: Vec
@@ -72,7 +72,7 @@ struct CoachApproach {
   var commanded = false
 }
 
-struct CoachRecovery {
+struct CoachRecovery: Codable {
   let white: Vec
   let from: Vec
   var reachedWhite = false
@@ -82,8 +82,8 @@ struct CoachRecovery {
   var missReported = false
 }
 
-struct Coachability {
-  let sessionID = UUID()
+struct Coachability: Codable {
+  private(set) var sessionID = UUID()
   private(set) var events: [CoachEvent] = []
   private(set) var records: [CoachPointRecord] = []
   private(set) var gameScore = 0

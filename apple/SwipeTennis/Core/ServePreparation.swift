@@ -1,12 +1,12 @@
 import Foundation
 
-enum ServePlacement: String, CaseIterable {
+enum ServePlacement: String, Codable, CaseIterable {
   case wide = "Wide"
   case center = "Center / T"
   case body = "Body"
 }
 
-struct ServePreparation {
+struct ServePreparation: Codable {
   static let tossDuration = 0.95
   static let opponentAimDuration = 3.0
   let server: Int
@@ -24,7 +24,7 @@ struct ServePreparation {
   var tossProgress: Double? { tossElapsed.map { clamp($0 / Self.tossDuration, 0, 1) } }
 }
 
-struct ServeLanding {
+struct ServeLanding: Codable {
   static let duration = 0.42
   let server: Int
   let from: Vec
