@@ -348,7 +348,7 @@ private struct ServeMeters: View {
       meter("Topspin", value: serve.profile.spin) { adjust(nil, $0) }
       Text(hint).font(.caption2).foregroundStyle(.secondary)
     }
-    .padding(8).frame(width: 170)
+    .padding(8).frame(width: 184)
     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
     .accessibilityElement(children: .contain)
   }
@@ -356,48 +356,61 @@ private struct ServeMeters: View {
   private func meter(_ title: String, value: ServeLevel, set: @escaping (ServeLevel) -> Void) -> some View {
     VStack(alignment: .leading, spacing: 1) {
       Text(title).font(.caption2.bold())
-      ServeLevelControl(title: title, value: value, enabled: serve.canTune,
-        begin: { if serve.customProfile == nil { set(value) } }, select: set)
-        .frame(height: 32)
+      HStack(spacing: 3) {
+        ForEach(ServeLevel.allCases, id: \.self) { level in
+          ServeLevelButton(meter: title, level: level, selected: level == value,
+            enabled: serve.canTune, choose: { set(level) })
+            .frame(minWidth: 0, maxWidth: .infinity)
+        }
+      }.frame(height: 32)
     }
   }
 }
 
-private struct ServeLevelControl: UIViewRepresentable {
-  let title: String
-  let value: ServeLevel
+private struct ServeLevelButton: UIViewRepresentable {
+  let meter: String
+  let level: ServeLevel
+  let selected: Bool
   let enabled: Bool
-  let begin: () -> Void
-  let select: (ServeLevel) -> Void
+  let choose: () -> Void
 
-  final class Control: UISegmentedControl {
-    var begin: (() -> Void)?
-    var select: ((ServeLevel) -> Void)?
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-      // A finger down inside the window reserves both meters until the toss.
-      if isEnabled { begin?() }
-      super.touchesBegan(touches, with: event)
-    }
-
-    @objc func selectionChanged() {
-      if let level = ServeLevel(rawValue: selectedSegmentIndex) { select?(level) }
-    }
+  final class Coordinator {
+    var choose: () -> Void
+    init(choose: @escaping () -> Void) { self.choose = choose }
+    @objc func activate() { choose() }
   }
 
-  func makeUIView(context: Context) -> Control {
-    let control = Control(items: ServeLevel.allCases.map(\.label))
-    control.addTarget(control, action: #selector(Control.selectionChanged), for: .valueChanged)
-    control.accessibilityLabel = title
-    control.accessibilityIdentifier = "serveMeter" + title
-    return control
+  func makeCoordinator() -> Coordinator { Coordinator(choose: choose) }
+
+  func makeUIView(context: Context) -> UIButton {
+    var style = UIButton.Configuration.gray()
+    style.title = level.label
+    style.buttonSize = .small
+    style.cornerStyle = .capsule
+    style.contentInsets = .zero
+    style.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+      var attributes = incoming
+      attributes.font = .preferredFont(forTextStyle: .caption1)
+      return attributes
+    }
+    let button = UIButton(configuration: style)
+    button.changesSelectionAsPrimaryAction = false
+    button.accessibilityLabel = meter + ", " + level.label
+    button.accessibilityIdentifier = "serve" + meter + level.label
+    // Touch-down commits before the deadline. Primary actions also support VoiceOver and keyboards.
+    button.addTarget(context.coordinator, action: #selector(Coordinator.activate),
+      for: [.touchDown, .primaryActionTriggered])
+    return button
   }
 
-  func updateUIView(_ control: Control, context: Context) {
-    control.begin = begin
-    control.select = select
-    control.isEnabled = enabled
-    control.selectedSegmentIndex = value.rawValue
+  func updateUIView(_ button: UIButton, context: Context) {
+    context.coordinator.choose = choose
+    button.isEnabled = enabled
+    button.isSelected = selected
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+    proposal.width.map { CGSize(width: $0, height: 32) }
   }
 }
 
