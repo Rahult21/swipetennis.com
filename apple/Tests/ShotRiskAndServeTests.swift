@@ -110,6 +110,31 @@ final class ShotRiskAndServeTests: XCTestCase {
     }
   }
 
+  func testGaugesFollowServerAndDisappearWhenServeIsCommitted() {
+    for local in [false, true] {
+      for server in 0...1 {
+        var game = PracticeEngine(settings: .init(local: local))
+        game.scoring = PracticeScore(format: .tennis, firstServer: server)
+        game.start()
+        XCTAssertEqual(game.displayedServeGauges?.server, server)
+        if game.humanServing {
+          game.requestServe(server)
+          XCTAssertEqual(game.servePreparation?.isTossing, false)
+          if server == 0 { XCTAssertEqual(game.coachCue, .watch) }
+        } else {
+          for _ in 0..<600 where game.servePreparation?.isTossing == false {
+            game.step(1 / 120)
+          }
+          XCTAssertEqual(game.servePreparation?.isTossing, true)
+        }
+        XCTAssertNil(game.displayedServeGauges)
+        game.prepareSecondServe()
+        XCTAssertEqual(game.displayedServeGauges?.profile, .standard(2))
+        XCTAssertEqual(game.displayedServeGauges?.server, server)
+      }
+    }
+  }
+
   func testServePhysicsAndFaultOddsFollowBothMeters() {
     var game = serving()
     let blue = game.servePreparation!.target

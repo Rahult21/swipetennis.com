@@ -159,7 +159,10 @@ struct PracticeGameView: View {
     .accessibilityAction(named: "Recover") { session.scene.engine.recover(0) }
     .accessibilityAction(named: "Approach the net") { session.scene.engine.followShot(0) }
     .accessibilityAction(named: "Split step") { session.scene.engine.beginSplit(0) }
-    .accessibilityAction(named: "Serve") { session.scene.engine.requestServe(0) }
+    .accessibilityAction(named: "Serve") {
+      session.scene.engine.requestServe(session.scene.engine.scoring.server)
+      session.snapshot = session.scene.engine
+    }
     .accessibilityAction(named: "Serve wide") { session.scene.engine.chooseServe(.wide, side: 0) }
     .accessibilityAction(named: "Serve center") { session.scene.engine.chooseServe(.center, side: 0) }
     .accessibilityAction(named: "Serve body") { session.scene.engine.chooseServe(.body, side: 0) }
@@ -190,13 +193,26 @@ struct PracticeGameView: View {
           .accessibilityAction(named: "Crosscourt slice") {
             if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .slice) }
           }
-          if game.humanServing, !session.paused, let serve = game.servePreparation, !serve.isTossing {
-            ServeMeters(serve: serve, adjust: { speed, spin in
-              session.scene.engine.adjustServe(speed: speed, spin: spin, side: serve.server)
-              session.snapshot = session.scene.engine
-            })
-            .padding(.leading, 8).padding(.bottom, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+          if !session.paused, let serve = game.displayedServeGauges {
+            GeometryReader { geometry in
+              // The outer thirds leave room for the athlete and racket on both service sides.
+              let width = min(144, geometry.size.width * 0.34)
+              let editable = game.humanServing && serve.canTune
+              HStack(spacing: 0) {
+                ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime,
+                  editable: editable) { setServe(speed: $0, side: serve.server) }
+                  .frame(width: width)
+                Spacer(minLength: 0)
+                ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint,
+                  editable: editable) { setServe(spin: $0, side: serve.server) }
+                  .frame(width: width)
+              }
+              .environment(\.layoutDirection, .leftToRight)
+              .padding(.horizontal, 12)
+              .rotationEffect(.degrees(serve.server == 1 && game.settings.local ? 180 : 0))
+              .frame(maxHeight: .infinity, alignment: serve.server == 0 ? .bottom : .top)
+              .allowsHitTesting(game.humanServing)
+            }
           }
           if let power = game.inventory.held, game.phase.isPlaying && !session.paused {
             VStack(alignment: .trailing, spacing: 4) {
@@ -219,7 +235,7 @@ struct PracticeGameView: View {
                 .font(.caption2)
             }
             .foregroundStyle(.white).shadow(radius: 2)
-            .padding(.trailing, 10).padding(.bottom, 9)
+            .padding(.trailing, 10).padding(.bottom, game.displayedServeGauges?.server == 0 ? 44 : 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
           }
           if let event = game.coach.events.last, event.success, game.phase.isPlaying && game.time - game.coach.lastEventAt < 1.5 {
@@ -295,6 +311,10 @@ struct PracticeGameView: View {
           .interactiveDismissDisabled(confirmingExit || !session.paused || game.phase == .ready)
       }
   }
+  private func setServe(speed: ServeLevel? = nil, spin: ServeLevel? = nil, side: Int) {
+    session.scene.engine.adjustServe(speed: speed, spin: spin, side: side)
+    session.snapshot = session.scene.engine
+  }
   private func advance() {
     do {
       try session.start(owner: owner, slot: slot)
@@ -333,84 +353,64 @@ struct PracticeGameView: View {
   }
 }
 
-private struct ServeMeters: View {
-  let serve: ServePreparation
-  let adjust: (ServeLevel?, ServeLevel?) -> Void
-  private var hint: String {
-    if !serve.pickedBlue { return "Place blue to adjust" }
-    if serve.canTune { return serve.customProfile == nil ? "Adjust now" : "Tap court to serve" }
-    return serve.tuningDeadline == nil ? "Release blue to adjust" : "Tap court to serve"
-  }
+private struct ServeGauge: View {
+  let title: String
+  let level: ServeLevel
+  let tint: Color
+  let editable: Bool
+  let select: (ServeLevel) -> Void
+
+  @ScaledMetric(relativeTo: .caption) private var labelWidth: CGFloat = 34
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      meter("Speed", value: serve.profile.speed) { adjust($0, nil) }
-      meter("Topspin", value: serve.profile.spin) { adjust(nil, $0) }
-      Text(hint).font(.caption2).foregroundStyle(.secondary)
-    }
-    .padding(8).frame(width: 184)
-    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-    .accessibilityElement(children: .contain)
-  }
-
-  private func meter(_ title: String, value: ServeLevel, set: @escaping (ServeLevel) -> Void) -> some View {
-    VStack(alignment: .leading, spacing: 1) {
-      Text(title).font(.caption2.bold())
-      HStack(spacing: 3) {
-        ForEach(ServeLevel.allCases, id: \.self) { level in
-          ServeLevelButton(meter: title, level: level, selected: level == value,
-            enabled: serve.canTune, choose: { set(level) })
-            .frame(minWidth: 0, maxWidth: .infinity)
+    GeometryReader { area in
+      let labelSpace = min(labelWidth, area.size.width * 0.4)
+      let start = labelSpace + 6
+      let span = max(1, area.size.width - start - 6)
+      ZStack(alignment: .leading) {
+        Text(title)
+          .font(.caption.weight(.semibold)).foregroundStyle(.white)
+          .lineLimit(1).minimumScaleFactor(0.75)
+          .frame(width: labelSpace, alignment: .leading)
+        Canvas { context, size in
+          let y = size.height / 2
+          let marker = start + span * CGFloat(level.rawValue) / 2
+          var track = Path()
+          track.move(to: CGPoint(x: start, y: y))
+          track.addLine(to: CGPoint(x: start + span, y: y))
+          context.stroke(track, with: .color(.white.opacity(0.65)), lineWidth: 1.5)
+          var ticks = Path()
+          for stop in ServeLevel.allCases {
+            let x = start + span * CGFloat(stop.rawValue) / 2
+            ticks.move(to: CGPoint(x: x, y: y - 3))
+            ticks.addLine(to: CGPoint(x: x, y: y + 3))
+          }
+          context.stroke(ticks, with: .color(.white.opacity(0.8)), lineWidth: 1)
+          var needle = Path()
+          needle.move(to: CGPoint(x: marker - 3, y: y - 6))
+          needle.addLine(to: CGPoint(x: marker + 3, y: y - 6))
+          needle.addLine(to: CGPoint(x: marker, y: y + 5))
+          needle.closeSubpath()
+          context.fill(needle, with: .color(tint))
         }
-      }.frame(height: 32)
+      }
+      .contentShape(Rectangle())
+      .gesture(DragGesture(minimumDistance: 0).onChanged { touch in
+        guard editable else { return }
+        // Touching the label starts calibration without moving the needle.
+        if touch.location.x < labelSpace { select(level); return }
+        let fraction = min(1, max(0, (touch.location.x - start) / span))
+        if let value = ServeLevel(rawValue: Int((fraction * 2).rounded())) { select(value) }
+      })
+    }.frame(height: 44)
+    .accessibilityRepresentation {
+      Slider(value: Binding(get: { Double(level.rawValue) }, set: { raw in
+        if editable, let value = ServeLevel(rawValue: Int(raw.rounded())) { select(value) }
+      }), in: 0...2, step: 1) { Text(title) }
+        .accessibilityValue(level.label)
+        .accessibilityIdentifier("serveGauge" + title)
+        .disabled(!editable)
     }
-  }
-}
-
-private struct ServeLevelButton: UIViewRepresentable {
-  let meter: String
-  let level: ServeLevel
-  let selected: Bool
-  let enabled: Bool
-  let choose: () -> Void
-
-  final class Coordinator {
-    var choose: () -> Void
-    init(choose: @escaping () -> Void) { self.choose = choose }
-    @objc func activate() { choose() }
-  }
-
-  func makeCoordinator() -> Coordinator { Coordinator(choose: choose) }
-
-  func makeUIView(context: Context) -> UIButton {
-    var style = UIButton.Configuration.gray()
-    style.title = level.label
-    style.buttonSize = .small
-    style.cornerStyle = .capsule
-    style.contentInsets = .zero
-    style.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-      var attributes = incoming
-      attributes.font = .preferredFont(forTextStyle: .caption1)
-      return attributes
-    }
-    let button = UIButton(configuration: style)
-    button.changesSelectionAsPrimaryAction = false
-    button.accessibilityLabel = meter + ", " + level.label
-    button.accessibilityIdentifier = "serve" + meter + level.label
-    // Touch-down commits before the deadline. Primary actions also support VoiceOver and keyboards.
-    button.addTarget(context.coordinator, action: #selector(Coordinator.activate),
-      for: [.touchDown, .primaryActionTriggered])
-    return button
-  }
-
-  func updateUIView(_ button: UIButton, context: Context) {
-    context.coordinator.choose = choose
-    button.isEnabled = enabled
-    button.isSelected = selected
-  }
-
-  func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
-    proposal.width.map { CGSize(width: $0, height: 32) }
   }
 }
 

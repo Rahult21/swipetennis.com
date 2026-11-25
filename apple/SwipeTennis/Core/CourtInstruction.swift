@@ -26,13 +26,13 @@ extension PracticeEngine {
         detail: feedback.reason, symbol: "flag.checkered")
     }
     if phase == .serving, let serve = servePreparation {
-      if serve.isTossing {
+      if serve.requested || serve.isTossing {
         return CourtInstruction(title: "\(name(serve.server)) serving",
-          detail: "The target is locked. Receiver: tap to split step as the racket meets the toss.", symbol: "hand.tap")
+          detail: "Watch the toss. Receiver: tap to split step as the racket meets the ball.", symbol: "hand.tap")
       }
       return CourtInstruction(title: humanServing ? "Drag blue. Tap to serve." : "Read the opponent's serve",
         detail: humanServing
-          ? "Place blue, then tap a speed or topspin level within one second to adjust. Tap your side to serve."
+          ? "Place blue, then touch a gauge within one second. Speed is on your left and spin on your right. Tap your side to serve."
           : "The blue bounce target is moving into place. Tap yellow or swipe toward it to prepare your return.",
         symbol: "scope")
     }

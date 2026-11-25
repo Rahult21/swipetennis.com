@@ -205,6 +205,16 @@ def tile(x,top,title,copy,kind):
     elif kind=='aim':
         blue=q(.25,.72);ring(*blue,BLUE,9);hand(*blue,.45)
         arrow(*blue,*q(.7,.72),BLUE,2)
+        y=top-88
+        for left,name,stop,color in [(x+12,'Speed',2,YELLOW),(x+w-55,'Spin',0,MINT)]:
+            label(name,left,y-2,6,white,'Helvetica-Bold')
+            start=left+19
+            c.setStrokeColor(white);c.setLineWidth(.8);c.line(start,y,start+23,y)
+            for tick in range(3):
+                tx=start+11.5*tick;c.line(tx,y-1.6,tx,y+1.6)
+            tx=start+11.5*stop
+            marker=c.beginPath();marker.moveTo(tx-2,y+3);marker.lineTo(tx+2,y+3);marker.lineTo(tx,y-2);marker.close()
+            c.setFillColor(color);c.drawPath(marker,fill=1,stroke=0)
     elif kind=='serve':
         hand(me[0]+10,me[1]+16,.48,True);ball(me[0]-3,me[1]+37,2.5)
         athlete(*q(.73,.1),.43,pose='jump')
@@ -222,8 +232,8 @@ def tile(x,top,title,copy,kind):
     para(copy,x+10,top-102,w-20,size=10.2,leading=12)
 
 page(1,'Tap. Move. Serve.','YOUR MOVES 1/3  -  Use the court itself. Blue aims a serve; yellow or gold receives; white recovers.')
-items=[('Aim your serve','Place BLUE. Within 1 second, tap a speed or topspin level at bottom left to start adjusting.','aim'),
- ('Start the serve','Once adjusting, set both meters at your pace. Tap your side to toss and strike.','serve'),
+items=[('Aim your serve','Place BLUE. Within 1 second, touch a gauge behind you: Speed on the left, Spin on the right.','aim'),
+ ('Start the serve','Tap or slide to low, medium or high. Tap your side to serve. The gauges disappear.','serve'),
  ('Reach the ball','Tap YELLOW or GOLD once. The run continues without holding.','yellow'),
  ('Run in any direction','Swipe EMPTY court toward where you want to run.','move'),
  ('Recover after a shot','Tap WHITE. Reach the circle before the next split step.','recover'),

@@ -370,6 +370,7 @@ import SwiftUI
     previousTime = currentTime
     let oldInventory = engine.inventory
     let oldPhase = engine.phase
+    let showedGauges = engine.displayedServeGauges != nil
     let oldResultVisible = engine.showsPointResult
     let oldBounce = engine.bounceSerial
     if engine.needsSimulation {
@@ -397,7 +398,8 @@ import SwiftUI
     }
     if oldPhase == .serveFault && engine.phase == .serving { configureMotion(); trails.removeAll() }
     render()
-    if currentTime - publishAt > 0.1 || oldInventory != engine.inventory || oldPhase != engine.phase || oldResultVisible != engine.showsPointResult {
+    if currentTime - publishAt > 0.1 || oldInventory != engine.inventory || oldPhase != engine.phase
+      || oldResultVisible != engine.showsPointResult || showedGauges != (engine.displayedServeGauges != nil) {
       publishAt = currentTime
       publish?(engine)
     }
@@ -914,8 +916,9 @@ import SwiftUI
       ended: ended, timestamp: touch.timestamp)
     touchGestures[touch] = gesture
     if let action {
+      let showedGauges = engine.displayedServeGauges != nil
       engine.apply(action, side: gesture.side, shotEpoch: gesture.shotEpoch)
-      if engine.inventory.held != nil { publish?(engine) }
+      if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }
   func dismissAffirmation() {

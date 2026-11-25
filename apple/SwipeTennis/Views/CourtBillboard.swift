@@ -107,7 +107,8 @@ struct CourtBillboard: View {
     if game.phase == .finished { return "MATCH COMPLETE" }
     guard game.phase == .serving, let serve = game.servePreparation else { return "RALLY \(game.rally)" }
     if serve.isTossing { return serve.number == 2 ? "SECOND SERVE · TOSS" : "FIRST SERVE · TOSS" }
-    if game.humanServing { return serve.number == 2 ? "SECOND SERVE · AIM" : serve.requested ? "SERVE SET" : "FIRST SERVE · AIM" }
+    if serve.requested { return "SERVE SET" }
+    if game.humanServing { return serve.number == 2 ? "SECOND SERVE · AIM" : "FIRST SERVE · AIM" }
     if serve.number == 2 { return "SECOND SERVE · STEP IN" }
     return "OPPONENT · \(max(1, Int(ceil(ServePreparation.opponentAimDuration - serve.elapsed))))"
   }

@@ -120,6 +120,12 @@ extension PracticePhase {
 }
 
 extension PracticeEngine {
+  var displayedServeGauges: ServePreparation? {
+    guard phase == .serving, demo == nil, let serve = servePreparation,
+      !serve.requested, !serve.isTossing else { return nil }
+    return serve
+  }
+
   var humanServing: Bool {
     phase == .serving && (scoring.server == 0 || settings.local)
   }
