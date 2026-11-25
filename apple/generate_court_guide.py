@@ -222,14 +222,14 @@ def tile(x,top,title,copy,kind):
     para(copy,x+10,top-102,w-20,size=10.2,leading=12)
 
 page(1,'Tap. Move. Serve.','YOUR MOVES 1/3  -  Use the court itself. Blue aims a serve; yellow or gold receives; white recovers.')
-items=[('Aim your serve','Drag BLUE within the service box. Take your time before tossing.','aim'),
- ('Start the serve','Tap your side once. Your player tosses, jumps and strikes.','serve'),
+items=[('Aim your serve','Place BLUE. Within 1 second, tap a speed or topspin level at bottom left to start adjusting.','aim'),
+ ('Start the serve','Once adjusting, set both meters at your pace. Tap your side to toss and strike.','serve'),
  ('Reach the ball','Tap YELLOW or GOLD once. The run continues without holding.','yellow'),
  ('Run in any direction','Swipe EMPTY court toward where you want to run.','move'),
  ('Recover after a shot','Tap WHITE. Reach the circle before the next split step.','recover'),
  ('Bounce / split step','Reach white. Tap anywhere as your shot bounces on the far court.','split')]
 for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,title,copy,kind)
-para('<b>Automatic contact:</b> arrive in the contact ring on time. You do not tap again to hit.',24,64,size=10,leading=12)
+para('First serve starts fast and flat. Second starts slow with high spin. More spin adds margin and gives the receiver time.',24,64,size=10,leading=12)
 c.showPage()
 
 page(2,'Choose the next shot.','YOUR MOVES 2/3  -  Tap yellow first. While running, make ONE shot gesture and release before contact.')
@@ -240,7 +240,7 @@ items=[('Up: down the line','Start ON your moving player; swipe toward the net.'
  ('Quick circle: drop','After tapping yellow, draw a small closed circle on your half.','drop'),
  ('Post diagonal: slice','Start at either NET POST. End at the opposite corner of YOUR baseline.','slice')]
 for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,title,copy,kind)
-para('WHITE = finger. YELLOW = ball. Your run continues during the shot gesture.',24,64,size=10,leading=12)
+para('On clean rally contact, crosscourt lands 7 in 8, line or a change of direction 4 in 5, and short angle 2 in 3. Hit behind a moving opponent to slow their next chase.',24,64,size=10,leading=12)
 c.showPage()
 
 page(3,'Combine. Then react.','YOUR MOVES 3/3  -  Shot selection happens BEFORE contact. An approach needs a NEW swipe AFTER contact.')

@@ -6,6 +6,28 @@ enum ServePlacement: String, Codable, CaseIterable {
   case body = "Body"
 }
 
+enum ServeLevel: Int, CaseIterable, Codable {
+  case low, medium, high
+  var label: String { ["Low", "Medium", "High"][rawValue] }
+}
+
+struct ServeProfile: Codable, Equatable {
+  var speed: ServeLevel
+  var spin: ServeLevel
+
+  static func standard(_ number: Int) -> Self {
+    number == 1 ? Self(speed: .high, spin: .low) : Self(speed: .low, spin: .high)
+  }
+
+  var pace: Double { (0.80 + 0.10 * Double(speed.rawValue)) * (1 - 0.055 * Double(spin.rawValue)) }
+  var kick: Double { 1 + 0.15 * Double(spin.rawValue) }
+  func faultChance(number: Int) -> Double {
+    let flatRisk = [0.10, 0.19, 0.30][speed.rawValue]
+    let secondServePressure = number == 2 ? [0, 0.025, 0.08][speed.rawValue] : 0
+    return flatRisk + secondServePressure - 0.035 * Double(spin.rawValue)
+  }
+}
+
 struct ServePreparation: Codable {
   static let tossDuration = 0.95
   static let opponentAimDuration = 3.0
@@ -19,6 +41,14 @@ struct ServePreparation: Codable {
   var tossElapsed: Double?
   var requested = false
   var pickedBlue = false
+  // Optional fields allow a serve saved before meters existed to resume with its defaults.
+  var tuningDeadline: Double?
+  var customProfile: ServeProfile?
+  var profile: ServeProfile { customProfile ?? .standard(number) }
+  var canTune: Bool {
+    guard !isTossing, !requested, let tuningDeadline else { return false }
+    return customProfile != nil || elapsed + 0.000000001 < tuningDeadline
+  }
   var isTossing: Bool { tossElapsed != nil }
   var isSet: Bool { target.distance(to: destination) < 0.001 && settled >= 0.2 }
   var tossProgress: Double? { tossElapsed.map { clamp($0 / Self.tossDuration, 0, 1) } }
@@ -111,19 +141,29 @@ extension PracticeEngine {
     servePreparation?.placement = placement
   }
 
-  mutating func aimServe(at point: Vec, side: Int) {
+  mutating func aimServe(at point: Vec, side: Int, finished: Bool = true) {
     guard canAimServe(side), point.x.isFinite, point.y.isFinite else { return }
     guard queuedPower != .ace else { return }
-    if side == 0 { servePreparation?.pickedBlue = true }
     let target = ServeGeometry.bounded(point, from: players[side].pos,
       server: side, fromRight: scoring.serveFromRight)
-    if target.distance(to: servePreparation!.destination) > 0.001 {
+    let moved = target.distance(to: servePreparation!.destination) > 0.001
+    if demo == nil && (moved || !servePreparation!.pickedBlue || servePreparation!.tuningDeadline == nil) {
+      let deadline = finished ? (servePreparation!.elapsed + 1) : nil
+      servePreparation?.tuningDeadline = deadline
+    }
+    servePreparation?.pickedBlue = true
+    if moved {
       if side == 0 { demo?.serveAdjusted = true }
       servePreparation?.requested = false
       servePreparation?.settled = 0
       servePreparation?.destination = target
       servePreparation?.placement = nil
     }
+  }
+
+  mutating func adjustServe(speed: ServeLevel? = nil, spin: ServeLevel? = nil, side: Int) {
+    guard canAimServe(side), queuedPower == nil, let serve = servePreparation, serve.canTune else { return }
+    servePreparation?.customProfile = ServeProfile(speed: speed ?? serve.profile.speed, spin: spin ?? serve.profile.spin)
   }
 
   mutating func nudgeServe(_ delta: Vec, side: Int) {
@@ -179,11 +219,10 @@ extension PracticeEngine {
     if (serve.tossElapsed ?? 0) + 0.000001 >= ServePreparation.tossDuration {
       phase = .live
       servePreparation = nil
-      // A first-serve fault gives a real second-serve opportunity without awarding a point.
-      // The slower second serve is kept in for the on-the-rise training pattern.
-      let miss = queuedPower != .ace && serve.number == 1 && random() < 0.16
+      let miss = demo == nil && queuedPower != .ace && random() < serve.profile.faultChance(number: serve.number)
       let fault = miss ? ["net", "wide", "long"][Int(clamp(random(), 0, 0.999999) * 3)] : nil
-      launch(serve.server, aim: serve.target, kind: .cross, fault: fault, serve: true, serveNumber: serve.number)
+      launch(serve.server, aim: serve.target, kind: .cross, fault: fault, serve: true,
+        serveNumber: serve.number, serveProfile: serve.profile)
       if queuedPower == .ace { commitPowerFlight(.ace, random: random) }
       feedback = Coaching(title: "Serve in play.", reason: "Blue marked the bounce. Yellow marks the return.",
         tip: "Reach yellow after the bounce, then follow your shot or recover.")

@@ -32,7 +32,7 @@ extension PracticeEngine {
       }
       return CourtInstruction(title: humanServing ? "Drag blue. Tap to serve." : "Read the opponent's serve",
         detail: humanServing
-          ? "Drag blue to place your serve. Tap your side of the court to toss. Yellow follows the target."
+          ? "Place blue, then tap a speed or topspin level within one second to adjust. Tap your side to serve."
           : "The blue bounce target is moving into place. Tap yellow or swipe toward it to prepare your return.",
         symbol: "scope")
     }

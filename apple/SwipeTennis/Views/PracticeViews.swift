@@ -190,6 +190,14 @@ struct PracticeGameView: View {
           .accessibilityAction(named: "Crosscourt slice") {
             if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .slice) }
           }
+          if game.humanServing, !session.paused, let serve = game.servePreparation, !serve.isTossing {
+            ServeMeters(serve: serve, adjust: { speed, spin in
+              session.scene.engine.adjustServe(speed: speed, spin: spin, side: serve.server)
+              session.snapshot = session.scene.engine
+            })
+            .padding(.leading, 8).padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+          }
           if let power = game.inventory.held, game.phase.isPlaying && !session.paused {
             VStack(alignment: .trailing, spacing: 4) {
               Button {
@@ -322,6 +330,74 @@ struct PracticeGameView: View {
       else { try slot.discard(engine.coach.sessionID, owner: owner) }
       dismiss()
     } catch { showSaveError(error) }
+  }
+}
+
+private struct ServeMeters: View {
+  let serve: ServePreparation
+  let adjust: (ServeLevel?, ServeLevel?) -> Void
+  private var hint: String {
+    if !serve.pickedBlue { return "Place blue to adjust" }
+    if serve.canTune { return serve.customProfile == nil ? "Adjust now" : "Tap court to serve" }
+    return serve.tuningDeadline == nil ? "Release blue to adjust" : "Tap court to serve"
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 3) {
+      meter("Speed", value: serve.profile.speed) { adjust($0, nil) }
+      meter("Topspin", value: serve.profile.spin) { adjust(nil, $0) }
+      Text(hint).font(.caption2).foregroundStyle(.secondary)
+    }
+    .padding(8).frame(width: 170)
+    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    .accessibilityElement(children: .contain)
+  }
+
+  private func meter(_ title: String, value: ServeLevel, set: @escaping (ServeLevel) -> Void) -> some View {
+    VStack(alignment: .leading, spacing: 1) {
+      Text(title).font(.caption2.bold())
+      ServeLevelControl(title: title, value: value, enabled: serve.canTune,
+        begin: { if serve.customProfile == nil { set(value) } }, select: set)
+        .frame(height: 32)
+    }
+  }
+}
+
+private struct ServeLevelControl: UIViewRepresentable {
+  let title: String
+  let value: ServeLevel
+  let enabled: Bool
+  let begin: () -> Void
+  let select: (ServeLevel) -> Void
+
+  final class Control: UISegmentedControl {
+    var begin: (() -> Void)?
+    var select: ((ServeLevel) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+      // A finger down inside the window reserves both meters until the toss.
+      if isEnabled { begin?() }
+      super.touchesBegan(touches, with: event)
+    }
+
+    @objc func selectionChanged() {
+      if let level = ServeLevel(rawValue: selectedSegmentIndex) { select?(level) }
+    }
+  }
+
+  func makeUIView(context: Context) -> Control {
+    let control = Control(items: ServeLevel.allCases.map(\.label))
+    control.addTarget(control, action: #selector(Control.selectionChanged), for: .valueChanged)
+    control.accessibilityLabel = title
+    control.accessibilityIdentifier = "serveMeter" + title
+    return control
+  }
+
+  func updateUIView(_ control: Control, context: Context) {
+    control.begin = begin
+    control.select = select
+    control.isEnabled = enabled
+    control.selectedSegmentIndex = value.rawValue
   }
 }
 

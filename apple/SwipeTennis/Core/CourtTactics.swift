@@ -11,6 +11,29 @@ struct TacticalStats: Codable {
 }
 
 enum CourtTactics {
+  static func redirects(from origin: Vec, at contact: Vec, to target: Vec) -> Bool {
+    let back = Vec(x: origin.x - contact.x, y: origin.y - contact.y)
+    let shot = Vec(x: target.x - contact.x, y: target.y - contact.y)
+    let cosine = (back.x * shot.x + back.y * shot.y) / max(0.001, back.length * shot.length)
+    return abs(target.x - origin.x) >= 1.5 && acos(clamp(cosine, -1, 1)) > 8 * .pi / 180
+  }
+
+  static func landingChance(kind: ShotKind, redirects: Bool) -> Double {
+    switch kind {
+    case .angle: return 2.0 / 3
+    case .line: return 4.0 / 5
+    case .cross: return redirects ? 4.0 / 5 : 7.0 / 8
+    default: return 1
+    }
+  }
+
+  static func hitsBehind(_ runner: CourtPlayer, target: Vec) -> Bool {
+    guard runner.velocity.length >= 1.5 else { return false }
+    let offset = Vec(x: target.x - runner.pos.x, y: target.y - runner.pos.y)
+    let alongRun = (offset.x * runner.velocity.x + offset.y * runner.velocity.y) / runner.velocity.length
+    return alongRun <= -1 && alongRun <= -0.45 * offset.length
+  }
+
   static func travelTime(distance: Double, speed: Double) -> Double {
     let acceleration = 11.0
     let ramp = speed / acceleration

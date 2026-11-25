@@ -66,7 +66,7 @@ final class PracticeContactTests: XCTestCase {
           let window = engine.contactWindow(receiver)!
           engine.flight!.elapsed = window.entry * engine.flight!.duration - 1 / 120
           engine.players[receiver].settled = 0
-          // A worst-case accuracy roll must not turn a timely arrival into a missed shot.
+          // A successful placement roll still strikes on first reach, even without time to settle.
           engine.step(1 / 120, random: { 0.999999 })
           XCTAssertEqual(engine.contactSerial, 1, "side \(receiver), depth \(depth), \(difficulty)")
           XCTAssertEqual(engine.flight?.hitter, receiver)

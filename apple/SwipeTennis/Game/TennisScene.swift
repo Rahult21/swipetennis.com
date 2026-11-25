@@ -592,12 +592,13 @@ import SwiftUI
       return airborne
     }
     let receiver = 1 - flight.hitter
-    var endpoint = CGPoint(x: contact.x, y: contact.y + 31 * actors[receiver].yScale)
+    let kick = flight.serveProfile?.kick ?? 1
+    var endpoint = CGPoint(x: contact.x, y: contact.y + 31 * kick * actors[receiver].yScale)
     if let power = flight.power {
       let t = clamp((progress - 0.8) / 0.2, 0, 1)
       let ground = project(flight.position)
       let rise = power == .overhead ? 100 * sin(t * .pi / 2)
-        : (power == .ace ? 1.25 : 1) * 31 * t
+        : (power == .ace ? 1.25 * kick : 1) * 31 * t
       return CGPoint(x: ground.x, y: ground.y + rise * actors[receiver].yScale)
     }
     if flight.fault == nil && engine.players[receiver].pos.distance(to: flight.contact) <= 1.35 {
@@ -608,7 +609,7 @@ import SwiftUI
     let t = clamp((progress - 0.8) / max(0.001, impactProgress - 0.8), 0, 1)
     return CGPoint(
       x: landing.x + (endpoint.x - landing.x) * t,
-      y: landing.y + (endpoint.y - landing.y) * t)
+      y: landing.y + (endpoint.y - landing.y) * t + sin(t * .pi) * (kick - 1) * 31 * actors[receiver].yScale)
   }
 
   private func render() {
@@ -895,15 +896,15 @@ import SwiftUI
       if hypot(point.x - serveTouch.start.x, point.y - serveTouch.start.y) >= 8 { serveTouch.dragging = true }
       serveTouches[touch] = serveTouch
       if serveTouch.dragging {
-        engine.aimServe(at: unproject(point), side: engine.scoring.server)
+        engine.aimServe(at: unproject(point), side: engine.scoring.server, finished: ended)
       } else if ended {
-        if engine.inventory.held == .ace, engine.scoring.server == 0, let target = engine.servePreparation?.target {
-          engine.aimServe(at: target, side: 0)
+        if engine.demo == nil, let target = engine.servePreparation?.target {
+          engine.aimServe(at: target, side: engine.scoring.server)
         } else {
           engine.requestServe(engine.scoring.server)
         }
       }
-      if ended && engine.inventory.held == .ace { publish?(engine) }
+      if ended { publish?(engine) }
       return
     }
     guard var gesture = touchGestures[touch] else { return }

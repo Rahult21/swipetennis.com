@@ -166,6 +166,8 @@ struct BallFlight: Codable {
   var acknowledge = false
   var serve = false
   var serveNumber = 1
+  var serveProfile: ServeProfile?
+  var receiverWrongFooted: Bool?
   var kind: ShotKind = .cross
   var stroke: TennisStrokeStyle = .groundstroke
   var trainingApproach = false
@@ -198,14 +200,14 @@ struct BallFlight: Codable {
       let t = (progress - 0.8) / 0.2
       if power == .overhead { return 5.5 * sin(t * .pi / 2) }
       let rise = sin(t * .pi / 2) * 0.6
-      return power == .ace ? rise * 1.25 : rise
+      return power == .ace ? rise * 1.25 * (serveProfile?.kick ?? 1) : rise
     }
     if progress >= 0.8 && kind == .drop {
       let bounce = (progress - 0.8) / 0.2
       return 0.28 * 4 * bounce * (1 - bounce)
     }
     return progress < 0.8
-      ? sin(progress / 0.8 * .pi) * loft * 1.7 : sin((progress - 0.8) / 0.2 * .pi / 2) * (kind == .slice ? 0.35 : 0.6)
+      ? sin(progress / 0.8 * .pi) * loft * 1.7 : sin((progress - 0.8) / 0.2 * .pi / 2) * (kind == .slice ? 0.35 : 0.6) * (serveProfile?.kick ?? 1)
   }
 }
 struct Coaching: Codable, Identifiable {
@@ -381,7 +383,7 @@ struct PracticeEngine: Codable {
 
   mutating func launch(
     _ side: Int, aim: Vec, kind: ShotKind, fault: String? = nil, explanation: String = "",
-    serve: Bool = false, serveNumber: Int = 1, stroke: TennisStrokeStyle = .groundstroke,
+    serve: Bool = false, serveNumber: Int = 1, serveProfile: ServeProfile? = nil, stroke: TennisStrokeStyle = .groundstroke,
     trainingApproach: Bool = false, trainingReply: Bool = false
   ) {
     let from = players[side].pos
@@ -420,15 +422,20 @@ struct PracticeEngine: Codable {
       loft = 0.8
       duration *= 1.35
     }
-    if serve { duration = clamp(from.distance(to: landing) / (24 * pace) + 0.35, 0.95, 1.8) }
-    if serve && serveNumber == 2 { duration *= 1.22 }
+    let profile = serve ? (serveProfile ?? .standard(serveNumber)) : nil
+    if let profile {
+      duration = clamp(from.distance(to: landing) / (24 * pace) + 0.35, 0.95, 1.8) / profile.pace
+      loft += 0.18 * Double(profile.spin.rawValue)
+    }
     if (stroke == .volley && kind != .lob && kind != .drop && kind != .slice) || stroke == .overhead {
       duration = clamp(
         from.distance(to: landing) / (stroke == .overhead ? 23 : 18) + 0.2, 0.65, 1.9)
     }
+    let wrongFooted = !serve && fault == nil && demo == nil && (side == 0 || settings.local)
+      && CourtTactics.hitsBehind(players[1 - side], target: contact)
     if trainingApproach {
       // Give the practice partner enough flight time to reach the approach with ordinary footwork.
-      let speed = settings.style.speed * settings.difficulty.speed
+      let speed = settings.style.speed * settings.difficulty.speed * (wrongFooted ? 0.6 : 1)
       let travel = CourtTactics.travelTime(
         distance: players[1].pos.distance(to: contact), speed: speed)
       duration = max(duration, (travel + 0.15) / 0.86)
@@ -437,7 +444,7 @@ struct PracticeEngine: Codable {
     flight = BallFlight(
       from: from, landing: landing, contact: contact, duration: duration, hitter: side,
       fault: fault, explanation: explanation, loft: loft, serve: serve, serveNumber: serveNumber,
-      kind: kind, stroke: serve ? .serve : kind == .drop ? .drop : kind == .slice ? .slice : stroke, trainingApproach: trainingApproach,
+      serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind, stroke: serve ? .serve : kind == .drop ? .drop : kind == .slice ? .slice : stroke, trainingApproach: trainingApproach,
       trainingReply: trainingReply)
     ball = from
     players[1 - side].settled = 0
@@ -581,7 +588,11 @@ struct PracticeEngine: Codable {
       aim = Vec(x: players[0].pos.x, y: Self.net + 5)
       kind = .lob
     }
-    let risk = Self.red(aim)
+    if bot && !easyBot && kind == .cross && !dropReply && netReply == nil {
+      let diagonal = (p.pos.x - Self.width / 2) * (aim.x - Self.width / 2) < 0
+      if !diagonal { kind = .line }
+      else if aim.y < Self.length - 5 && min(aim.x, Self.width - aim.x) < 1 { kind = .angle }
+    }
     let guideGap = p.pos.distance(to: intercept(side))
     let onTime = guideGap <= Self.contactRadius + 0.000001
     let lineApproach =
@@ -597,28 +608,27 @@ struct PracticeEngine: Codable {
     if !bot && (volley || overhead) && p.aim == nil {
       aim = CourtTactics.openCourt(side: side, opponent: players[1 - side].pos, overhead: overhead)
     }
+    let risk = Self.red(aim)
     let settled = onTime && p.settled >= 0.18 && speed < 2.2
     attempts[side] += 1
     if settled { balanced[side] += 1 }
-    var chance = Self.contactChance(
+    // Reaching the ring guarantees a swing. Placement is a separate decision for both players.
+    let contactChance = bot || onTime ? 1 : Self.contactChance(
       settings.difficulty, settled: p.settled, gap: gap, speed: speed, risky: risk)
-    if bot {
-      chance = 1
-    } else if onTime {
-      // Reaching the displayed contact zone is enough. Foot settling is coaching feedback,
-      // never a hidden delay or random failure for an on-time human return.
-      chance = 1
-    }
-    let miss = bot ? (queuedPower != .overhead && f.opponentError != nil) : random() >= chance
+    let controlledFeed = bot && (dropReply || f.kind == .slice || f.trainingApproach
+      || netReply == .volley || queuedPower == .overhead)
+    let redirect = !f.serve && CourtTactics.redirects(from: f.from, at: p.pos, to: aim)
+    let placementChance = demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect)
+    let forcedMiss = bot && f.opponentError != nil && queuedPower != .overhead
+    let miss = forcedMiss || (contactChance < 1 && random() >= contactChance)
+      || (placementChance < 1 && random() < 1 - placementChance)
     let reason =
-      dropReply
+      miss ? "\(name(side)) missed the \(kind.rawValue.lowercased()) shot."
+      : dropReply
       ? "Opponent chased your drop shot and lifted a deep lob."
       : netReply != nil
         ? "Opponent read your approach and played \(netReply == .lob ? "a deep lob" : netReply == .passing ? "a passing shot" : netReply == .miss ? "a pressured error" : "a softer volley feed")."
-      : easyBot
-        ? (miss
-          ? "The Easy opponent missed its crosscourt return."
-          : "The Easy opponent played crosscourt.")
+      : easyBot ? "The Easy opponent played crosscourt."
         : onTime && !bot
           ? "On-time contact inside the yellow guide."
           : settled
@@ -626,12 +636,11 @@ struct PracticeEngine: Codable {
             : gap > 0.85
               ? String(format: "Stretched %.1f m from the ball.", gap)
               : speed >= 2.2 ? "Still running through contact." : "Too late to settle the feet."
-    let fault: String? =
-      miss
-      ? (bot
-        ? f.opponentError?.rawValue
-        : risk ? (min(aim.x, 8.23 - aim.x) < 1 ? "wide" : "long") : speed > 3 ? "net" : "long")
-      : nil
+    var fault: String?
+    if miss {
+      if bot, let planned = f.opponentError { fault = planned.rawValue }
+      else { fault = ["net", "wide", "long"][Int(clamp(random(), 0, 0.999999) * 3)] }
+    }
     if side == 0 { assessCoachReturn(incoming: f, aim: aim, kind: kind, clean: fault == nil, explicit: p.aim != nil) }
     players[side].aim = nil
     if !bot && (kind == .drop || kind == .slice) { players[side].kind = .cross }
@@ -642,7 +651,7 @@ struct PracticeEngine: Codable {
       tactics[side].openCourtShots += 1
     }
     feedback = Coaching(
-      title: onTime && !bot
+      title: miss ? "Shot missed." : onTime && !bot
         ? "On time. Clean return."
         : settled ? "Early feet. Quiet contact." : "Give yourself more time.", reason: reason,
       tip: risk ? "A red-zone target leaves less margin." : "Recover toward the coverage ring.")
@@ -686,7 +695,8 @@ struct PracticeEngine: Codable {
       let shortBallBoost = (i == 0 || settings.local) && showsGoldenContact(i) ? 1.5 : 1.0
       let baseSpeed = i == 1 && !settings.local
         ? (flight?.hitter == 0 && flight?.kind == .drop ? 7.0 : settings.style.speed) * settings.difficulty.speed : 6
-      let maxSpeed = baseSpeed * shortBallBoost
+      let turning = flight?.receiverWrongFooted == true && flight?.hitter == 1 - i && phase == .live
+      let maxSpeed = baseSpeed * shortBallBoost * (turning ? 0.6 : 1)
       let acceleration = 11 * shortBallBoost
       // A tap can split and queue a run together; the hop must not stall that run.
       let splitting = d <= Self.contactRadius && time >= splitStarted[i] && time < splitStarted[i] + 0.18
@@ -758,7 +768,8 @@ struct PracticeEngine: Codable {
       }
       end(
         receiver,
-        reason: "\(name(f.hitter) == "You" ? "Your" : name(f.hitter) + "'s") shot \(fault == "net" ? "hit the net" : "landed " + fault).",
+        reason: f.serve && f.serveNumber == 2 ? "Double fault. The second serve \(fault == "net" ? "hit the net" : "landed " + fault)."
+          : "\(name(f.hitter) == "You" ? "Your" : name(f.hitter) + "'s") shot \(fault == "net" ? "hit the net" : "landed " + fault).",
         tip: receiver == 0
           ? "Keep moving early and aim into open court."
           : "Aim farther inside the lines on your next shot.")

@@ -65,7 +65,7 @@ final class PracticeDifficultyTests: XCTestCase {
     }
   }
 
-  func testRandomIntervalsAcrossPointsAndDifficulties() {
+  func testDifficultyLapseScheduleCarriesAcrossPointsIndependentlyOfPlacementRolls() {
     for difficulty in Difficulty.allCases {
       for roll in [0.0, 0.49, 0.999] {
         var engine = PracticeEngine(settings: .init(difficulty: difficulty))
@@ -73,8 +73,11 @@ final class PracticeDifficultyTests: XCTestCase {
         let expected = range.lowerBound + Int(roll * Double(range.count))
         for attempt in 1...(expected * 3) {
           incomingBall(&engine)
-          engine.returnBall(1, volley: false, random: { roll })
-          XCTAssertEqual(engine.flight?.fault != nil, attempt.isMultiple(of: expected))
+          engine.prepareOpponentReply(random: { roll })
+          XCTAssertEqual(engine.flight?.opponentError != nil, attempt.isMultiple(of: expected))
+          engine.returnBall(1, volley: false, random: { 0.9 })
+          XCTAssertEqual(engine.flight?.fault != nil, attempt.isMultiple(of: expected),
+            "An accurate placement roll still respects a scheduled forced error")
           engine.phase = .point
           engine.startRally() // Points and opening serves do not reset or consume the interval.
         }
@@ -115,7 +118,8 @@ final class PracticeDifficultyTests: XCTestCase {
         engine.returnBall(1, volley: false, random: { 0 })
       }
       incomingBall(&engine)
-      engine.returnBall(1, volley: false, random: { roll })
+      engine.prepareOpponentReply(random: { roll })
+      engine.returnBall(1, volley: false, random: { 0 })
       XCTAssertEqual(engine.flight?.fault, fault)
       XCTAssertEqual(engine.contactGuide(0) == nil, fault == "net")
       XCTAssertNil(engine.contactWindow(0))

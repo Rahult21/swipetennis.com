@@ -250,10 +250,7 @@ extension PracticeEngine {
       coach.receiving = nil
     }
     if explicit && !f.serve {
-      let reverse = Vec(x: f.from.x - players[0].pos.x, y: f.from.y - players[0].pos.y)
-      let outgoing = Vec(x: aim.x - players[0].pos.x, y: aim.y - players[0].pos.y)
-      let cosine = (reverse.x * outgoing.x + reverse.y * outgoing.y) / max(0.001, reverse.length * outgoing.length)
-      if abs(aim.x - f.from.x) >= 1.5 && acos(clamp(cosine, -1, 1)) > 8 * .pi / 180 {
+      if CourtTactics.redirects(from: f.from, at: players[0].pos, to: aim) {
         if clean {
           coach.approaches.append(CoachApproach(rule: .changeDirectionApproach, opportunity: contactSerial,
             from: players[0].pos, createdAt: time))

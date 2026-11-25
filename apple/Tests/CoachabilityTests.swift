@@ -23,7 +23,7 @@ final class CoachabilityTests: XCTestCase {
       var engine = incoming(at: Vec(x: 1.4, y: 24.5))
       engine.selectShotSwipe(Vec(x: success ? 0 : 40, y: success ? 40 : -40), side: 0)
       if success { XCTAssertEqual(engine.players[0].aim!.x, PracticeEngine.width / 2) }
-      engine.returnBall(0, volley: false, random: { 0 })
+      engine.returnBall(0, volley: false, random: { 0.5 })
       XCTAssertEqual(engine.coach.events.filter { $0.rule == .deepCenterLob }.map(\.points), [success ? 2 : -1])
       engine.end(0, reason: "Done", tip: "")
       engine.end(1, reason: "Duplicate", tip: "")
@@ -34,7 +34,7 @@ final class CoachabilityTests: XCTestCase {
   func testShortBallAndDirectionChangeCanBothScoreInOneApproach() {
     var engine = incoming(at: Vec(x: 1.4, y: 19))
     engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
-    engine.returnBall(0, volley: false, random: { 0 })
+    engine.returnBall(0, volley: false, random: { 0.5 })
     XCTAssertEqual(Set(engine.coach.approaches.map(\.rule)), [.shortBallApproach, .changeDirectionApproach])
     XCTAssertEqual(engine.coach.pointScore, 0) // Selecting a shot alone earns no approach reward.
     XCTAssertEqual(engine.movementGuide(0)?.kind, .approach)
@@ -51,13 +51,13 @@ final class CoachabilityTests: XCTestCase {
   func testMissedApproachCostsOneForEachRuleButNotAnImpossibleWindow() {
     var engine = incoming(at: Vec(x: 1.4, y: 19))
     engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
-    engine.returnBall(0, volley: false, random: { 0 })
+    engine.returnBall(0, volley: false, random: { 0.5 })
     engine.time += 0.4
     engine.end(0, reason: "Point", tip: "")
     XCTAssertEqual(engine.coach.pointScore, -2)
     var quick = incoming(at: Vec(x: 1.4, y: 19))
     quick.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
-    quick.returnBall(0, volley: false, random: { 0 })
+    quick.returnBall(0, volley: false, random: { 0.5 })
     quick.time += 0.1
     quick.end(0, reason: "Instant winner", tip: "")
     XCTAssertEqual(quick.coach.pointScore, 0)
@@ -87,7 +87,7 @@ final class CoachabilityTests: XCTestCase {
     XCTAssertFalse(engine.coach.receiving!.deepBall)
     engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
     let serverX = engine.players[1].pos.x
-    engine.returnBall(0, volley: false, random: { 0 })
+    engine.returnBall(0, volley: false, random: { 0.5 })
     XCTAssertEqual(engine.flight!.landing.x, serverX)
     XCTAssertEqual(engine.coach.events.map(\.rule), [.firstServeBody])
     XCTAssertEqual(engine.coach.pointScore, 2)
@@ -122,7 +122,7 @@ final class CoachabilityTests: XCTestCase {
     for (y, progress, expected) in [(22.67, 0.87, 2), (24.22, 0.87, -1), (22.67, 0.97, 2)] {
       var engine = incoming(at: Vec(x: 3, y: y), serve: 2)
       engine.flight!.elapsed = engine.flight!.duration * progress
-      engine.returnBall(0, volley: false, random: { 0 })
+      engine.returnBall(0, volley: false, random: { 0.5 })
       XCTAssertEqual(engine.coach.events.filter { $0.rule == .secondServeRise }.map(\.points), [expected])
     }
   }
@@ -173,7 +173,7 @@ final class CoachabilityTests: XCTestCase {
       engine.coach.firstServeWasWide = wide
       engine.registerCoachFlight()
       engine.selectShotSwipe(Vec(x: cross ? 40 : 0, y: -40), side: 0)
-      engine.returnBall(0, volley: false, random: { 0 })
+      engine.returnBall(0, volley: false, random: { 0.5 })
       XCTAssertEqual(engine.coach.events.filter { $0.rule == .wideServeCross }.map(\.points), [expected])
     }
   }
