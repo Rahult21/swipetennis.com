@@ -1,0 +1,171 @@
+import XCTest
+
+@testable import TennisCore
+
+final class PracticeGestureTests: XCTestCase {
+  func testCourtSwipesOnlyEmitMovementOnReleaseAtAnySpeed() {
+    for side in 0...1 {
+      for delta in [Vec(x: 0, y: -3), Vec(x: 3, y: 0), Vec(x: -2, y: 2)] {
+        var gesture = PracticeGesture(side: side)
+        let from = Vec(x: 4, y: side == 0 ? 22 : 2)
+        let to = Vec(x: from.x + delta.x, y: from.y + delta.y)
+        XCTAssertNil(gesture.update(at: from, timestamp: 1))
+        XCTAssertNil(gesture.update(at: to, timestamp: 1.1))
+        XCTAssertEqual(gesture.update(at: to, ended: true, timestamp: 1.2), .run(delta))
+      }
+    }
+  }
+
+  func testTapToleranceAndCancelledSwipeDoNotBecomeShots() {
+    var gesture = PracticeGesture(side: 0)
+    _ = gesture.update(at: Vec(x: 4, y: 22))
+    XCTAssertEqual(gesture.update(at: Vec(x: 4.1, y: 22.1), ended: true),
+      .courtTap(Vec(x: 4.1, y: 22.1)))
+    gesture = PracticeGesture(side: 0)
+    _ = gesture.update(at: Vec(x: 4, y: 22))
+    _ = gesture.update(at: Vec(x: 4, y: 18))
+    XCTAssertNil(gesture.update(at: Vec(x: 4, y: 22), ended: true))
+  }
+
+  func testPlayerSwipeRecognizesAllFourShotsAndBothLateralDirections() {
+    XCTAssertEqual(ShotSwipe.read(Vec(x: 2, y: -40)), ShotSwipe(kind: .line, lateral: 0))
+    XCTAssertEqual(ShotSwipe.read(Vec(x: 0, y: 40)), ShotSwipe(kind: .lob, lateral: 0))
+    for direction in [-1.0, 1.0] {
+      XCTAssertEqual(ShotSwipe.read(Vec(x: direction * 35, y: -35)),
+        ShotSwipe(kind: .cross, lateral: Int(direction)))
+      XCTAssertEqual(ShotSwipe.read(Vec(x: direction * 40, y: 4)),
+        ShotSwipe(kind: .angle, lateral: Int(direction)))
+    }
+    XCTAssertNil(ShotSwipe.read(Vec(x: 5, y: 7)))
+  }
+
+  func testShotSwipePreservesFootworkAndAimsInChosenDirectionForBothPlayers() {
+    for side in 0...1 {
+      for dx in [-35.0, 35.0] {
+        var engine = PracticeEngine(settings: .init(local: true))
+        engine.phase = .live
+        engine.launch(1 - side, aim: Vec(x: 2, y: side == 0 ? 22 : 2), kind: .cross)
+        let destination = Vec(x: 2, y: side == 0 ? 20 : 3)
+        engine.move(side, to: destination)
+        engine.selectShotSwipe(Vec(x: dx, y: -35), side: side)
+        XCTAssertEqual(engine.players[side].destination, destination)
+        XCTAssertEqual(engine.players[side].kind, .cross)
+        let right = dx * (side == 0 ? 1 : -1) > 0
+        XCTAssertEqual(engine.players[side].aim!.x > PracticeEngine.width / 2, right)
+        engine.selectShotSwipe(Vec(x: 0, y: 40), side: side)
+        XCTAssertEqual(engine.players[side].kind, .lob)
+        XCTAssertEqual(engine.players[side].destination, destination)
+      }
+    }
+  }
+
+  func testDirectionalRunningKeepsShotAndStaysOnOwnCourt() {
+    for side in 0...1 {
+      var engine = PracticeEngine(settings: .init(local: true))
+      engine.phase = .live
+      engine.players[side].pos = Vec(x: 4, y: side == 0 ? 20 : 4)
+      engine.choose(side, .lob)
+      let aim = engine.players[side].aim
+      engine.swipeCourt(side, delta: Vec(x: 3, y: 0))
+      XCTAssertGreaterThan(engine.players[side].destination.x, 4)
+      XCTAssertEqual(engine.players[side].kind, .lob)
+      XCTAssertEqual(engine.players[side].aim, aim)
+      engine.swipeCourt(side, delta: Vec(x: -100, y: side == 0 ? -100 : 100))
+      XCTAssertEqual(engine.players[side].destination, PracticeEngine.own(side, engine.players[side].destination))
+    }
+  }
+
+  func testForwardCourtSwipeApproachesAfterAnyShotWithoutSelectingLine() {
+    var engine = PracticeEngine(settings: .init(allCourtTraining: false))
+    engine.phase = .live
+    engine.launch(0, aim: Vec(x: 1.5, y: 2), kind: .cross)
+    engine.swipeCourt(0, delta: Vec(x: 0, y: -3))
+    XCTAssertTrue(engine.followingApproach[0])
+    XCTAssertTrue(engine.attacking[0])
+    XCTAssertLessThan(engine.players[0].destination.y, 18)
+    XCTAssertEqual(engine.flight?.kind, .cross)
+    XCTAssertFalse(engine.flight!.trainingApproach)
+  }
+
+  func testYellowAndWhiteTapsSnapExactlyAndAlsoSplitStep() {
+    var engine = PracticeEngine(settings: .init())
+    engine.startRally()
+    let yellow = engine.contactGuide(0)!
+    engine.tapCourt(0, at: Vec(x: yellow.x + 0.4, y: yellow.y))
+    XCTAssertEqual(engine.players[0].destination, PracticeEngine.own(0, yellow))
+    XCTAssertEqual(engine.tactics[0].splitSteps, 1)
+    engine.time += 0.3
+    engine.launch(0, aim: Vec(x: 2, y: 2), kind: .line)
+    engine.followShot(0)
+    let white = engine.recoveryGuide(0)!
+    engine.tapCourt(0, at: Vec(x: white.x - 0.3, y: white.y))
+    XCTAssertEqual(engine.players[0].destination, white)
+    XCTAssertFalse(engine.attacking[0])
+    XCTAssertEqual(engine.tactics[0].splitSteps, 2)
+  }
+
+  func testTapsBounceWithCooldownAndNeverChangeMovementOrAim() {
+    var engine = PracticeEngine(settings: .init())
+    engine.startRally()
+    engine.choose(0, .line)
+    let destination = engine.players[0].destination
+    let aim = engine.players[0].aim
+    engine.tapCourt(0, at: Vec(x: 0, y: 14))
+    XCTAssertNotNil(engine.splitProgress(0))
+    XCTAssertEqual(engine.tactics[0].splitSteps, 1)
+    for _ in 0..<5 { engine.tapCourt(0, at: Vec(x: 0, y: 14)) }
+    XCTAssertEqual(engine.tactics[0].splitSteps, 1)
+    engine.time += 0.3
+    engine.selectShotSwipe(.zero, side: 0)
+    XCTAssertEqual(engine.tactics[0].splitSteps, 2)
+    XCTAssertEqual(engine.players[0].destination, destination)
+    XCTAssertEqual(engine.players[0].aim, aim)
+  }
+
+  func testSplitTimingIsRewardedNearOpponentContactAndNeverAutomatic() {
+    var engine = PracticeEngine(settings: .init())
+    engine.phase = .live
+    engine.launch(0, aim: Vec(x: 2, y: 2), kind: .cross, trainingApproach: true)
+    engine.players[1].pos = engine.flight!.contact
+    engine.players[1].destination = engine.players[1].pos
+    let entry = engine.contactWindow(1)!.entry
+    engine.flight!.elapsed = entry * engine.flight!.duration - 0.2
+    XCTAssertEqual(engine.coachCue, .split(false))
+    engine.beginSplit(0)
+    XCTAssertTrue(engine.splitTimed[0])
+    XCTAssertEqual(engine.tactics[0].timedSplits, 1)
+    XCTAssertEqual(engine.coachCue, .split(true))
+    var untouched = PracticeEngine(settings: .init())
+    untouched.phase = .live
+    untouched.attacking[0] = true
+    untouched.launch(0, aim: Vec(x: 2, y: 2), kind: .cross, trainingApproach: true)
+    untouched.players[1].pos = untouched.flight!.contact
+    for _ in 0..<500 { untouched.step(1 / 120, random: { 0.5 }) }
+    XCTAssertEqual(untouched.tactics[0].splitSteps, 0)
+  }
+
+  func testInactiveCourtIgnoresPlayInputs() {
+    var engine = PracticeEngine(settings: .init())
+    let player = engine.players[0]
+    engine.tapCourt(0, at: .zero)
+    engine.swipeCourt(0, delta: Vec(x: 0, y: -4))
+    engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
+    XCTAssertEqual(engine.players[0].destination, player.destination)
+    XCTAssertEqual(engine.players[0].kind, player.kind)
+    XCTAssertEqual(engine.tactics[0].splitSteps, 0)
+  }
+
+  func testLineChosenWhileRunningUsesActualContactPosition() {
+    var engine = PracticeEngine(settings: .init(allCourtTraining: false))
+    engine.phase = .live
+    engine.players[0].pos = Vec(x: 2, y: 24)
+    engine.launch(1, aim: Vec(x: 6, y: 22.9), kind: .cross)
+    engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
+    engine.players[0].pos = Vec(x: 6, y: 24)
+    engine.flight = BallFlight(from: Vec(x: 2, y: 1), landing: Vec(x: 6, y: 22.9),
+      contact: engine.players[0].pos, duration: 2, hitter: 1, fault: nil, explanation: "", loft: 1)
+    engine.returnBall(0, volley: false, random: { 0.99 })
+    XCTAssertEqual(engine.flight!.landing.x, 6, accuracy: 0.001)
+    XCTAssertNil(engine.flight!.fault)
+  }
+}
