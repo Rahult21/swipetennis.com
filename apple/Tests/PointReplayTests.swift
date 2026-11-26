@@ -101,6 +101,14 @@ final class PointReplayTests: XCTestCase {
       return atan2(-axis.z, axis.x)
     }
     let loaded = try pose(-0.17), uncoiling = try pose(-0.10), finish = try pose(0.22)
+    let waiting = try pose(-0.45), contact = try pose(0)
+    XCTAssertGreaterThan(waiting[.leftHip].y - loaded[.leftHip].y, 0.13)
+    XCTAssertGreaterThan(contact[.leftHip].y - loaded[.leftHip].y, 0.11)
+    XCTAssertEqual(finish[.leftHip].y, waiting[.leftHip].y, accuracy: 0.03)
+    let upright = clip.frames.filter { $0.near[.leftHip].y >= waiting[.leftHip].y - 0.04 }
+    XCTAssertGreaterThan(Double(upright.count) / Double(clip.frames.count), 0.75)
+    XCTAssertGreaterThan(contact.heelPitch, loaded.heelPitch + 0.10)
+    XCTAssertGreaterThan(finish[.strings].y, loaded[.strings].y)
     XCTAssertGreaterThan(rotation(uncoiling, .rightHip, .leftHip) - rotation(loaded, .rightHip, .leftHip), 0.1)
     XCTAssertEqual(rotation(uncoiling, .rightShoulder, .leftShoulder), rotation(loaded, .rightShoulder, .leftShoulder), accuracy: 0.02)
     XCTAssertGreaterThan(loaded[.strings].x, loaded[.rightShoulder].x)
@@ -134,6 +142,10 @@ final class PointReplayTests: XCTestCase {
         return atan2(-axis.z*sign, axis.x*sign)
       }
       let coil = try pose(-0.21), opening = try pose(-0.115), impact = try pose(0), finish = try pose(0.22)
+      let waiting = try pose(-0.45)
+      XCTAssertGreaterThan(waiting[.leftHip].y-opening[.leftHip].y, 0.12)
+      XCTAssertGreaterThan(impact[.leftHip].y-opening[.leftHip].y, 0.10)
+      XCTAssertEqual(finish[.leftHip].y, waiting[.leftHip].y, accuracy: 0.03)
       XCTAssertGreaterThan(yaw(coil), 1.15)
       XCTAssertGreaterThan(yaw(coil)-yaw(coil, hips: true), 0.55)
       XCTAssertLessThan(yaw(opening, hips: true), yaw(coil, hips: true)-0.17)
@@ -146,7 +158,7 @@ final class PointReplayTests: XCTestCase {
     }
   }
 
-  func testPlayersRelaxBeforeResultAndPrepareForNextServe() throws {
+  func testBothPlayersStandTallAtBaselineAndNetWhileWaitingAndBetweenPoints() throws {
     var game = PracticeEngine(settings: .init())
     var motion = CourtPerformance(game: game)
     func snapshot() -> AthletePose { motion.update(game: game, dt: tick); return motion.frame!.near }
@@ -155,9 +167,18 @@ final class PointReplayTests: XCTestCase {
     game.start()
     game.servePreparation!.elapsed = 0.4
     let ready = snapshot()
-    XCTAssertGreaterThan(ready.heelPitch, 0.15)
-    XCTAssertLessThan(ready[.head].y, idle[.head].y-0.11)
+    XCTAssertEqual(ready[.head].y, idle[.head].y, accuracy: 0.02)
+    XCTAssertLessThan(ready.heelPitch, 0.03)
     game.phase = .live
+    game.players[0].pos.y = PracticeEngine.net + 2
+    game.players[0].destination = game.players[0].pos
+    for _ in 0..<60 { _ = snapshot() }
+    for p in [motion.frame!.near,motion.frame!.far] {
+      XCTAssertEqual(p[.head].y, idle[.head].y, accuracy: 0.02)
+      let thigh = simd_normalize(p[.leftHip] - p[.leftKnee])
+      let shin = simd_normalize(p[.leftKnee] - p[.leftShoe])
+      XCTAssertGreaterThan(simd_dot(thigh, shin), cos(Float.pi/8), "Waiting knees flex less than 22.5 degrees")
+    }
     game.launch(1, aim: Vec(x: 1, y: 20), kind: .cross)
     _ = snapshot()
     game.end(0, reason: "", tip: "")
@@ -165,7 +186,7 @@ final class PointReplayTests: XCTestCase {
     let last = try XCTUnwrap(motion.replay.frames.last)
     for p in [last.near,last.far] {
       XCTAssertEqual(p.heelPitch, 0)
-      XCTAssertGreaterThan(p[.head].y, ready[.head].y+0.1)
+      XCTAssertEqual(p[.head].y, idle[.head].y, accuracy: 0.025)
       XCTAssertLessThan(p[.strings].y, p[.rightHip].y)
     }
   }
@@ -201,6 +222,11 @@ final class PointReplayTests: XCTestCase {
       let frame = try XCTUnwrap(motion.replay.frame(at: hit.time))
       XCTAssertEqual(frame.near[.strings].y, 2.73, accuracy: 0.0001)
       XCTAssertLessThan(simd_distance(frame.ball, frame.near[.strings]), 0.00001)
+      let loaded = try XCTUnwrap(motion.replay.frame(at: hit.time - 0.30)).near
+      let rising = try XCTUnwrap(motion.replay.frame(at: hit.time - 0.08)).near
+      XCTAssertLessThan(min(loaded[.leftShoe].y, loaded[.rightShoe].y), 0.09)
+      XCTAssertGreaterThan(rising[.leftHip].y - rising[.leftShoe].y,
+        loaded[.leftHip].y - loaded[.leftShoe].y + 0.13)
     }
     game.start()
     XCTAssertFalse(CourtPerformance(game: game).replay.canPlay)

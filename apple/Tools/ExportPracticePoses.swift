@@ -30,7 +30,7 @@ import Foundation
     game.flight = incoming
     let entry = game.contactWindow(0)!.entry
     var motion = AthleteMotion()
-    let times = [-0.74,-0.55,-0.38,-0.23,-0.16,-0.105,-0.065,-0.035,0,0.04,0.085,0.15,0.22,0.35,0.48,0.60]
+    let times = [-0.74,-0.55,-0.38,-0.34,-0.30,-0.23,-0.145,-0.105,-0.085,-0.065,-0.035,0,0.04,0.085,0.15,0.22,0.35,0.42,0.48,0.60,0.70]
     var prior = times[0]
     return times.map { t in
       game.time = 2 + t
@@ -45,6 +45,10 @@ import Foundation
         game.phase = .live
         game.servePreparation = nil
         game.launch(0, aim: Vec(x: 6, y: 2), kind: .cross, serve: serve, stroke: volley ? .volley : .groundstroke)
+      }
+      if serve && t > 0 {
+        game.serveLanding?.elapsed = t
+        if t >= ServeLanding.duration { game.serveLanding = nil }
       }
       let pose = motion.sample(game: game, side: 0, hit: t == 0, dt: t == 0 ? 0 : t - prior, reduceMotion: false)
       prior = t

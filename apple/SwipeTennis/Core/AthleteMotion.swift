@@ -116,21 +116,43 @@ struct AthleteMotion {
     let load = ramp(time, volley ? -0.28 : -0.62, -0.16)
     let finish = 1 - ramp(time, 0.20, Float(swing.recoveryDuration))
     let drive = load * finish
-    let low = min(1, max(0, (1.10 - strike.y) / 0.85)) * drive
+    let lowBall = min(1, max(0, (1.10 - strike.y) / 0.85))
+    let low = lowBall * drive
     let split = Float(game.splitProgress(side) ?? 0)
     let hop: Float = reduceMotion ? 0 : 0.115 * sin(split * .pi)
     let landing = game.serveLanding.flatMap { $0.server == side ? $0.progress : nil }
     let leap = reduceMotion ? 0 : Float(ServeMotion.jumpHeight(tossProgress: service?.tossProgress, landingProgress: landing)) * 0.034
-    let kneeLoad = load * (1 - ramp(time, -0.13, 0.12))
-    let bend = readiness * (0.14 + kneeLoad * 0.13 + low * 0.28 + (atNet ? 0.045 : 0)) + rush * 0.055 + (landing.map { Float(sin($0 * .pi)) * 0.1 } ?? 0)
+    // The racket can prepare early while the legs stay tall. Load just before the
+    // forward swing, then extend through impact. A low volley needs a later release.
+    let gather, extend, depth: Float
+    switch swing.style {
+    case .serve:
+      gather = ramp(time, -0.48, -0.30)
+      extend = ramp(time, -0.30, -0.16)
+      depth = 0.205
+    case .volley:
+      gather = ramp(time, -0.22, -0.085)
+      extend = ramp(time, -0.075, 0.09 + 0.05 * lowBall)
+      depth = 0.065 + 0.145 * lowBall
+    default:
+      gather = ramp(time, -0.34, -0.145)
+      extend = ramp(time, -0.14, 0.055)
+      depth = swing.style == .drop || swing.style == .slice ? 0.065 + 0.145 * lowBall : 0.155 + 0.085 * lowBall
+    }
+    let kneeLoad = readiness * gather * (1 - extend)
+    let pushOff = readiness * gather * extend * (1 - ramp(time, 0.06, 0.22))
+    // The lead knee softens as the server touches down, then returns to standing height.
+    let landingLoad = swing.style == .serve ? ramp(time, 0.28, 0.42) * (1 - ramp(time, 0.42, 0.56)) : 0
+    let bend = depth * kneeLoad + 0.016 * rush + 0.065 * landingLoad
     let volleyStep = volley ? drive : 0
     let step = (forward * 0.36 + right * (sideOfBall * 0.15)) * volleyStep
+    let stance = max(rush, kneeLoad)
     feet.advance(centre: centre, velocity: player.velocity.world(), destination: player.destination.world(),
-      facing: sign, strideBias: step, dt: Float(dt), readiness: readiness)
+      facing: sign, strideBias: step, dt: Float(dt), readiness: stance)
     var pose = AthletePose()
-    pose.heelPitch = readiness * 0.19
+    pose.heelPitch = readiness * 0.015 + 0.045 * rush + 0.17 * pushOff
     let ankleHeight = 0.06 + 0.14 * sin(pose.heelPitch) + hop + leap
-    let stanceWidth = 0.175 + readiness * 0.07
+    let stanceWidth = 0.175 + stance * 0.07
     pose[.leftShoe] = (reduceMotion ? centre - right * stanceWidth : feet.left) + up * ankleHeight
     pose[.rightShoe] = (reduceMotion ? centre + right * stanceWidth : feet.right) + up * ankleHeight
     if let landing {
@@ -153,25 +175,28 @@ struct AthleteMotion {
     let shoeMid = (pose[.leftShoe] + pose[.rightShoe]) / 2
     let offset = shoeMid - centre
     let support = CourtPoint3D(max(-0.19, min(0.19, offset.x)), 0, max(-0.14, min(0.14, offset.z)))
-    var pelvis = centre + support * 0.72 + weight + weightForward + up * (0.98 - bend + hop + leap)
+    var pelvis = centre + support * 0.72 + weight + weightForward + up * (0.99 - bend + 0.022 * pushOff + hop + leap)
     let hips = axis(hipTurn + moveTurn * (1 - drive))
     let shoulders = axis(chestTurn + moveTurn * (1 - (backhand ? coil : drive)))
     // Lower the hips over the extended support leg before its knee can lock straight.
     for (shoe, hipOffset) in [(pose[.leftShoe], -hips * 0.14), (pose[.rightShoe], hips * 0.14)] {
       let leg = pelvis + hipOffset - shoe
-      let legLength = 0.936 - readiness * 0.036
+      let legLength: Float = 0.936
       let height = sqrt(max(0.30, legLength * legLength - leg.x * leg.x - leg.z * leg.z))
       pelvis.y = min(pelvis.y, shoe.y + height)
     }
     let lean = max(-1, min(1, Float(player.velocity.x) / 5.5))
-    var chest = pelvis + up * (0.49 - 0.02 * readiness) + CourtPoint3D(0.048 * lean, 0, 0) + forward * (0.015 + 0.095 * readiness + 0.07 * rush + low * 0.13)
+    var chest = pelvis + up * (0.49 - 0.018 * kneeLoad) + CourtPoint3D(0.048 * lean, 0, 0)
+      + forward * (0.015 + 0.065 * rush + kneeLoad * (0.065 + lowBall * 0.08))
     // Lean into the low first volley; retain the shot finish as the first approach step starts.
-    chest += (right * sideOfBall * 0.13 + forward * 0.18) * volleyStep
+    if volley { chest += (right * sideOfBall * 0.10 + forward * 0.12) * kneeLoad }
     if approaching { chest += forward * (0.12 * forwardRun) }
     pose[.leftHip] = pelvis - hips * 0.14; pose[.rightHip] = pelvis + hips * 0.14
     pose[.leftShoulder] = chest - shoulders * 0.22; pose[.rightShoulder] = chest + shoulders * 0.22
-    pose[.leftKnee] = hinge(pose[.leftHip], pose[.leftShoe], length: 0.47, bend: forward - right * 0.15)
-    pose[.rightKnee] = hinge(pose[.rightHip], pose[.rightShoe], length: 0.47, bend: forward + right * 0.15)
+    // Track the knees outward over the wider base as the feet plant for the shot.
+    let kneeOut = right * (0.15 + 0.40 * kneeLoad)
+    pose[.leftKnee] = hinge(pose[.leftHip], pose[.leftShoe], length: 0.47, bend: forward - kneeOut)
+    pose[.rightKnee] = hinge(pose[.rightHip], pose[.rightShoe], length: 0.47, bend: forward + kneeOut)
     pose[.head] = chest + up * 0.23 + forward * 0.042
 
     let ready = local(0.16, atNet ? 1.48 : 1.29, 0.43)
