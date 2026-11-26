@@ -456,7 +456,7 @@ struct PracticeSessionSheet: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           VStack(alignment: .leading, spacing: 10) {
-            Label("\(game.settings.surface.rawValue) court · \(game.settings.clubEncounter != nil ? "One game" : game.scoring.format == .tennis ? "One set" : "Tiebreak")",
+            Label("\(game.settings.surface.rawValue) court · \(game.settings.clubEncounter != nil ? "First to 10 · Win by two" : game.scoring.format == .tennis ? "One set" : "Tiebreak")",
               systemImage: "tennisball").font(.subheadline.weight(.semibold)).foregroundStyle(TennisTheme.lime)
             ForEach(0..<2) { side in
               HStack {
@@ -584,6 +584,7 @@ struct PointResultCard: View {
       }
       VStack(spacing: 3) {
         Text(game.scoreSummary).font(.caption.weight(.semibold))
+          .accessibilityIdentifier(game.scoring.format == .tiebreak ? "resultScore" : "resultGames")
 
         if game.scoring.format == .tennis && game.phase != .finished {
           Text("Points: \(game.name(0)) \(game.scoring.pointLabel(0)) · \(game.name(1)) \(game.scoring.pointLabel(1))")

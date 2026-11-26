@@ -40,7 +40,7 @@ private struct SoloCareerView: View {
         VStack(alignment: .leading, spacing: 8) {
           Label("Chapter 1", systemImage: "flag.checkered").font(.subheadline.weight(.semibold))
           Text("Club debut").font(.largeTitle.weight(.semibold))
-          Text("Meet three club rivals, then beat each in a rematch to earn the club’s regional entry.")
+          Text("Meet three club rivals, then beat each in a rematch to earn the club’s regional entry. Each match is a tiebreak to 10. Win by two.")
             .font(.subheadline)
           ProgressView(value: Double(career.completedCount), total: Double(ClubEncounter.allCases.count))
             .tint(.white).accessibilityLabel("Chapter progress")
@@ -70,12 +70,12 @@ private struct SoloCareerView: View {
       } else {
         Section {
           Label("Regional entry earned", systemImage: "rosette").font(.headline)
-          Text("You won all three selection games. Your club debut is complete.")
+          Text("You won all three selection matches. Your club debut is complete.")
         }.accessibilityIdentifier("careerComplete")
       }
       if let last = career.results.last {
         Section("Last result") {
-          Label(last.won ? "You beat \(last.encounter.rival.rawValue)" : "\(last.encounter.rival.rawValue) won the game",
+          Label(last.won ? "You beat \(last.encounter.rival.rawValue)" : "\(last.encounter.rival.rawValue) won the match",
             systemImage: last.won ? "trophy" : "tennisball")
           if let review = last.review { Text(review).font(.subheadline) }
           LabeledContent("Coachability", value: "\(last.coachPoints > 0 ? "+" : "")\(last.coachPoints) CP")

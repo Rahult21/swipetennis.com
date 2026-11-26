@@ -14,7 +14,7 @@ import XCTest
     let careerURL = dir.appendingPathComponent("career"), quickURL = dir.appendingPathComponent("quick")
     let store = SoloCareerStore(file: careerURL), quick = PracticeMatchSlot(file: quickURL)
     var game = try XCTUnwrap(store.enter(owner: "A")?.engine)
-    XCTAssertEqual(game.scoring.points,[2,2])
+    XCTAssertEqual(game.scoring.points,[0,0])
     XCTAssertEqual(game.settings.opponentName,"Morgan")
     game.start()
     game.phase = .live
@@ -47,6 +47,7 @@ import XCTest
         XCTAssertEqual(game.settings.clubEncounter,encounter)
         XCTAssertEqual(game.settings.style,encounter.rival.style)
         XCTAssertEqual(game.settings.opponentName,encounter.rival.rawValue)
+        XCTAssertEqual(game.scoring.points, [0,0])
         let before = store.progress(for:"A").results.count
         while game.scoring.winner == nil {
           game.start()
@@ -54,7 +55,8 @@ import XCTest
           game.end(win ? 0 : 1,reason:"Winner",tip:"",random:{0.5})
         }
         XCTAssertEqual(game.phase,.finished)
-        XCTAssertEqual(game.scoring.lastAward,.game)
+        XCTAssertEqual(game.scoring.points, win ? [10,0] : [0,10])
+        XCTAssertEqual(game.scoring.lastAward,.tiebreak)
         XCTAssertNil(game.inventory.held)
         try store.checkpoint(game,owner:"A")
         try store.checkpoint(game,owner:"A")
@@ -72,17 +74,52 @@ import XCTest
     for rival in TourRival.allCases { XCTAssertEqual(completed.progress(for:"A").meetings(with:rival).count,3) }
   }
 
-  func testDebutUsesDeuceAndAdvantageAndOffersGuestContinuity() async throws {
+  func testBuild11CareerConvertsPlayedPointsAndFinishesTheCurrentServe() async throws {
+    let url = try directory().appendingPathComponent("career")
+    var old = ClubEncounter.returnGame.makeGame()
+    old.settings.scoring = .tennis
+    old.scoring = PracticeScore(format: .tennis, firstServer: 1, oneGame: true)
+    for side in [0,1,1] { old.scoring.award(side) }
+    old.start()
+    old.phase = .live
+    old.end(0, reason: "Winner", tip: "")
+    old.start()
+    let server = old.scoring.server, right = old.scoring.serveFromRight
+    let debut = ClubResult(id: UUID(), encounter: .debut, won: false, coachPoints: 3, review: nil)
+    let career = SoloCareer(results: [debut], active: old)
+    try JSONEncoder().encode(["A": career]).write(to: url)
+    let store = SoloCareerStore(file: url)
+    var game = try XCTUnwrap(store.enter(owner: "A")?.engine)
+    XCTAssertEqual(game.scoring.points, [1,0])
+    XCTAssertEqual(game.settings.scoring, .tiebreak)
+    XCTAssertEqual(game.coach.sessionID, old.coach.sessionID)
+    XCTAssertEqual(game.scoring.server, server)
+    XCTAssertEqual(game.scoring.serveFromRight, right)
+    game.phase = .live
+    game.end(1, reason: "Winner", tip: "")
+    XCTAssertEqual(game.scoring.points,[1,1])
+    XCTAssertEqual(game.scoring.server, 0)
+    XCTAssertTrue(game.scoring.serveFromRight)
+    try store.checkpoint(game, owner: "A")
+    let saved = SoloCareerStore(file: url).progress(for: "A")
+    XCTAssertEqual(saved.results.first?.id, debut.id)
+    XCTAssertEqual(saved.active?.scoring.points, [1,1])
+  }
+
+  func testDebutRequiresTwoClearPointsAndOffersGuestContinuity() async throws {
     let url = try directory().appendingPathComponent("career")
     let store = SoloCareerStore(file:url)
     let game = try XCTUnwrap(store.enter(owner:DemoProgressArchive.guest)?.engine)
     var score = game.scoring
-    for side in [0,1,0,1] { score.award(side) }
-    XCTAssertTrue(score.deuce)
+    for _ in 0..<9 { score.award(0); score.award(1) }
+    XCTAssertEqual(score.points, [9,9])
+    score.award(1)
+    XCTAssertNil(score.winner)
+    score.award(0)
+    score.award(1)
     XCTAssertNil(score.winner)
     score.award(1)
-    XCTAssertEqual(score.pointLabel(1),"AD")
-    score.award(1)
+    XCTAssertEqual(score.points, [10,12])
     XCTAssertEqual(score.winner,1)
     XCTAssertTrue(game.settings.tournament)
     XCTAssertFalse(game.settings.allCourtTraining)

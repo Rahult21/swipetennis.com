@@ -42,8 +42,8 @@ enum ClubEncounter: String, Codable, CaseIterable, Identifiable {
   }
   var stakes: String {
     if self == .clubFinal { return "Win to earn the club’s regional entry." }
-    if self == .netRusher { return "Finish this game to enter the club selection rounds." }
-    return isTrial ? "Win to advance. If you lose, you can play this rival again." : "Finish this game to meet your next opponent."
+    if self == .netRusher { return "Finish this match to enter the club selection rounds." }
+    return isTrial ? "Win to advance. If you lose, you can play this rival again." : "Finish this match to meet your next opponent."
   }
   var practiceLesson: DemoLesson {
     switch self {
@@ -71,16 +71,14 @@ enum ClubEncounter: String, Codable, CaseIterable, Identifiable {
   }
   func makeGame() -> PracticeEngine {
     var settings = PracticeSettings(difficulty: rival == .morgan && !isTrial ? .easy : .medium,
-      style: rival.style, surface: .hard, allCourtTraining: false, opponentName: rival.rawValue)
+      style: rival.style, surface: .hard, allCourtTraining: false, scoring: .tiebreak, opponentName: rival.rawValue)
     settings.tournament = true
     settings.clubEncounter = self
     return PracticeEngine(settings: settings)
   }
   var openingScore: PracticeScore {
-    var score = PracticeScore(format: .tennis, firstServer: self == .morganRematch || self == .netRusher ? 0 : 1, oneGame: true)
-    let opening = self == .returnGame ? [1, 2] : self == .netRusher ? [2, 1] : [2, 2]
-    for side in 0...1 { for _ in 0..<opening[side] { score.award(side) } }
-    return score
+    PracticeScore(format: .tiebreak, firstServer: self == .morganRematch || self == .netRusher ? 0 : 1,
+      tiebreakTarget: 10)
   }
 }
 
@@ -100,6 +98,27 @@ struct SoloCareer: Codable {
   var next: ClubEncounter? { ClubEncounter.allCases.dropFirst(completedCount).first }
   var started: Bool { active != nil || !results.isEmpty }
   func meetings(with rival: TourRival) -> [ClubResult] { results.filter { $0.encounter.rival == rival } }
+  mutating func record(_ game: PracticeEngine, encounter: ClubEncounter) {
+    if let winner = game.scoring.winner {
+      results.append(ClubResult(id: game.coach.sessionID, encounter: encounter, won: winner == 0,
+        coachPoints: game.coach.records.reduce(0) { $0 + $1.points }, review: encounter.review(game)))
+      active = nil
+    } else { active = game }
+  }
+
+  mutating func upgradeScoring() -> Bool {
+    guard var game = active, let encounter = game.settings.clubEncounter,
+          game.scoring.format == .tennis else { return false }
+    var score = encounter.openingScore
+    // Build 11 seeded games at 30–30, 15–30 or 30–15. Count only rallies actually played.
+    for point in game.coach.records { score.award(point.winner) }
+    if game.phase.isPlaying || game.phase == .serveFault { score.keepCurrentServe(from: game.scoring) }
+    game.settings.scoring = .tiebreak
+    game.scoring = score
+    record(game, encounter: encounter)
+    return true
+  }
+
 }
 
 @MainActor final class SoloCareerStore: ObservableObject {
@@ -109,7 +128,12 @@ struct SoloCareer: Codable {
   init(file: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     .appendingPathComponent("SwipeTennis/solo-careers.json")) {
     self.file = file
-    do { saves = try JSONDecoder().decode([String: SoloCareer].self, from: Data(contentsOf: file)) }
+    do {
+      var loaded = try JSONDecoder().decode([String: SoloCareer].self, from: Data(contentsOf: file))
+      var upgraded = false
+      for owner in Array(loaded.keys) where loaded[owner]?.upgradeScoring() == true { upgraded = true }
+      if upgraded { try write(loaded) } else { saves = loaded }
+    }
     catch let error as CocoaError where error.code == .fileReadNoSuchFile { }
     catch { loadError = "Your career save could not be opened. \(error.localizedDescription)" }
   }
@@ -150,11 +174,7 @@ struct SoloCareer: Codable {
     }
     guard var career = saves[saveOwner], career.active?.coach.sessionID == sessionID,
       let encounter = game.settings.clubEncounter, career.next == encounter else { return }
-    if let winner = game.scoring.winner {
-      career.results.append(ClubResult(id: game.coach.sessionID, encounter: encounter, won: winner == 0,
-        coachPoints: game.coach.records.reduce(0) { $0 + $1.points }, review: encounter.review(game)))
-      career.active = nil
-    } else { career.active = game }
+    career.record(game, encounter: encounter)
     var updated = saves
     updated[saveOwner] = career
     try write(updated)

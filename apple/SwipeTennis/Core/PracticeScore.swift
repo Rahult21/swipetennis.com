@@ -17,13 +17,16 @@ struct PracticeScore: Codable {
   let format: PracticeScoring
   let firstServer: Int
   private let oneGame: Bool?
+  private let tiebreakTarget: Int?
+  private var savedServeFromRight: Bool?
   private(set) var points = [0, 0]
   private(set) var games = [0, 0]
   private(set) var server: Int
   private(set) var winner: Int?
   private(set) var lastAward: PracticeAward = .point
 
-  init(format: PracticeScoring, firstServer: Int = 1, oneGame: Bool = false) {
+  init(format: PracticeScoring, firstServer: Int = 1, oneGame: Bool = false, tiebreakTarget: Int? = nil) {
+    self.tiebreakTarget = tiebreakTarget
     self.oneGame = oneGame ? true : nil
     self.format = format
     self.firstServer = firstServer == 0 ? 0 : 1
@@ -43,14 +46,20 @@ struct PracticeScore: Codable {
     guard format == .tennis, points.min()! >= 3, points[0] != points[1] else { return nil }
     return points[0] > points[1] ? 0 : 1
   }
-  var serveFromRight: Bool { points.reduce(0, +).isMultiple(of: 2) }
+  var serveFromRight: Bool { savedServeFromRight ?? points.reduce(0, +).isMultiple(of: 2) }
+
+  mutating func keepCurrentServe(from previous: PracticeScore) {
+    server = previous.server
+    savedServeFromRight = previous.serveFromRight
+  }
 
   mutating func award(_ side: Int) {
     guard winner == nil else { return }
+    savedServeFromRight = nil
     points[side] += 1
     lastAward = .point
     if format == .tiebreak {
-      if points[side] >= 7 && points[side] - points[1 - side] >= 2 {
+      if points[side] >= (tiebreakTarget ?? 7) && points[side] - points[1 - side] >= 2 {
         winner = side
         lastAward = .tiebreak
       } else {
