@@ -156,6 +156,7 @@ struct CourtPlayer: Codable {
   var madeNetVolley: Bool?
   var splitForReturn: Int?
   var lastReturn: ReturnDecision?
+  var netEffort: NetEffort?
 }
 struct BallFlight: Codable {
   var from: Vec, landing: Vec, contact: Vec
@@ -167,6 +168,7 @@ struct BallFlight: Codable {
   var explanation: String
   var loft: Double
   var power: CourtPower?
+  var powerBackhand: Bool?
   var acknowledge = false
   var serve = false
   var serveNumber = 1
@@ -321,6 +323,7 @@ struct PracticeEngine: Codable {
         - (risky ? 0.14 : 0), 0.12, 0.78)
   }
   mutating func choose(_ side: Int, _ kind: ShotKind) {
+    guard side != 0 || queuedPower == nil else { return }
     guard phase != .serving || servePreparation?.server != side else { return }
     players[side].kind = kind
     players[side].aim = Self.preset(side, kind, players[side].pos)
@@ -331,12 +334,14 @@ struct PracticeEngine: Codable {
     }
   }
   mutating func recover(_ side: Int) {
+    guard side != 0 || queuedPower == nil else { return }
     attacking[side] = false
     followingApproach[side] = false
     approachAvailable[side] = false
     players[side].destination = Self.recovery(side, flight?.contact ?? players[1 - side].pos)
   }
   mutating func move(_ side: Int, to point: Vec) {
+    guard side != 0 || queuedPower == nil else { return }
     guard phase != .serving || servePreparation?.server != side else { return }
     followingApproach[side] = false
     players[side].destination = Self.own(side, point)
@@ -362,6 +367,7 @@ struct PracticeEngine: Codable {
       players[i].madeNetVolley = nil
       players[i].splitForReturn = nil
       players[i].lastReturn = nil
+      players[i].netEffort = nil
       players[i].settled = 0
       players[i].aim = nil
       if players[i].kind == .drop || players[i].kind == .slice { players[i].kind = .cross }
@@ -521,6 +527,7 @@ struct PracticeEngine: Codable {
     if let target = serveReceiveTarget(side) { return target }
     guard let f = flight else { return players[side].pos }
     let p = players[side].pos
+    if let effort = players[side].netEffort, effort.serial == contactSerial { return effort.landing }
     if attacking[side] || abs(p.y - Self.net) < 6.5,
       let overhead = BallContactWindow.overheadTarget(flight: f, side: side),
       f.progress <= overhead.progress
@@ -528,7 +535,15 @@ struct PracticeEngine: Codable {
       return overhead.point
     }
     if (side == 0 ? p.y < 19 : p.y > 4.77) && !f.serve {
-      let t = (p.y - f.from.y) / (f.landing.y - f.from.y)
+      let origin = f.worldBall(at: 0)
+      let dy = f.landing.y - Double(origin.z)
+      let t = abs(dy) > 0.001 ? (p.y - Double(origin.z)) / dy : -1
+      if BallContactWindow.inServiceBox(p, side: side), f.hitter != side, f.progress < 0.8, t > 0 {
+        let intercept = f.worldBall(at: min(0.94, t) * 0.8)
+        if f.loft < 2 || intercept.y < 3.12 {
+          return Self.own(side, Vec(x: Double(intercept.x), y: Double(intercept.z)))
+        }
+      }
       let height = sin(t * .pi) * f.loft * 1.7
       if t > 0 && t < 0.95 && (f.loft < 2 || (t > 0.5 && height <= 1.7)) {
         return Vec(x: f.from.x + (f.landing.x - f.from.x) * t, y: p.y)
@@ -544,11 +559,38 @@ struct PracticeEngine: Codable {
     return intercept(side)
   }
 
-  func contactWindow(_ side: Int) -> BallContactWindow? {
+  func contactWindow(_ side: Int, after progress: Double? = nil) -> BallContactWindow? {
     guard let flight, flight.power == nil else { return nil }
     if side == 1 && flight.hitter == 0 && flight.opponentError == .unreachable { return nil }
     if side == 1 && flight.dropReachable == false { return nil }
-    return BallContactWindow.next(flight: flight, player: players[side].pos, side: side)
+    if let effort = players[side].netEffort {
+      if effort.serial == contactSerial {
+        guard effort.reachable, (progress ?? flight.progress) <= effort.progress + 0.000001 else { return nil }
+        return BallContactWindow(entry: effort.progress, exit: effort.progress, volley: true,
+          overhead: effort.stroke.overhead, netStroke: effort.stroke)
+      }
+      if time < effort.impactTime + effort.stroke.recovery { return nil }
+    }
+    return BallContactWindow.next(flight: flight, player: players[side].pos, side: side, after: progress)
+  }
+
+  mutating func prepareNetEffort(_ side: Int, flight f: BallFlight, dt: Double) {
+    guard players[side].netEffort == nil, assist == nil, queuedPower == nil,
+      f.opponentError != .unreachable, f.dropReachable != false,
+      let air = BallContactWindow.netOpportunity(flight: f, player: players[side].pos, side: side, after: f.progress),
+      let stroke = air.netStroke, stroke.extended else { return }
+    let remaining = max(0, (air.entry - f.progress) * f.duration)
+    guard remaining <= (stroke == .jump ? 0.23 : 0.21) else { return }
+    let target = f.worldBall(at: air.entry), from = players[side].pos
+    let dx = Double(target.x) - from.x, dz = Double(target.z) - from.y
+    let travel = min(stroke == .dive ? 0.94 : 0.34, hypot(dx, dz) * 0.55, (remaining + 0.1) * 3.75)
+    let scale = travel / max(0.01, hypot(dx, dz))
+    let landing = Self.own(side, Vec(x: from.x + dx * scale, y: from.y + dz * scale))
+    let timeNeeded = stroke == .jump ? max(0, Double(target.y)-2.66)/3.2 : max(0, hypot(dx,dz)-0.94)/5.5
+    players[side].netEffort = NetEffort(stroke: stroke, serial: contactSerial, startTime: time-dt,
+      impactTime: time-dt+remaining, progress: air.entry, from: from, landing: landing,
+      target: target, reachable: air.reachable && remaining + dt >= timeNeeded)
+    players[side].destination = landing
   }
   mutating func end(_ winner: Int, reason: String, tip: String,
     random: () -> Double = { Double.random(in: 0..<1) }) {
@@ -670,7 +712,8 @@ struct PracticeEngine: Codable {
     attempts[side] += 1
     if settled { balanced[side] += 1 }
     // Reaching the ring guarantees a swing. Placement is a separate decision for both players.
-    let contactChance = bot || onTime ? 1 : Self.contactChance(
+    let effort = p.netEffort.flatMap { $0.serial == contactSerial && $0.reachable ? $0 : nil }
+    let contactChance = bot || onTime || volley ? 1 : Self.contactChance(
       settings.difficulty, settled: p.settled, gap: gap, speed: speed, risky: risk)
     let controlledFeed = bot && (dropReply || f.kind == .slice || f.trainingApproach
       || netReply == .volley || queuedPower == .overhead)
@@ -679,7 +722,8 @@ struct PracticeEngine: Codable {
       shorterSide: redirect && CourtTactics.courtLength(from: p.pos, toward: aim, side: side) + 0.35
         < CourtTactics.courtLength(from: p.pos, toward: f.from, side: side),
       split: !bot && p.splitForReturn == contactSerial,
-      baseAccuracy: demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect))
+      baseAccuracy: demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect)
+        * (effort?.stroke == .dive ? 0.82 : 1))
     if !bot { players[side].lastReturn = decision }
     let placementChance = decision.accuracy
     let forcedMiss = bot && f.opponentError != nil && queuedPower != .overhead
@@ -723,6 +767,10 @@ struct PracticeEngine: Codable {
       explanation: reason,
       stroke: (bot && kind == .lob) ? .lob : overhead ? .overhead : volley ? .volley : .groundstroke,
       trainingApproach: lineApproach && !miss, trainingReply: netReply != nil || dropReply)
+    if effort?.stroke == .dive && !miss {
+      flight!.duration *= 1.18
+      flight!.loft = max(flight!.loft, 1.02)
+    }
     if netReply == .volley {
       flight!.duration = max(flight!.duration, settings.difficulty == .easy ? 2.5 : 2.15)
       flight!.loft = 0.9
@@ -757,6 +805,17 @@ struct PracticeEngine: Codable {
         continue
       }
       var p = players[i]
+      if let effort = p.netEffort {
+        if time < effort.impactTime + effort.stroke.recovery {
+          let next = effort.position(at: time)
+          players[i].velocity = Vec(x: (next.x-p.pos.x)/max(0.00001,dt), y: (next.y-p.pos.y)/max(0.00001,dt))
+          players[i].pos = next
+          players[i].settled = 0
+          continue
+        }
+        players[i].netEffort = nil
+        p.netEffort = nil
+      }
       let d = p.pos.distance(to: p.destination)
       let shortBallBoost = (i == 0 || settings.local) && showsGoldenContact(i) ? 1.5 : 1.0
       let baseSpeed = i == 1 && !settings.local
@@ -791,6 +850,7 @@ struct PracticeEngine: Codable {
     let dt = clamp(delta, 0, 0.04)
     time += dt
     if isResolvingPoint { stepPointResolution(dt); return }
+    startArmedPower()
     if phase == .serving { stepServe(dt, random: random); return }
     if assist != nil { stepAssistedContact(dt, random: random); return }
     if queuedPower == .overhead, flight?.hitter == 1, flight?.fault == nil {
@@ -802,6 +862,7 @@ struct PracticeEngine: Codable {
     if flight?.power == nil { prepareOpponentReply(random: random) }
     let current = flight!
     let receiver = 1 - current.hitter
+    prepareNetEffort(receiver, flight: current, dt: dt)
     if current.power == nil && current.fault == nil && !settings.local && receiver == 1 && time >= reactAt {
       players[1].destination = current.missedChaseTarget ?? Self.own(1, intercept(1))
     }
@@ -811,6 +872,16 @@ struct PracticeEngine: Codable {
     flight!.elapsed += dt
     let f = flight!
     let progress = f.progress
+    // Resolve a swept air contact before counting a bounce in the same display frame.
+    if let window = contactWindow(receiver, after: current.progress), window.netStroke != nil,
+      progress + 0.000001 >= window.entry {
+      let impact = min(progress, max(window.entry, window.exit))
+      flight!.elapsed = impact * f.duration
+      let hit = f.worldBall(at: impact)
+      ball = Vec(x: Double(hit.x), y: Double(hit.z))
+      returnBall(receiver, volley: true, overhead: window.overhead, random: random)
+      return
+    }
     if current.progress < 0.8 && progress >= 0.8 {
       bounceSerial += 1
       plantApproachAtBounce(f.hitter)
@@ -843,8 +914,7 @@ struct PracticeEngine: Codable {
           : "Aim farther inside the lines on your next shot.", random: random)
       return
     }
-    if current.opponentError != .unreachable, current.dropReachable != false, let window = BallContactWindow.next(
-      flight: f, player: players[receiver].pos, side: receiver, after: current.progress),
+    if let window = contactWindow(receiver, after: current.progress), window.netStroke == nil,
       progress + 0.000001 >= window.entry
     {
       returnBall(receiver, volley: window.volley, overhead: window.overhead, random: random)
@@ -852,7 +922,7 @@ struct PracticeEngine: Codable {
     }
     if progress < 1 { return }
     let gap = players[receiver].pos.distance(to: f.contact)
-    if gap > 1.35 || current.opponentError == .unreachable || current.dropReachable == false {
+    if gap > 1.35 || players[receiver].netEffort != nil || current.opponentError == .unreachable || current.dropReachable == false {
       if receiver == 1 && !settings.local { opponentErrors.resetAfterMiss() }
       end(
         f.hitter,

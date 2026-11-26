@@ -88,6 +88,7 @@ struct ShotSwipe: Equatable {
 
 extension PracticeEngine {
   func canChooseShot(_ side: Int) -> Bool {
+    guard side != 0 || queuedPower == nil else { return false }
     guard side == 0 || settings.local else { return false }
     if phase == .serving { return servePreparation?.server != side }
     return phase == .live && flight?.hitter == 1 - side && flight?.fault == nil
@@ -118,6 +119,7 @@ extension PracticeEngine {
 
   mutating func tapCourt(_ side: Int, at point: Vec) {
     if dismissAffirmation() { return }
+    guard side != 0 || queuedPower == nil else { return }
     guard acceptsCourtMovement else { return }
     if let target = outBallChaseTarget(side) {
       if point.distance(to: target) <= 1.15 || point.distance(to: ball) <= 1.15 { move(side, to: target) }

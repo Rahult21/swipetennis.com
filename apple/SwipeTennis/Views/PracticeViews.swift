@@ -216,27 +216,22 @@ struct PracticeGameView: View {
             }
           }
           if let power = game.inventory.held, game.phase.isPlaying && !session.paused {
-            VStack(alignment: .trailing, spacing: 4) {
-              Button {
-                session.scene.engine.usePower()
-                session.snapshot = session.scene.engine
-              } label: {
-                Image(systemName: power.symbol).font(.title2.bold())
-                  .frame(width: 54, height: 54)
-                  .foregroundStyle(game.canUsePower ? Color.black : .white)
-                  .background(game.canUsePower ? Color.mint : Color.black.opacity(0.8), in: Circle())
-                  .overlay(Circle().stroke(.white.opacity(0.8), lineWidth: 2))
-              }
-              .buttonStyle(.plain)
-              .disabled(!game.canUsePower)
-              .accessibilityLabel(power.rawValue)
-              .accessibilityHint(power.hint)
-              Text(power.rawValue).font(.caption2.bold())
-              Text(game.queuedPower != nil ? "In motion" : game.canUsePower ? "Tap to use" : power.prompt)
-                .font(.caption2)
+            Button {
+              session.scene.engine.usePower()
+              session.scene.publish?(session.scene.engine)
+            } label: {
+              Image(systemName: game.inventory.armed == true ? "checkmark" : power.symbol)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color.black)
+                .frame(width: 30, height: 30)
+                .background(Color.mint, in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1))
+                .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .foregroundStyle(.white).shadow(radius: 2)
-            .padding(.trailing, 10).padding(.bottom, game.displayedServeGauges?.server == 0 ? 44 : 9)
+            .buttonStyle(.plain).disabled(!game.canUsePower)
+            .accessibilityLabel(power.rawValue).accessibilityValue(game.inventory.armed == true ? "Armed" : "Ready")
+            .accessibilityHint(power.hint).accessibilityIdentifier("courtPower")
+            .padding(.trailing, 2).padding(.bottom, game.displayedServeGauges?.server == 0 ? 35 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
           }
           if let event = game.coach.events.last, event.success, game.phase.isPlaying && game.time - game.coach.lastEventAt < 1.5 {

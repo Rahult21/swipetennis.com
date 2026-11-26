@@ -1,4 +1,5 @@
 import XCTest
+import simd
 @testable import TennisCore
 
 final class CourtPowerTests: XCTestCase {
@@ -39,15 +40,11 @@ final class CourtPowerTests: XCTestCase {
     }
   }
 
-  func testGreenTapArmsTheCurrentBallAndAssistedRallyIsAFasterWinner() throws {
+  func testOneTapTakesOverTheIncomingBallAndAssistedRallyIsAFasterWinner() throws {
     var game = PracticeEngine(settings: .init())
     game.phase = .live
     game.inventory.held = .rally
     game.launch(1, aim: Vec(x: 1, y: 23), kind: .cross)
-    game.usePower()
-    XCTAssertNil(game.queuedPower)
-    let target = try XCTUnwrap(game.contactGuide(0))
-    game.tapCourt(0, at: target)
     XCTAssertTrue(game.canUsePower)
     game.usePower()
     XCTAssertNotNil(game.assist)
@@ -74,8 +71,8 @@ final class CourtPowerTests: XCTestCase {
       game.phase = .live
       game.inventory.held = .overhead
       game.launch(outgoing ? 0 : 1, aim: Vec(x: 4, y: outgoing ? 1 : 20), kind: .lob)
-      XCTAssertFalse(game.canUsePower)
-      game.players[0].pos = Vec(x: 2, y: PracticeEngine.net + 2)
+      XCTAssertTrue(game.canUsePower)
+      game.players[0].pos = Vec(x: 2, y: outgoing ? 22 : PracticeEngine.net + 2)
       game.players[0].destination = game.players[0].pos
       if outgoing { game.flight!.opponentError = .unreachable }
       game.usePower()
@@ -99,8 +96,6 @@ final class CourtPowerTests: XCTestCase {
       game.phase = .ready
       game.start()
       game.inventory.held = .ace
-      game.usePower()
-      XCTAssertNil(game.queuedPower)
       game.chooseServe(index.isMultiple(of: 2) ? .wide : .center, side: 0)
       let selection = try XCTUnwrap(game.servePreparation?.destination)
       game.usePower()
@@ -122,6 +117,107 @@ final class CourtPowerTests: XCTestCase {
       XCTAssertTrue(game.feedback.reason.contains("Ace"))
     }
     XCTAssertEqual(reactions.filter { $0 }.count, 1)
+  }
+
+  func testPoweredReplayCapturesEveryFinishOnTheStrings() throws {
+    for (power, leftBall) in [(CourtPower.ace,false),(.overhead,false),(.rally,false),(.rally,true)] {
+      var game = PracticeEngine(settings: .init())
+      game.inventory.held = power
+      game.scoring = PracticeScore(format: .tennis, firstServer: 0)
+      var performance = CourtPerformance(game: game)
+      if power == .ace {
+        game.start()
+      } else {
+        game.phase = .live
+        game.players[0].pos = Vec(x: 4, y: 21)
+        game.players[0].destination = game.players[0].pos
+        game.launch(1, aim: Vec(x: leftBall ? 1.5 : 4.5, y: 21), kind: .cross)
+      }
+      game.usePower()
+      game.usePower()
+      for _ in 0..<2400 {
+        game.step(PointReplay.tick, random: { 0.5 })
+        performance.update(game: game, dt: PointReplay.tick)
+        if game.showsPointResult { break }
+      }
+      XCTAssertEqual(game.scoring.points[0], 1)
+      let clip = performance.replay
+      let winner = try XCTUnwrap(clip.strikes.last)
+      XCTAssertEqual(winner.power, power)
+      XCTAssertEqual(clip.strikes.filter { $0.power != nil }.count, 1)
+      XCTAssertEqual(clip.opening, max(0, winner.time - (power == .ace ? 1.05 : 0.85)), accuracy: 0.00001)
+      let frame = try XCTUnwrap(clip.frame(at: winner.time))
+      XCTAssertLessThan(simd_distance(frame.near[.strings], frame.ball), 0.001)
+      if power == .rally {
+        XCTAssertEqual(game.flight?.powerBackhand, leftBall)
+        let hands = simd_distance(frame.near[.grip], frame.near[.leftHand])
+        if leftBall { XCTAssertEqual(hands, 0.095, accuracy: 0.002) }
+        else { XCTAssertGreaterThan(hands, 0.25) }
+      } else {
+        XCTAssertGreaterThan(frame.ball.y, 2.45)
+        XCTAssertGreaterThan(frame.near[.leftShoe].y, 0.25)
+      }
+    }
+  }
+
+  func testArmedAceWaitsForOwnServeAcrossPointBoundary() {
+    var game = PracticeEngine(settings: .init())
+    game.phase = .live
+    game.scoring = PracticeScore(format: .tennis, firstServer: 0)
+    game.inventory.held = .ace
+    game.launch(1, aim: Vec(x: 2, y: 20), kind: .cross)
+    game.usePower()
+    XCTAssertEqual(game.inventory.armed, true)
+    XCTAssertNil(game.queuedPower)
+    finish(1, in: &game)
+    game.start()
+    nextFrames(&game) { $0.flight?.power == .ace }
+    XCTAssertNil(game.inventory.held)
+  }
+
+  func testServiceBoxSavesAndMissesUseTheAirbornePathOnBothSides() throws {
+    for side in 0...1 {
+      for (offset,loft,stroke,touch) in [(1.43,0.74,NetStroke.dive,true),(-1.43,0.74,.dive,true),
+                                         (0.18,1.85,.jump,true),(1.85,0.74,.dive,false)] {
+        func depth(_ z: Double) -> Double { side == 0 ? z : PracticeEngine.length-z }
+        var game = PracticeEngine(settings: .init(local: true))
+        game.phase = .live
+        let feet = Vec(x: 4, y: depth(15))
+        game.players[side].pos = feet
+        game.players[side].destination = feet
+        let flight = BallFlight(from: Vec(x: 4+offset,y: depth(1)), landing: Vec(x: 4+offset,y: depth(22)),
+          contact: Vec(x: 4+offset,y: depth(23.1)), duration: 2, hitter: 1-side, explanation: "",loft: loft)
+        game.flight = flight
+        var motion = CourtPerformance(game:game)
+        var attempted: NetEffort?
+        for _ in 0..<300 {
+          game.step(PointReplay.tick, random:{0.6})
+          motion.update(game: game,dt: PointReplay.tick)
+          if let effort = game.players[side].netEffort { attempted = effort }
+          if game.contactSerial > 0 || game.phase != .live { break }
+        }
+        let effort = try XCTUnwrap(attempted)
+        XCTAssertEqual(effort.stroke, stroke)
+        XCTAssertEqual(effort.reachable, touch)
+        if touch {
+          XCTAssertEqual(game.bounceSerial, 0)
+          XCTAssertEqual(game.flight?.stroke, stroke.overhead ? .overhead : .volley)
+          let hit = try XCTUnwrap(motion.replay.strikes.last)
+          let frame = try XCTUnwrap(motion.replay.frame(at: hit.time))
+          let body = side == 0 ? frame.near : frame.far
+          XCTAssertLessThan(simd_distance(frame.ball,body[.strings]),0.001)
+          if stroke == .jump { XCTAssertGreaterThan(body[.leftShoe].y,0.27) }
+          else { XCTAssertLessThan(body[.head].y,1.20) }
+        } else {
+          XCTAssertEqual(game.contactSerial,0)
+          XCTAssertEqual(game.phase,.point)
+        }
+        var serve = flight
+        serve.serve = true
+        XCTAssertNil(BallContactWindow.netOpportunity(flight:serve, player:feet, side:side, after:0))
+        XCTAssertNil(BallContactWindow.netOpportunity(flight:flight, player:feet, side:side, after:0.8))
+      }
+    }
   }
 
   func testHeldPowerAndCelebrationOrderRoundTripBetweenMatches() throws {

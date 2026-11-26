@@ -16,6 +16,7 @@ struct RecordedStrike {
   let hitter: Int
   let point: CourtPoint3D
   let gain: Double
+  let power: CourtPower?
 }
 
 /// Only the active point is retained. All three cameras read the same fixed-step samples.
@@ -28,7 +29,12 @@ struct PointReplay {
   private var gap = true
   var duration: Double { Double(max(0, frames.count - 1)) * Self.tick }
   var canPlay: Bool { !strikes.isEmpty && frames.count > 1 }
-  var opening: Double { max(0, strikes.dropLast().last.map { $0.time - 0.65 } ?? 0) }
+  var opening: Double {
+    if let winner = strikes.last, let power = winner.power {
+      return max(0, winner.time - (power == .ace ? 1.05 : 0.85))
+    }
+    return max(0, strikes.dropLast().last.map { $0.time - 0.65 } ?? 0)
+  }
 
   mutating func record(_ frame: RallyFrame, game: PracticeEngine, hit: Bool) {
     guard game.demo == nil else { return }
@@ -38,7 +44,8 @@ struct PointReplay {
     if gap { cuts.insert(frames.count); gap = false }
     frames.append(frame)
     if hit, let flight = game.flight {
-      strikes.append(RecordedStrike(time: duration, hitter: flight.hitter, point: frame.ball, gain: flight.power?.contactGain ?? 1))
+      strikes.append(RecordedStrike(time: duration, hitter: flight.hitter, point: frame.ball,
+        gain: flight.power?.contactGain ?? 1, power: flight.power))
     }
   }
 

@@ -302,11 +302,17 @@ extension PracticeEngine {
       return
     }
     guard let previous = flight, let run = demo else { return }
+    if previous.hitter == 1 { prepareNetEffort(0, flight: previous, dt: dt) }
     updateFootwork(dt)
     updateDemoRecovery()
     flight!.elapsed += dt
+    let receive = previous.hitter == 1 ? contactWindow(0, after: previous.progress) : nil
+    if let receive, receive.netStroke != nil, flight!.progress >= receive.entry {
+      flight!.elapsed = min(flight!.progress, receive.exit) * previous.duration
+    }
     let current = flight!
-    ball = current.position
+    let world = current.worldBall(at: current.progress)
+    ball = Vec(x: Double(world.x), y: Double(world.z))
     let windowOpen = inSplitWindow(0)
     demo?.bounceWindowOpen = windowOpen
     if previous.progress < 0.8 && current.progress >= 0.8 {
@@ -373,7 +379,7 @@ extension PracticeEngine {
       } else { finishShotDemo(success: true, message: run.demonstration ? "That's the motion. Your turn." : "Clean shot. Well played!") }
       return
     }
-    if let window = BallContactWindow.next(flight: current, player: players[0].pos, side: 0, after: previous.progress),
+    if let window = receive,
       current.progress + 0.000001 >= window.entry {
       let explicitlyChosen = run.chosenShot == run.lesson.shot && run.chosenEpoch == shotGestureEpoch(0)
       var failure: String?

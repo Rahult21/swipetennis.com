@@ -298,3 +298,33 @@ test("a timed split can cap placement at 100% but cannot reach a missing ball", 
     }
   }
 });
+
+test("service-box saves meet reachable balls before the bounce on either side", () => {
+  for (const side of [0,1]) {
+    for (const [offset,loft,stroke] of [[1.45,.74,"dive"],[-1.45,.74,"dive"],[.18,1.85,"jump"],[1.85,.74,null]]) {
+      const s = createPractice({...settings,mode:"local"});
+      startPoint(s);
+      const y = near => side === 0 ? near : 23.77-near;
+      s.players[side].pos = {x:4,y:y(15)};
+      s.players[side].destination = {...s.players[side].pos};
+      Object.assign(s.flight,{hitter:1-side, serve:false, elapsed:0, duration:2, loft,
+        from:{x:4+offset,y:y(1)},landing:{x:4+offset,y:y(22)},contact:{x:4+offset,y:y(23.1)}});
+      const start = s.rally;
+      let attempted;
+      for (let i=0;i<300 && s.rally === start && s.phase === "live";i++) {
+        stepPractice(s,1/120,()=>.5);
+        attempted ??= s.players[side].netEffort;
+      }
+      assert.equal(attempted.stroke,stroke ?? "dive");
+      if (stroke) {
+        assert.equal(s.flight.netStroke,stroke);
+        assert.equal(s.flight.hitter,side);
+        assert.ok(s.flight.originHeight>.14);
+        assert.ok(s.time<1.6);
+      } else {
+        assert.equal(attempted.reachable,false);
+        assert.equal(s.score[1-side],1);
+      }
+    }
+  }
+});

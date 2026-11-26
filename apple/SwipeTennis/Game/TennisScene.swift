@@ -561,13 +561,12 @@ import SwiftUI
     let guides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {
       // Each human sees one next-action guide: receive, then recover after contact.
-      let green = side == 0 && engine.phase == .live && engine.inventory.held == .rally && engine.canChooseShot(0)
-      let visible = green || engine.phase == .serving
+      let visible = engine.phase == .serving
         || (guides && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local))
       let contact = engine.contactGuide(side)
       let golden = engine.showsGoldenContact(side)
       let chasingOut = engine.outBallChaseTarget(side) != nil
-      contactRings[side].strokeColor = green ? .systemGreen : golden
+      contactRings[side].strokeColor = golden
         ? UIColor(red: 1, green: 0.69, blue: 0.12, alpha: 1) : .yellow
       contactRings[side].lineWidth = golden ? 4.2 : 2
       contactRings[side].glowWidth = golden ? 2 : 0

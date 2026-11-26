@@ -23,7 +23,15 @@ enum ReplayAngle: String, CaseIterable {
   }
   func updateUIView(_ view: CourtReplayView, context: Context) {
     guard let frame = replay.frame(at: seconds) else { return }
-    view.draw(frame, angle: angle, reduceMotion: reduceMotion)
+    let beat = replay.strikes.last.flatMap { strike in
+      strike.power.map { _ in seconds - strike.time }
+    }
+    view.draw(frame, angle: angle, reduceMotion: reduceMotion, powerBeat: beat)
+    for (index, dot) in view.powerTrail.enumerated() {
+      let lag = Double(index + 1) * PointReplay.tick * 1.5
+      dot.isEnabled = !reduceMotion && (beat ?? -1) >= lag && (beat ?? 2) <= 0.48
+      if dot.isEnabled, let past = replay.frame(at: seconds - lag) { dot.position = past.ball }
+    }
     if playing, playbackID == view.playbackID, seconds > view.lastTime {
       for hit in replay.strikes where hit.time > view.lastTime && hit.time <= seconds {
         let x = angle == .opponent ? PracticeEngine.width - Double(hit.point.x) : Double(hit.point.x)
@@ -40,6 +48,7 @@ enum ReplayAngle: String, CaseIterable {
   private let ball: ModelEntity
   private let shadow: ModelEntity
   private let players: [ReplayAthlete]
+  let powerTrail: [ModelEntity]
   private var firstFrame: Cancellable?
   var playbackID = -1
   var lastTime = -1.0
@@ -47,6 +56,13 @@ enum ReplayAngle: String, CaseIterable {
   init(surface: CourtSurface) {
     let sphere = MeshResource.generateSphere(radius: 1)
     ball = ModelEntity(mesh: sphere, materials: [SimpleMaterial(color: UIColor(red: 0.90, green: 0.99, blue: 0.16, alpha: 1), roughness: 0.85, isMetallic: false)])
+    powerTrail = (0..<6).map { index in
+      let material = UnlitMaterial(color: UIColor(red: 0.96, green: 0.98, blue: 0.52, alpha: 0.45 - CGFloat(index)*0.055))
+      let dot = ModelEntity(mesh: sphere, materials: [material])
+      dot.scale = .init(repeating: 0.035 - Float(index)*0.004)
+      dot.isEnabled = false
+      return dot
+    }
     let stamp = Self.shadowStamp()
     shadow = stamp
     players = [0, 1].map { ReplayAthlete(side: $0, sphere: sphere, shadow: stamp.clone(recursive: true)) }
@@ -56,6 +72,7 @@ enum ReplayAngle: String, CaseIterable {
     if #available(iOS 18.0, *) { camera.camera.fieldOfViewOrientation = .vertical }
     scene.addAnchor(court)
     court.addChild(camera); court.addChild(ball); court.addChild(shadow)
+    powerTrail.forEach { court.addChild($0) }
     players.forEach { court.addChild($0.root) }
     let sun = DirectionalLight()
     sun.light.intensity = 2300
@@ -193,7 +210,7 @@ enum ReplayAngle: String, CaseIterable {
     }
   }
 
-  func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool) {
+  func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?) {
     players[0].draw(frame.near); players[1].draw(frame.far)
     ball.position = frame.ball
     shadow.position = [frame.ball.x,0.009,frame.ball.z]
@@ -202,26 +219,35 @@ enum ReplayAngle: String, CaseIterable {
     let near = (frame.near[.leftHip] + frame.near[.rightHip]) / 2
     let far = (frame.far[.leftHip] + frame.far[.rightHip]) / 2
     let position: CourtPoint3D, target: CourtPoint3D
+    let focus = reduceMotion ? 0 : Float(powerBeat.map {
+      StrokeAnimation.ease(($0 + 1.65) / 0.80) * (1 - StrokeAnimation.ease(($0 - 0.085) / 0.74))
+    } ?? 0)
     if angle == .neutral {
-      target = [4.115,0.48,14.0]
+      let wideTarget = CourtPoint3D(4.115,0.48,14.0)
       let direction = simd_normalize(CourtPoint3D(0.13,1.04,1))
       let right = simd_normalize(simd_cross([0,1,0],direction)), up = simd_cross(direction,right)
       let tanY = tan(Float.pi/6), aspect = max(0.32,Float(bounds.width/max(1,bounds.height)))
       var distance: Float = 15
       for x: Float in [-1.65,9.88] { for z: Float in [-2.2,26.2] {
-        let v = CourtPoint3D(x,0,z) - target
+        let v = CourtPoint3D(x,0,z) - wideTarget
         let margin = max(abs(simd_dot(v,right))/(tanY*aspect),abs(simd_dot(v,up))/tanY)
         distance = max(distance,simd_dot(v,direction)+margin*1.025)
       } }
-      position = target + direction*distance
-      camera.camera.fieldOfViewInDegrees = 60
+      let widePosition = wideTarget + direction * distance
+      // An independent three-quarter view reads the shoulder turn and airborne feet,
+      // then eases back into the full-court shot as the winner travels away.
+      let courtside = near + CourtPoint3D(3.55,1.35,-3.15)
+      let strikeTarget = CourtPoint3D(near.x,1.46,near.z-0.26)
+      position = widePosition + (courtside - widePosition) * focus
+      target = wideTarget + (strikeTarget - wideTarget) * focus
+      camera.camera.fieldOfViewInDegrees = 60 - 12 * focus
     } else {
       let own = angle == .you ? near : far, other = angle == .you ? far : near
       let sign: Float = angle == .you ? 1 : -1
       let x = reduceMotion ? Float(4.115) : own.x
       let z = reduceMotion ? (angle == .you ? Float(24) : -0.5) : own.z
       position = [x-0.88*sign,2.35,z+3.65*sign]
-      target = [x*0.66+other.x*0.34,0.64,z-6.8*sign]
+      target = [x*0.66+other.x*0.34,0.64 + focus*0.65,z-6.8*sign]
       camera.camera.fieldOfViewInDegrees = 58
     }
     camera.look(at: target, from: position, relativeTo: nil)

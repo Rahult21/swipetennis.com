@@ -8,6 +8,7 @@ import Foundation
     let t: Double
     let joints: [[Int]]
     let heel: Int
+    init(t: Double, joints: [[Int]], heel: Int) { self.t = t; self.joints = joints; self.heel = heel }
     init(_ time: Double, _ pose: AthletePose, feet: Vec, side: Int) {
       t = time
       let sign = side == 0 ? 1 : -1
@@ -56,6 +57,37 @@ import Foundation
     }
   }
 
+  static func airStroke(_ stroke: NetStroke, offset: Double, loft: Double) -> [Frame] {
+    var game = PracticeEngine(settings: .init(local: true))
+    let feet = Vec(x: 4, y: 15)
+    game.players[0].pos = feet
+    game.players[0].destination = feet
+    game.phase = .live
+    game.flight = BallFlight(from: Vec(x: 4+offset, y: 1), landing: Vec(x: 4+offset, y: 22),
+      contact: Vec(x: 4+offset, y: 23.1), duration: 2, hitter: 1, explanation: "", loft: loft)
+    var motion = AthleteMotion()
+    var samples: [(Double, Frame)] = []
+    var hitAt: Double?
+    for _ in 0..<400 {
+      let serial = game.contactSerial
+      game.step(PointReplay.tick, random: { 0.6 })
+      let hit = serial != game.contactSerial && game.flight?.hitter == 0
+      if hit {
+        precondition((game.players[0].netEffort?.stroke ?? .overhead) == stroke)
+        hitAt = game.time
+      }
+      let pose = motion.sample(game: game, side: 0, hit: hit, dt: PointReplay.tick, reduceMotion: false)
+      samples.append((game.time,Frame(0,pose,feet:game.players[0].pos,side:0)))
+      if let hitAt, game.time-hitAt >= 0.7 { break }
+    }
+    guard let hitAt else { preconditionFailure("Unreachable fixture for \(stroke)") }
+    return samples.enumerated().compactMap { index, sample in
+      let relative = sample.0-hitAt
+      guard (-0.74...0.71).contains(relative), index.isMultiple(of: 5) || abs(relative)<0.0001 else { return nil }
+      return Frame(t: relative, joints: sample.1.joints, heel: sample.1.heel)
+    }
+  }
+
   static func main() throws {
     var game = PracticeEngine(settings: .init())
     var motion = AthleteMotion()
@@ -76,10 +108,13 @@ import Foundation
       let joints = BodyJoint.allCases.map { String(describing: $0) }
       let rest, ready: Frame
       let backhand, forehand, backVolley, foreVolley, serve, reaction: [Frame]
+      let diveLeft, diveRight, overhead, jump: [Frame]
     }
     let clips = Clips(rest: rest, ready: ready, backhand: stroke(offset: -0.58), forehand: stroke(offset: 0.58),
       backVolley: stroke(offset: -0.58, volley: true), foreVolley: stroke(offset: 0.58, volley: true),
-      serve: stroke(offset: 0.58, serve: true), reaction: reaction)
+      serve: stroke(offset: 0.58, serve: true), reaction: reaction,
+      diveLeft: airStroke(.dive, offset: -1.45, loft: 0.74), diveRight: airStroke(.dive, offset: 1.45, loft: 0.74),
+      overhead: airStroke(.overhead, offset: 0.2, loft: 1.51), jump: airStroke(.jump, offset: 0.18, loft: 1.85))
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     FileHandle.standardOutput.write(try encoder.encode(clips))

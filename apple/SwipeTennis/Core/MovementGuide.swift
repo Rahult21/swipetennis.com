@@ -59,6 +59,7 @@ extension PracticeEngine {
   }
 
   func canFollowShot(_ side: Int) -> Bool {
+    guard side != 0 || queuedPower == nil else { return false }
     guard phase == .live, let flight, flight.hitter == side, !flight.serve, flight.fault == nil,
       flight.progress < 0.8, side == 0 || settings.local else { return false }
     // A successful approach split closes this exchange, even just before the bounce.
@@ -80,6 +81,7 @@ extension PracticeEngine {
   }
 
   mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil) {
+    guard !phase.isPlaying || side != 0 || (queuedPower == nil && flight?.power == nil) else { return }
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
     case .move(let point): steer(side, to: point)

@@ -70,7 +70,7 @@ struct AthleteMotion {
       if side == 0, let assist = game.assist {
         phase = assist.impactProgress
         arrival = max(0, assist.travelTime - assist.elapsed)
-        style = assist.power == .overhead ? .overhead : .groundstroke
+        style = assist.power == .overhead && assist.setup != true ? .overhead : .groundstroke
       }
       target = flight.worldBall(at: phase)
     }
@@ -92,6 +92,11 @@ struct AthleteMotion {
     }
     let lateral = Double(((target ?? game.worldBall).x - centre.x) * sign)
     swing.update(delta: hit ? 0 : dt, lateralBall: lateral, arrival: arrival, incomingStyle: style)
+    let assisted = side == 0 ? game.assist : nil
+    let activePower = assisted?.setup == true ? nil : assisted?.power
+      ?? (game.flight?.hitter == side && swing.timeAfterContact != nil ? game.flight?.power : nil)
+      ?? (service != nil ? game.queuedPower : nil)
+    if activePower == .rally { swing.setPowerHand(backhand: assisted?.backhand ?? game.flight?.powerBackhand ?? false) }
     if oldFollow && swing.timeAfterContact == nil && arrival != nil {
       transitionStart = previousStrings; transitionTime = game.time
     }
@@ -121,7 +126,19 @@ struct AthleteMotion {
     let split = Float(game.splitProgress(side) ?? 0)
     let hop: Float = reduceMotion ? 0 : 0.115 * sin(split * .pi)
     let landing = game.serveLanding.flatMap { $0.server == side ? $0.progress : nil }
-    let leap = reduceMotion ? 0 : Float(ServeMotion.jumpHeight(tossProgress: service?.tossProgress, landingProgress: landing)) * 0.034
+    let effort = player.netEffort
+    let effortTime = effort.map { Float(game.time - $0.impactTime) } ?? 1
+    let windup = effort.map { Float(min(-0.001, $0.startTime - $0.impactTime)) } ?? -0.21
+    let actionScale: Float = reduceMotion ? 0.72 : 1
+    let dive = effort?.stroke == .dive ? ramp(effortTime, windup, 0) * (1 - ramp(effortTime, 0.11, 0.55)) * actionScale : 0
+    let reachDirection = effort.map { unit(CourtPoint3D($0.target.x - Float($0.from.x), 0, $0.target.z - Float($0.from.y)), fallback: right) } ?? right
+    let jumpTime = activePower == .overhead ? time : effortTime
+    let jumping = effort?.stroke == .jump || activePower == .overhead
+    let jump = jumping ? ramp(jumpTime, activePower == .overhead ? -0.24 : windup, 0)
+      * (1 - ramp(jumpTime, 0.015, 0.28)) * actionScale : 0
+    let jumpHeight = activePower == .overhead ? Float(0.44) : min(0.49, max(0.18, (effort?.target.y ?? 2.7) - 2.52))
+    let leap = jumpHeight * jump + (reduceMotion ? 0 : Float(ServeMotion.jumpHeight(tossProgress: service?.tossProgress,
+      landingProgress: landing)) * (activePower == .ace ? 0.045 : 0.034))
     // The racket can prepare early while the legs stay tall. Load just before the
     // forward swing, then extend through impact. A low volley needs a later release.
     let gather, extend, depth: Float
@@ -129,7 +146,7 @@ struct AthleteMotion {
     case .serve:
       gather = ramp(time, -0.48, -0.30)
       extend = ramp(time, -0.30, -0.16)
-      depth = 0.205
+      depth = activePower == .ace ? 0.25 : 0.205
     case .volley:
       gather = ramp(time, -0.22, -0.085)
       extend = ramp(time, -0.075, 0.09 + 0.05 * lowBall)
@@ -155,6 +172,8 @@ struct AthleteMotion {
     let stanceWidth = 0.175 + stance * 0.07
     pose[.leftShoe] = (reduceMotion ? centre - right * stanceWidth : feet.left) + up * ankleHeight
     pose[.rightShoe] = (reduceMotion ? centre + right * stanceWidth : feet.right) + up * ankleHeight
+    pose[.leftShoe] += (up * 0.18 - reachDirection * 0.45) * dive + forward * (0.19 * jump)
+    pose[.rightShoe] += (up * 0.29 - reachDirection * 0.51) * dive + (up * 0.17 - forward * 0.24) * jump
     if let landing {
       pose[.rightShoe] += (up * 0.32 - forward * 0.24) * Float(sin(landing * .pi))
     }
@@ -176,8 +195,21 @@ struct AthleteMotion {
     let offset = shoeMid - centre
     let support = CourtPoint3D(max(-0.19, min(0.19, offset.x)), 0, max(-0.14, min(0.14, offset.z)))
     var pelvis = centre + support * 0.72 + weight + weightForward + up * (0.99 - bend + 0.022 * pushOff + hop + leap)
-    let hips = axis(hipTurn + moveTurn * (1 - drive))
-    let shoulders = axis(chestTurn + moveTurn * (1 - (backhand ? coil : drive)))
+    pelvis += (reachDirection * 0.16 - up * 0.47) * dive
+    // Lead the drive with the hips. On the serve, hold the tossing shoulder up until release.
+    let powerCoil: Float = activePower == .rally ? (backhand ? 0.18 : -0.24) : activePower == .ace ? -0.35 : 0
+    let hips = axis(hipTurn + powerCoil * (1 - 1.6 * ramp(time,-0.20,0)) * coil + moveTurn * (1 - drive))
+    let shoulders = axis(chestTurn + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
+      + moveTurn * (1 - (backhand ? coil : drive)))
+    if activePower == .rally { pelvis += forward * (0.095 * pushOff) }
+    var wrongStep = CourtPoint3D.zero
+    if side == 1, let winner = game.flight, winner.power != nil {
+      let elapsed = Float(winner.elapsed)
+      let reaching = ramp(elapsed,0.075,0.29) * (1 - ramp(elapsed,0.39,0.74))
+      let direction: Float = winner.landing.x >= player.pos.x ? 1 : -1
+      wrongStep = CourtPoint3D(direction,0,0) * (reduceMotion ? 0.06 : 0.18) * reaching
+      pelvis += wrongStep * 0.35
+    }
     // Lower the hips over the extended support leg before its knee can lock straight.
     for (shoe, hipOffset) in [(pose[.leftShoe], -hips * 0.14), (pose[.rightShoe], hips * 0.14)] {
       let leg = pelvis + hipOffset - shoe
@@ -191,13 +223,17 @@ struct AthleteMotion {
     // Lean into the low first volley; retain the shot finish as the first approach step starts.
     if volley { chest += (right * sideOfBall * 0.10 + forward * 0.12) * kneeLoad }
     if approaching { chest += forward * (0.12 * forwardRun) }
+    chest += (reachDirection * 0.39 - up * 0.22) * dive + wrongStep
     pose[.leftHip] = pelvis - hips * 0.14; pose[.rightHip] = pelvis + hips * 0.14
-    pose[.leftShoulder] = chest - shoulders * 0.22; pose[.rightShoulder] = chest + shoulders * 0.22
+    let shoulderTilt: Float = activePower == .ace || activePower == .overhead
+      ? 0.13 * (ramp(time,-0.46,-0.20) - 1.70 * ramp(time,-0.15,0.015)) * finish : 0
+    pose[.leftShoulder] = chest - shoulders * 0.22 + up * shoulderTilt
+    pose[.rightShoulder] = chest + shoulders * 0.22 - up * shoulderTilt
     // Track the knees outward over the wider base as the feet plant for the shot.
     let kneeOut = right * (0.15 + 0.40 * kneeLoad)
     pose[.leftKnee] = hinge(pose[.leftHip], pose[.leftShoe], length: 0.47, bend: forward - kneeOut)
     pose[.rightKnee] = hinge(pose[.rightHip], pose[.rightShoe], length: 0.47, bend: forward + kneeOut)
-    pose[.head] = chest + up * 0.23 + forward * 0.042
+    pose[.head] = chest + up * 0.23 + forward * 0.042 + (reachDirection * 0.14 - up * 0.09) * dive
 
     let ready = local(0.16, atNet ? 1.48 : 1.29, 0.43)
     var strings: CourtPoint3D
@@ -210,10 +246,13 @@ struct AthleteMotion {
       strings += (drop - set) * ramp(time, -0.22, -0.105)
       strings += (strike - strings) * ramp(time, -0.105, 0)
       // Extend out in front first, then wrap high over the right shoulder.
-      let extensionPoint = strike + forward * 0.20 + right * 0.17 + up * 0.13
+      let extensionPoint = strike + forward * (activePower == .rally ? 0.42 : 0.20) + right * 0.17 + up * 0.13
       strings += (extensionPoint - strings) * ramp(time, 0, 0.055)
       strings += (follow - strings) * ramp(time, 0.035, 0.23)
       strings += (ready - strings) * (1 - finish)
+      if activePower == .rally {
+        strings += (forward * 0.28 + up * 0.20 - right * 0.18) * ramp(time, 0, 0.11) * finish
+      }
       let turn = ramp(time, -0.105, 0.035)
       shaft = up * 0.9 + right * 0.24
       shaft += (-right * 1.08 - up * 0.64 - forward * 0.67) * drive
@@ -232,6 +271,9 @@ struct AthleteMotion {
       strings += (follow - strings) * ramp(time, 0, volley ? 0.115 : 0.21)
       strings += (ready - strings) * (1 - finish)
       let lag = ramp(time, -0.19, -0.065) * (1 - ramp(time, -0.065, 0))
+      if activePower == .rally {
+        strings += (-right * 0.21 + forward * 0.23 + up * 0.13) * ramp(time, 0, 0.13) * finish
+      }
       shaft = up * (0.86 - drive * 0.45) + right * sideOfBall * (0.25 + drive * 0.65)
       // A low volley takes the strings below the hand as the knees absorb the ball.
       shaft -= up * low * (volley ? 1.65 : 0.92)
@@ -244,6 +286,27 @@ struct AthleteMotion {
       let lock = ramp(time, -0.18, 0) * (1 - ramp(time, 0, 0.19))
       strings += (strike - strings) * lock
       shaft = right * Float(-sin(existing.racketAngle)) + up * Float(cos(existing.racketAngle)) + forward * 0.18
+    }
+    if jumping || activePower == .ace {
+      let t = jumping ? jumpTime : time
+      let release = ramp(t, -0.15, 0), wrap = ramp(t, 0, 0.23)
+      var contact = strike
+      if let effort, effort.stroke == .jump {
+        contact = effort.reachable ? effort.target : effort.target - up * 0.20 - reachDirection * 0.08
+      }
+      let raised = local(0.41, 1.98 + leap, -0.28)
+      let finishPoint = local(-0.44, 0.90 + leap, 0.38)
+      let reach = raised + (contact - raised) * release
+      let emphasis = ramp(t, -0.31, -0.15) * (1 - ramp(t, 0.26, 0.49))
+      strings += (reach + (finishPoint - reach) * wrap - strings) * emphasis
+      let overheadShaft = unit(up * (1.0 - 1.7 * wrap) + right * (0.31 - wrap) + forward * (0.18 + wrap), fallback: up)
+      shaft += (overheadShaft - shaft) * emphasis
+    }
+    if let effort, dive > 0 {
+      var extensionPoint = effort.target
+      if !effort.reachable { extensionPoint -= reachDirection * 0.23 }
+      strings += (extensionPoint - strings) * dive
+      shaft += (reachDirection + up * 0.05 - shaft) * dive
     }
     if let start = transitionStart, !hit {
       let blend = ramp(Float(game.time - transitionTime), 0, min(0.09, Float(arrival ?? 0.1) + Float(game.time - transitionTime)))
@@ -275,6 +338,7 @@ struct AthleteMotion {
     pose[.racketEdge] = strings + across * 0.132
     var offHand = pose[.leftShoulder] - shoulders * (0.18 + drive * 0.12) + forward * 0.23 - up * 0.18
     if swing.pose.supportHandOnGrip { offHand = pose[.grip] + shaft * 0.095 }
+    if dive > 0 { offHand += (chest - up * 0.32 - reachDirection * 0.20 - offHand) * dive }
     offHand += (local(-0.29, 0.85, 0.06) - offHand) * rest
     if let service {
       let t = Float(service.tossProgress ?? 0)

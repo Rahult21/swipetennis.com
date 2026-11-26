@@ -2,6 +2,7 @@ import Foundation
 
 struct PowerInventory: Codable, Equatable {
   var held: CourtPower?
+  var armed: Bool?
   var aceCelebrations: [Bool] = []
 }
 
@@ -10,18 +11,11 @@ enum CourtPower: String, Codable, CaseIterable {
   var symbol: String {
     switch self { case .overhead: return "bolt.fill"; case .rally: return "arrow.up.right"; case .ace: return "scope" }
   }
-  var prompt: String {
-    switch self {
-    case .overhead: return "Reach the net"
-    case .rally: return "Tap green"
-    case .ace: return "Aim blue on serve"
-    }
-  }
   var hint: String {
     switch self {
-    case .overhead: return "Come within 3 m of the net, then tap."
-    case .rally: return "Tap the green contact circle, then tap the power."
-    case .ace: return "On your serve, select blue, then tap the power."
+    case .overhead: return "Tap once to set up and finish a jumping smash."
+    case .rally: return "Tap once to play a power forehand or backhand on the next return."
+    case .ace: return "Tap once to serve an ace at the blue target on your next serve."
     }
   }
   var contactGain: Double { self == .overhead ? 2 : self == .rally ? 1.5 : 1 }
@@ -36,71 +30,83 @@ struct AssistedContact: Codable {
   let startProgress: Double
   let travelTime: Double
   var elapsed = 0.0
+  var backhand: Bool?
+  var setup: Bool?
 }
 
 extension PracticeEngine {
   var canUsePower: Bool {
-    guard let power = inventory.held, demo == nil, !settings.local, queuedPower == nil else { return false }
-    switch power {
-    case .ace: return canAimServe(0) && servePreparation?.pickedBlue == true
-    case .rally: return phase == .live && canChooseShot(0) && dropGestureEpoch[0] == shotGestureEpoch(0)
-    case .overhead:
-      guard phase == .live, let flight, flight.fault == nil,
-        players[0].pos.y <= Self.net + 3 else { return false }
-      return true
-    }
+    inventory.held != nil && demo == nil && !settings.local && phase.isPlaying
+      && inventory.armed != true && queuedPower == nil
   }
 
   mutating func usePower() {
-    guard canUsePower, let power = inventory.held else { return }
-    queuedPower = power
-    if power == .overhead && flight?.hitter == 0 {
-      flight?.approachReply = .lob
-      flight?.opponentReplyPrepared = true
-      flight?.opponentError = nil
-      flight?.dropReachable = true
-      flight?.missedChaseTarget = nil
-      // Give the receiver enough time to lift the feed for the overhead.
-      let chase = CourtTactics.travelTime(distance: players[1].pos.distance(to: intercept(1)),
-        speed: settings.style.speed * settings.difficulty.speed)
-      if var outgoing = flight {
-        let remaining = max(0.01, 1 - outgoing.progress)
-        let fraction = outgoing.progress
-        outgoing.duration = max(outgoing.duration, (chase + 0.2) / remaining)
-        outgoing.elapsed = fraction * outgoing.duration
-        flight = outgoing
-      }
-      reactAt = time
+    guard canUsePower else { return }
+    inventory.armed = true
+    startArmedPower()
+  }
+
+  mutating func startArmedPower() {
+    guard inventory.armed == true, let power = inventory.held, queuedPower == nil, demo == nil, !settings.local else { return }
+    if power == .ace {
+      guard phase == .serving, servePreparation?.server == 0 else { return }
+      queuedPower = power
+      requestServe(0)
+      return
     }
-    if power == .ace { requestServe(0) }
-    else if flight?.hitter == 1 { alignForPower(power) }
+    guard phase == .live, let f = flight, f.fault == nil, f.power == nil else { return }
+    if f.hitter == 0 && power == .rally { return }
+    queuedPower = power
+    players[0].netEffort = nil
+    if f.hitter == 0 { preparePowerLob() } else { alignForPower(power) }
+  }
+
+  private mutating func preparePowerLob() {
+    flight?.approachReply = .lob
+    flight?.opponentReplyPrepared = true
+    flight?.opponentError = nil
+    flight?.dropReachable = true
+    flight?.missedChaseTarget = nil
+    // Give the receiver enough time to lift the feed for the overhead.
+    let chase = CourtTactics.travelTime(distance: players[1].pos.distance(to: intercept(1)),
+      speed: settings.style.speed * settings.difficulty.speed)
+    if var outgoing = flight {
+      let remaining = max(0.000001, 1 - outgoing.progress)
+      let fraction = outgoing.progress
+      outgoing.duration = max(outgoing.duration, (chase + 0.2) / remaining)
+      outgoing.elapsed = fraction * outgoing.duration
+      flight = outgoing
+    }
+    reactAt = time
+    players[0].destination = CourtTactics.netCoverage(side: 0, opponentContact: players[1].pos)
   }
 
   mutating func alignForPower(_ power: CourtPower) {
     guard let flight, flight.hitter == 1, flight.fault == nil else { return }
-    let impact: Double
-    var feet: Vec
-    if power == .overhead && flight.progress < 0.79 && !flight.serve {
-      let y = min(players[0].pos.y + 0.65, Self.net + 3.2)
-      let t = clamp((y - flight.from.y) / max(0.1, flight.landing.y - flight.from.y), 0, 0.98)
-      impact = min(0.799, max(flight.progress + 0.001, 0.8 * t))
-      feet = Vec(x: flight.from.x + (flight.landing.x - flight.from.x) * impact / 0.8,
-        y: flight.from.y + (flight.landing.y - flight.from.y) * impact / 0.8)
-    } else {
-      impact = max(0.94, flight.progress)
-      var sample = flight
-      sample.elapsed = impact * flight.duration
-      feet = sample.position
+    // A low pass or a serve needs a setup return before there is a real lob to smash.
+    var smashAt: Double?
+    if power == .overhead && !flight.serve && flight.progress < 0.79 {
+      for i in 0...80 {
+        let t = 0.79 - Double(i) * 0.008
+        guard t >= flight.progress else { break }
+        let ball = flight.worldBall(at: t)
+        if (2.50...2.94).contains(ball.y), ball.z > Float(Self.net + 0.5),
+          ball.z < Float(Self.length - ServeGeometry.serviceLine) {
+          smashAt = t
+          break
+        }
+      }
     }
-    // Run around the contact point to strike from the forehand side.
-    let openRight = players[1].pos.x < Self.width / 2
-    let runAround = openRight ? 0.52 : -0.52
-    feet.x -= power == .rally ? runAround : 0.18
-    feet = Self.own(0, feet)
+    let setup = power == .overhead && smashAt == nil
+    let impact = smashAt ?? max(0.94, flight.progress)
+    let ball = flight.worldBall(at: impact)
+    let backhand = power == .rally && Double(ball.x) < players[0].pos.x - 0.85
+    let offset = smashAt != nil ? 0.31 : backhand ? -0.62 : 0.62
+    let feet = Self.own(0, Vec(x: Double(ball.x) - offset, y: Double(ball.z) + 0.26))
     let timeToBall = (impact - flight.progress) * flight.duration
-    let travel = max(0.15, players[0].pos.distance(to: feet) / 10, timeToBall)
+    let travel = max(0.30, players[0].pos.distance(to: feet) / 8, timeToBall)
     assist = AssistedContact(power: power, from: players[0].pos, feet: feet,
-      impactProgress: impact, startProgress: flight.progress, travelTime: travel)
+      impactProgress: impact, startProgress: flight.progress, travelTime: travel, backhand: backhand, setup: setup)
     players[0].destination = feet
   }
 
@@ -110,8 +116,11 @@ extension PracticeEngine {
     let t = min(1, alignment.elapsed / alignment.travelTime)
     let eased = StrokeAnimation.ease(t)
     let previous = players[0].pos
-    players[0].pos = Vec(x: alignment.from.x + (alignment.feet.x - alignment.from.x) * eased,
-      y: alignment.from.y + (alignment.feet.y - alignment.from.y) * eased)
+    // Loop around the ball on the forehand, then step through the inside-out drive.
+    let loop = alignment.power == .rally && alignment.backhand != true
+      ? min(0.55, alignment.travelTime * 0.75) * pow(sin(.pi * t), 2) : 0
+    players[0].pos = Self.own(0, Vec(x: alignment.from.x + (alignment.feet.x - alignment.from.x) * eased - loop,
+      y: alignment.from.y + (alignment.feet.y - alignment.from.y) * eased + 0.65 * loop))
     players[0].velocity = Vec(x: (players[0].pos.x - previous.x) / max(0.00001, dt),
       y: (players[0].pos.y - previous.y) / max(0.00001, dt))
     let progress = alignment.startProgress + (alignment.impactProgress - alignment.startProgress) * t
@@ -122,15 +131,22 @@ extension PracticeEngine {
     assist = alignment
     guard t >= 1 else { return }
     players[0].velocity = .zero
+    if alignment.setup == true {
+      launch(0, aim: Vec(x: Self.width/2, y: 2.5), kind: .cross)
+      assist = nil
+      preparePowerLob()
+      return
+    }
     let overhead = alignment.power == .overhead
     let aim = overhead ? Vec(x: Self.width / 2, y: Self.net / 2)
-      : Vec(x: players[1].pos.x < Self.width / 2 ? Self.width - 0.45 : 0.45, y: 0.75)
+      : Vec(x: alignment.backhand == true && players[1].pos.x > Self.width / 2 ? 0.45 : Self.width - 0.45, y: 0.75)
     assessCoachReturn(incoming: incoming, aim: aim, kind: .cross, clean: true, explicit: true)
     players[0].lastReturn = ReturnDecision(shot: .cross, redirected: false, shorterSide: false,
       split: players[0].splitForReturn == contactSerial, baseAccuracy: 1)
     attempts[0] += 1
     if overhead { tactics[0].overheads += 1 }
     launch(0, aim: aim, kind: .cross, stroke: overhead ? .overhead : .groundstroke)
+    flight?.powerBackhand = alignment.backhand
     commitPowerFlight(alignment.power, random: random)
   }
 
@@ -155,6 +171,7 @@ extension PracticeEngine {
     flight = shot
     players[1].destination = players[1].pos
     inventory.held = nil
+    inventory.armed = nil
     queuedPower = nil
     assist = nil
   }

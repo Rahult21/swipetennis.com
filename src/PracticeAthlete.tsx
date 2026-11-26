@@ -1,5 +1,5 @@
 import clips from "./practice-poses.json";
-import { interceptPoint, type Practice, type Side } from "./practice-engine";
+import { airContact, interceptPoint, type Practice, type Side } from "./practice-engine";
 
 type Frame = typeof clips.rest;
 const joint = Object.fromEntries(clips.joints.map((name, i) => [name, i]));
@@ -28,18 +28,36 @@ function pose(game: Practice, side: Side, serveLead: number, reduceMotion: boole
     return mix(clips.ready, clips.rest, Math.min(1, game.resultElapsed / 0.35));
   }
   if (serveLead > 0 && side !== f.hitter) return mix(clips.rest, clips.ready, Math.min(1, (0.74-serveLead)/0.26));
+  const sign = side === 0 ? 1 : -1;
+  const player = game.players[side];
+  const effort = player.netEffort;
+  function netFrames(stroke: string | undefined, back: boolean) {
+    if (stroke === "dive") return back ? clips.diveLeft : clips.diveRight;
+    if (stroke === "jump") return clips.jump;
+    if (stroke === "overhead") return clips.overhead;
+  }
+  if (effort) {
+    const frames = netFrames(effort.stroke, (effort.point.x - effort.from.x) * sign < 0);
+    if (frames) return sample(frames, game.time - effort.impact);
+  }
   if (f.hitter === side) {
-    const frames = f.serve ? clips.serve : f.volley ? (f.backhand ? clips.backVolley : clips.foreVolley)
-      : f.backhand ? clips.backhand : clips.forehand;
+    const frames = netFrames(f.netStroke, !!f.backhand) ?? (f.serve ? clips.serve : f.volley ? (f.backhand ? clips.backVolley : clips.foreVolley)
+      : f.backhand ? clips.backhand : clips.forehand);
     return sample(frames, f.elapsed - serveLead);
   }
   if (f.fault) return clips.ready;
-  const target = interceptPoint(game, side), player = game.players[side].pos;
-  const back = (target.x-player.x)*(side === 0 ? 1 : -1) < 0;
+  const air = airContact(game, side, f.elapsed / f.duration);
+  if (air) {
+    const back = (air.point.x-player.pos.x)*sign < 0;
+    const frames = netFrames(air.stroke,back) ?? (back ? clips.backVolley : clips.foreVolley);
+    return sample(frames, f.elapsed-air.t*f.duration);
+  }
+  const target = interceptPoint(game, side);
+  const back = (target.x-player.pos.x)*(side === 0 ? 1 : -1) < 0;
   const volley = target.y !== f.contact.y;
   const impactTime = volley ? f.duration * 0.8 * (target.y-f.from.y)/(f.landing.y-f.from.y) : f.duration;
   const remaining = Math.max(0, impactTime - f.elapsed);
-  if (Math.hypot(target.x-player.x, target.y-player.y) > 1.4 + remaining * 6) return clips.ready;
+  if (Math.hypot(target.x-player.pos.x, target.y-player.pos.y) > 1.4 + remaining * 6) return clips.ready;
   return sample(volley ? (back ? clips.backVolley : clips.foreVolley) : back ? clips.backhand : clips.forehand, -remaining);
 }
 
@@ -49,7 +67,7 @@ export function PracticeAthlete({ game, side, serveLead, reduceMotion }: {
   const frame = pose(game, side, serveLead, reduceMotion), player = game.players[side];
   const sign = side === 0 ? 1 : -1;
   const kit = side === 0 ? "#a8d9e4" : "#efb27e", skin = side === 0 ? "#cd987c" : "#a56f53";
-  const stride = game.phase === "live" && !reduceMotion
+  const stride = game.phase === "live" && !player.netEffort && !reduceMotion
     ? Math.min(1, Math.hypot(player.velocity.x, player.velocity.y)/4) * Math.sin(game.time*17) : 0;
   function point(name: string) {
     const [x,h,z] = frame.joints[joint[name]];

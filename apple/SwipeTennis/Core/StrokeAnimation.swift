@@ -34,6 +34,7 @@ struct StrokeAnimation {
   private(set) var stance: StrokeStance = .forehand
   private(set) var style: TennisStrokeStyle = .groundstroke
   private(set) var timeAfterContact: Double?
+  mutating func setPowerHand(backhand: Bool) { stance = backhand ? .backhand : .forehand }
   private(set) var timeUntilContact: Double?
   private var committed = false
   private(set) var contactReach = 30.0

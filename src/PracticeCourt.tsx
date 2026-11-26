@@ -10,6 +10,7 @@ import {
   LEVELS,
   PROFILES,
   aimPosition,
+  ballHeight as flightHeight,
   createPractice,
   interceptPoint,
   other,
@@ -317,15 +318,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
   const recovery = current.flight
     ? recoverySpot(current.flight.hitter, current.flight.contact)
     : null;
-  const ballHeight = current.flight
-    ? Math.sin(
-        (Math.min(0.8, current.flight.elapsed / current.flight.duration) /
-          0.8) *
-          Math.PI,
-      ) *
-      current.flight.loft *
-      0.55
-    : 0;
+  const ballHeight = current.flight ? flightHeight(current.flight) * 0.83 : 0;
 
   return (
     <section

@@ -1,17 +1,102 @@
 import Foundation
 
+enum NetStroke: String, Codable {
+  case volley, overhead, dive, jump
+  var overhead: Bool { self == .overhead || self == .jump }
+  var extended: Bool { self == .dive || self == .jump }
+  var recovery: Double { self == .dive ? 0.55 : 0.32 }
+}
+
+struct NetEffort: Codable {
+  let stroke: NetStroke
+  let serial: Int
+  let startTime, impactTime, progress: Double
+  let from, landing: Vec
+  let target: CourtPoint3D
+  let reachable: Bool
+
+  func position(at time: Double) -> Vec {
+    let duration = impactTime - startTime + 0.10
+    let u = StrokeAnimation.ease((time - startTime) / max(0.10, duration))
+    return Vec(x: from.x + (landing.x - from.x) * u, y: from.y + (landing.y - from.y) * u)
+  }
+}
+
 /// One contact clock shared by the simulation, swing preparation and drawn ball.
 struct BallContactWindow {
   let entry: Double
-  let exit: Double
+  var exit: Double
   let volley: Bool
   var overhead = false
+  var netStroke: NetStroke?
+  var reachable = true
+
+  static func inServiceBox(_ p: Vec, side: Int) -> Bool {
+    let depth = (p.y - PracticeEngine.net) * (side == 0 ? 1.0 : -1.0)
+    return (0...PracticeEngine.width).contains(p.x) && (0...(PracticeEngine.net - ServeGeometry.serviceLine)).contains(depth)
+  }
+
+  /// Search only the nearby section of the airborne trajectory, in metres. Prefer
+  /// a shot from planted feet if the same ball will enter comfortable reach.
+  static func netOpportunity(flight: BallFlight, player: Vec, side: Int, after: Double) -> Self? {
+    guard inServiceBox(player, side: side), flight.hitter != side, !flight.serve,
+      flight.fault == nil, flight.power == nil, after < 0.8 else { return nil }
+    let origin = flight.worldBall(at: 0)
+    let from = Vec(x: Double(origin.x), y: Double(origin.z))
+    guard let section = intersection(from: from, to: flight.landing, player: player, radius: 1.95) else { return nil }
+    let start = section.lowerBound * 0.8, end = section.upperBound * 0.8
+    guard after <= end else { return nil }
+    let steps = max(1, Int(ceil((end-start) * from.distance(to: flight.landing) / (0.8 * 0.09))))
+    let sign = side == 0 ? 1.0 : -1.0
+    var best: Self?, bestCost = Double.infinity
+    for i in 0...steps {
+      let t = max(after, start + (end - start) * Double(i) / Double(steps))
+      let point = flight.worldBall(at: t)
+      let h = Double(point.y), z = Double(point.z), dx = Double(point.x) - player.x
+      let ahead = (player.y - z) * sign
+      guard h >= 0.14, (z - PracticeEngine.net) * sign >= 0.05, ahead >= -0.45 else { continue }
+      let gap = hypot(dx, ahead)
+      let stroke: NetStroke, cost: Double
+      var touch = true
+      if h >= 2.13 {
+        guard flight.kind != .slice && flight.kind != .drop else { continue }
+        let reach = hypot(gap / 1.0, max(0, h - 2.16) / 1.00)
+        guard reach <= 1.16 else { continue }
+        stroke = h <= 2.66 && gap <= 0.74 ? .overhead : .jump
+        touch = reach <= 1
+        cost = (stroke == .overhead ? 0 : 2) + reach
+      } else if gap <= 0.90 {
+        stroke = .volley
+        cost = 0.8 + t
+      } else {
+        let reach = hypot(dx / 1.70, ahead / 1.22)
+        guard h <= 1.72, abs(dx) >= 0.48, reach <= 1.14 else { continue }
+        stroke = .dive
+        touch = reach <= 1
+        cost = 3 + reach
+      }
+      let priority = cost + (touch ? 0 : 6)
+      if priority < bestCost {
+        bestCost = priority
+        best = Self(entry: t, exit: t, volley: true, overhead: stroke.overhead, netStroke: stroke, reachable: touch)
+      } else if best?.netStroke == stroke, !stroke.extended, touch, let previous = best,
+        t - previous.exit <= max(0.00001, (end-start)/Double(steps) + 0.000001) {
+        best?.exit = t
+      }
+    }
+    return best
+  }
 
   static func next(
     flight: BallFlight, player: Vec, side: Int, after progress: Double? = nil
   ) -> BallContactWindow? {
     guard flight.fault == nil, flight.hitter != side else { return nil }
     let current = progress ?? flight.progress
+    if inServiceBox(player, side: side) {
+      if let air = netOpportunity(flight: flight, player: player, side: side, after: current), air.reachable { return air }
+      if let ground = groundstroke(flight: flight, player: player), ground.exit >= current { return ground }
+      return nil
+    }
     if let window = overhead(flight: flight, player: player, side: side), window.exit >= current {
       return window
     }

@@ -161,11 +161,11 @@ final class TennisCoreTests: XCTestCase {
       for _ in 0..<1200 {
         if e.phase == .point { e.startRally() }
         if e.phase == .live { e.players[0].destination = PracticeEngine.own(0, e.intercept(0)) }
-        let speedLimit = max(e.players[0].velocity.length, e.showsGoldenContact(0) ? 9 : 6)
+        let speedLimit = max(e.players[0].velocity.length, e.quickNetFeet(0) ? 12 : e.showsGoldenContact(0) ? 9 : 6)
         e.step(1 / 120, random: { 0.3 })
         XCTAssertTrue(e.ball.x.isFinite && e.ball.y.isFinite)
         XCTAssertLessThanOrEqual(e.players[0].velocity.length, speedLimit + 0.0001)
-        XCTAssertLessThanOrEqual(e.players[0].velocity.length, 9.0001)
+        XCTAssertLessThanOrEqual(e.players[0].velocity.length, 12.0001)
       }
       XCTAssertGreaterThan(e.contactSerial, 1)
     }

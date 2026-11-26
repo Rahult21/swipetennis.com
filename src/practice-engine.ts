@@ -90,6 +90,9 @@ export type Settings = {
   profile: Profile;
   difficulty: Difficulty;
 };
+type NetStroke = "volley" | "overhead" | "dive" | "jump";
+type AirContact = {stroke: NetStroke; t: number; point: Vec; height: number; reachable: boolean};
+type NetEffort = AirContact & {rally: number; start: number; impact: number; from: Vec; landing: Vec};
 export type Player = {
   pos: Vec;
   destination: Vec;
@@ -98,6 +101,7 @@ export type Player = {
   aim: Vec | null;
   kind: ShotKind;
   madeNetVolley: boolean;
+  netEffort?: NetEffort;
   splitForReturn?: number;
   lastReturn?: { split: boolean; base: number; accuracy: number; lesson: string };
 };
@@ -115,6 +119,8 @@ export type Flight = {
   serve: boolean;
   backhand?: boolean;
   volley?: boolean;
+  netStroke?: NetStroke;
+  originHeight?: number;
   returnedShort?: boolean;
 };
 export type Feedback = {
@@ -295,6 +301,62 @@ export function flightPosition(f: Flight): Vec {
     x: f.landing.x + ((f.contact.x - f.landing.x) * (t - 0.8)) / 0.2,
     y: f.landing.y + ((f.contact.y - f.landing.y) * (t - 0.8)) / 0.2,
   };
+}
+
+export function ballHeight(f: Flight, t = f.elapsed / f.duration) {
+  if (t >= 0.8) return 1.14 * Math.sin(clamp((t - 0.8)/0.2, 0, 1) * Math.PI/2);
+  const u = t / 0.8;
+  return (f.originHeight ?? (f.serve ? 2.73 : 0.93)) * (1-u) + Math.sin(u*Math.PI) * f.loft * 1.7;
+}
+
+export function inServiceBox(p: Vec, side: Side) {
+  const depth = (p.y-COURT.net) * (side === 0 ? 1 : -1);
+  return p.x >= 0 && p.x <= COURT.width && depth >= 0 && depth <= 6.4;
+}
+
+export function airContact(s: Practice, side: Side, after: number): AirContact | undefined {
+  const f = s.flight;
+  const p = s.players[side];
+  if (!f || f.hitter === side || f.fault || f.serve || after >= 0.8) return;
+  if (p.netEffort) return p.netEffort.rally === s.rally ? p.netEffort : undefined;
+  if (!inServiceBox(p.pos, side)) return;
+  const vx = f.landing.x - f.from.x, vy = f.landing.y - f.from.y;
+  const length = Math.hypot(vx,vy);
+  if (length < 0.01) return;
+  const along = ((p.pos.x-f.from.x)*vx + (p.pos.y-f.from.y)*vy) / length;
+  const start = Math.max(0, (along-1.95)/length), end = Math.min(1,(along+1.95)/length);
+  if (end*0.8 < after || start > end) return;
+  let best: AirContact | undefined;
+  let bestCost = Infinity;
+  const steps = Math.max(1, Math.ceil((end-start)*length/0.09)), sign = side === 0 ? 1 : -1;
+  for (let i = 0; i <= steps; i++) {
+    const u = Math.max(after/0.8, start+(end-start)*i/steps), t = u*0.8;
+    const point = {x: f.from.x+vx*u, y: f.from.y+vy*u}, h = ballHeight(f,t);
+    const dx = point.x-p.pos.x, ahead = (p.pos.y-point.y)*sign, gap = Math.hypot(dx,ahead);
+    if (h < 0.14 || (point.y-COURT.net)*sign < 0.05 || ahead < -0.45) continue;
+    let stroke: NetStroke;
+    let cost: number;
+    let reachable = true;
+    if (h >= 2.13) {
+      const reach = Math.hypot(gap, Math.max(0,h-2.16));
+      if (reach > 1.16) continue;
+      stroke = h <= 2.66 && gap <= 0.74 ? "overhead" : "jump";
+      cost = (stroke === "overhead" ? 0 : 2) + reach;
+      reachable = reach <= 1;
+    } else if (gap <= 0.9) {
+      stroke = "volley"; cost = 0.8 + t;
+    } else {
+      const reach = Math.hypot(dx/1.7, ahead/1.22);
+      if (h > 1.72 || Math.abs(dx)<0.48 || reach>1.14) continue;
+      stroke = "dive"; cost = 3+reach; reachable = reach<=1;
+    }
+    if (!reachable) cost += 6;
+    if (cost < bestCost) {
+      best = { stroke, t, point, height: h, reachable };
+      bestCost = cost;
+    }
+  }
+  return best;
 }
 function botAim(s: Practice, random: () => number): Vec {
   const profile = PROFILES[s.settings.profile];
@@ -493,6 +555,7 @@ export function startPoint(s: Practice) {
     p.settled = 0;
     p.aim = null;
     p.madeNetVolley = false;
+    p.netEffort = undefined;
     p.splitForReturn = undefined;
     p.lastReturn = undefined;
   });
@@ -522,6 +585,10 @@ export function startPoint(s: Practice) {
 export function interceptPoint(s: Practice, side: Side): Vec {
   const f = s.flight!;
   const p = s.players[side].pos;
+  const effort = s.players[side].netEffort;
+  if (effort?.rally === s.rally) return effort.landing;
+  const air = inServiceBox(p,side) && f.loft >= 2 ? airContact(s,side,f.elapsed/f.duration) : undefined;
+  if (air?.reachable) return air.point;
   const nearNet = side === 0 ? p.y < 19 : p.y > 4.77;
   if (nearNet && !f.serve && f.loft < 2) {
     const denominator = f.landing.y - f.from.y;
@@ -536,6 +603,7 @@ function returnBall(
   side: Side,
   volley: boolean,
   random: () => number,
+  air?: AirContact,
 ) {
   const p = s.players[side];
   const incoming = s.flight!;
@@ -561,7 +629,8 @@ function returnBall(
       ? level.botAccuracy - (risk ? level.riskPenalty : 0)
       : Math.min(0.78, chance);
   } else {
-    p.lastReturn = returnDecision(s, side, aim, chance);
+    const placement = air ? (air.stroke === "dive" ? 0.73 : 0.92) : chance;
+    p.lastReturn = returnDecision(s, side, aim, placement);
     chance = p.lastReturn.accuracy;
   }
   const miss = random() >= chance;
@@ -573,7 +642,8 @@ function returnBall(
       : speed >= 2.2
         ? `${actor} ${side === 0 && s.settings.mode === "bot" ? "were" : "was"} still moving through contact.`
         : `${actor} arrived too late to set the feet.`;
-  s.lastContact = `${playerName(s, side)} · ${balanced ? "Balanced" : "Rushed"}${volley ? " volley" : ""}`;
+  const strokeName = air?.stroke === "jump" || air?.stroke === "overhead" ? "overhead" : air?.stroke === "dive" ? "diving volley" : "volley";
+  s.lastContact = `${playerName(s, side)} · ${balanced ? "Balanced" : "Rushed"}${volley ? " " + strokeName : ""}`;
   p.aim = null;
   let fault: string | null = null;
   if (miss)
@@ -600,6 +670,20 @@ function returnBall(
   const kind = bot && s.settings.profile === "retriever" ? "lob" : p.kind;
   launch(s, side, aim, kind, fault, explanation);
   const outgoing = s.flight!;
+  if (air) {
+    outgoing.from = { ...air.point };
+    outgoing.originHeight = air.height;
+    s.ball = { ...air.point };
+    outgoing.netStroke = air.stroke;
+    if (air.stroke === "dive") {
+      outgoing.duration *= 1.18;
+      outgoing.loft = 1.02;
+    }
+    if (air.stroke === "jump" || air.stroke === "overhead") {
+      outgoing.duration *= 0.78;
+      outgoing.loft = 0.42;
+    }
+  }
   outgoing.backhand = (contact.x - p.pos.x) * (side === 0 ? 1 : -1) < 0;
   outgoing.volley = volley;
   const depth = side === 0 ? COURT.length - incoming.landing.y : incoming.landing.y;
@@ -625,10 +709,36 @@ export function stepPractice(
   s.time += dt;
   const f = s.flight;
   const receiver = other(f.hitter);
+  const previous = f.elapsed / f.duration;
+  const receiving = s.players[receiver];
+  const air = airContact(s, receiver, previous);
+  if (!receiving.netEffort && air && (air.stroke === "jump" || air.stroke === "dive")) {
+    const remaining = (air.t-previous)*f.duration;
+    if (remaining <= (air.stroke === "jump" ? 0.23 : 0.21)) {
+      const from = {...receiving.pos}, gap = distance(from,air.point);
+      const scale = Math.min(air.stroke === "dive" ? 0.94 : 0.34, gap*0.55, (remaining+0.1)*4)/Math.max(0.01,gap);
+      const landing = ownPosition(receiver,{x: from.x+(air.point.x-from.x)*scale,y: from.y+(air.point.y-from.y)*scale});
+      const needed = air.stroke === "jump" ? Math.max(0,air.height-2.66)/3.2 : Math.max(0,gap-.94)/5.5;
+      receiving.netEffort = {...air, reachable: air.reachable && remaining+dt>=needed,
+        rally: s.rally,start: s.time-dt,impact: s.time-dt+remaining,from,landing};
+      receiving.destination = landing;
+    }
+  }
   if (!f.fault && s.settings.mode === "bot" && receiver === 1 && s.time >= s.reactAt) {
     s.players[1].destination = ownPosition(1, interceptPoint(s, 1));
   }
   s.players.forEach((p, i) => {
+    if (p.netEffort) {
+      const e = p.netEffort;
+      if (s.time < e.impact + (e.stroke === "dive" ? .55 : .32)) {
+        const t = clamp((s.time-e.start)/(e.impact-e.start+.10),0,1), u = t*t*(3-2*t);
+        p.pos = {x: e.from.x+(e.landing.x-e.from.x)*u, y: e.from.y+(e.landing.y-e.from.y)*u};
+        p.velocity = { x: 0, y: 0 };
+        p.settled = 0;
+        return;
+      }
+      p.netEffort = undefined;
+    }
     const maxSpeed =
       i === 1 && s.settings.mode === "bot"
         ? PROFILES[s.settings.profile].speed *
@@ -646,6 +756,14 @@ export function stepPractice(
         : 0;
   });
   f.elapsed += dt;
+  s.ball = flightPosition(f);
+  const progress = f.elapsed / f.duration;
+  const net = airContact(s, receiver, previous);
+  if (net?.reachable && net.t >= previous - 0.000001 && net.t <= progress + 0.000001) {
+    s.ball = {...net.point};
+    returnBall(s,receiver,true,random,net);
+    return;
+  }
   if (!f.serve && !f.fault && f.elapsed >= f.duration * 0.8 && f.elapsed - dt < f.duration * 0.8
       && (f.hitter === 0 || s.settings.mode === "local")) {
     const hitter = s.players[f.hitter];
@@ -653,8 +771,6 @@ export function stepPractice(
       splitStep(s, f.hitter);
     }
   }
-  s.ball = flightPosition(f);
-  const progress = f.elapsed / f.duration;
   if (f.fault && progress >= 0.8) {
     const opponentMiss = f.hitter === 1;
     const goodRisk = f.red && f.explanation.startsWith("Balanced");
@@ -682,6 +798,7 @@ export function stepPractice(
   if (
     !f.fault &&
     !f.serve &&
+    !inServiceBox(receiving.pos,receiver) && !receiving.netEffort &&
     f.loft < 2 &&
     progress < 0.76 &&
     ballOnReceiverSide &&
@@ -692,7 +809,7 @@ export function stepPractice(
   }
   if (progress < 1) return;
   const gap = distance(s.players[receiver].pos, f.contact);
-  if (gap > 1.35) {
+  if (gap > 1.35 || receiving.netEffort) {
     const riskyWinner =
       f.red && (f.hitter === 1 || s.settings.mode === "local");
     endPoint(s, f.hitter, {

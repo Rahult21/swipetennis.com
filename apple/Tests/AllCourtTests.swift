@@ -14,6 +14,7 @@ final class AllCourtTests: XCTestCase {
       from: engine.players[1].pos,
       landing: Vec(x: x, y: bounceY), contact: engine.players[0].pos,
       duration: 2, hitter: 1, fault: nil, explanation: "", loft: 1)
+    engine.flight!.elapsed = engine.flight!.duration
     engine.choose(0, .line)
     engine.returnBall(0, volley: false, random: { 0.999 })
     return engine

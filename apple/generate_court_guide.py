@@ -335,7 +335,7 @@ for i,(level,copy) in enumerate([
     label(level,38,top-21,13,INK,'Helvetica-Bold');para(copy,107,top-12,270,size=12,leading=15)
 label('DROP SHOTS AND SLICES',24,166,10,INK,'Helvetica-Bold')
 para('Every drop shot is chased. Easy reaches 2/3, Medium 3/4 and Hard 4/5; a reached drop comes back as a deep lob. Slices travel slower and can be returned.',24,151,size=13,leading=18)
-para('Ordinary errors vary: net, wide, long or a late chase. You choose when to approach.',24,77,size=12,leading=16)
+para('Inside the service box, reach wide for a diving volley or jump for a high lob. Serve returns must bounce first.',24,77,size=12,leading=16)
 c.showPage()
 
 page(7,'Read the point result.','A timed split improves placement on your next shot by 20%, up to 100%.')
@@ -348,10 +348,10 @@ c.setStrokeColor(MINT);c.line(42,366,372,366)
 label('COACHABILITY   -1 CP',42,344,10,YELLOW,'Helvetica-Bold')
 label('Missed the white recovery circle.',42,321,12,white)
 label('MATCH POWERS',24,279,12,INK,'Helvetica-Bold')
-para('Win two points in a row against the opponent to earn one random power. The round button at bottom right holds it until use.',24,266,size=12,leading=15)
-for y,title,copy in [(212,'Overhead Smash','Get within 3 m of the net. Tap the power to line up and smash over the opponent.'),
-                     (162,'Rally Smash','Tap the green contact ring on an incoming ball, then tap the power for an inside-out winner.'),
-                     (112,'On Demand Ace','Select or drag blue on your serve. Tap the power to ace that spot.')]:
+para('Win two points running to earn a power. Tap the small circle at bottom right once. A check means your shot is armed.',24,266,size=12,leading=15)
+for y,title,copy in [(212,'Overhead Smash','Your player gets under a high ball and jumps. A low ball sets up a lob first.'),
+                     (162,'Rally Smash','Your player lines up an inside-out forehand or a two-handed backhand winner on the next return.'),
+                     (112,'On Demand Ace','Drag blue if you want to pick a spot. The ace uses the blue target on your next available serve.')]:
     label(title,24,y,13,INK,'Helvetica-Bold')
     para(copy,24,y-7,360,size=11.2,leading=14)
 para('After two losses, an affirmation may appear once per game. Tap to reveal the result.',24,62,size=10.3,leading=12)
