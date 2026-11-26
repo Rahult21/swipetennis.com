@@ -156,6 +156,7 @@ struct CourtPlayer: Codable {
 }
 struct BallFlight: Codable {
   var from: Vec, landing: Vec, contact: Vec
+  var strikeOrigin: CourtPoint3D?
   var elapsed = 0.0
   var duration: Double
   var hitter: Int
@@ -440,9 +441,12 @@ struct PracticeEngine: Codable {
         distance: players[1].pos.distance(to: contact), speed: speed)
       duration = max(duration, (travel + 0.15) / 0.86)
     }
+    // The next flight leaves the exact 3D point reached by the incoming ball on this tick.
+    let impact = serve ? serviceImpact(at: from, side: side, explosive: queuedPower == .ace)
+      : flight.flatMap { $0.hitter != side ? $0.worldBall(at: $0.progress) : nil } ?? from.world(height: 0.93)
     pointResolution = nil
     flight = BallFlight(
-      from: from, landing: landing, contact: contact, duration: duration, hitter: side,
+      from: from, landing: landing, contact: contact, strikeOrigin: impact, duration: duration, hitter: side,
       fault: fault, explanation: explanation, loft: loft, serve: serve, serveNumber: serveNumber,
       serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind, stroke: serve ? .serve : kind == .drop ? .drop : kind == .slice ? .slice : stroke, trainingApproach: trainingApproach,
       trainingReply: trainingReply)

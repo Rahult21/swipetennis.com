@@ -86,7 +86,7 @@ import SwiftUI
   var suspended = false
   private let world = SKNode(), marks = SKNode(), dynamic = SKNode()
   private var actors: [PlayerFigure] = []
-  private var observedContactSerial = 0
+  private(set) var performance: CourtPerformance
   private var animationTime = 0.0
   private let ballNode = SKShapeNode(circleOfRadius: 4),
     shadow = SKShapeNode(ellipseOf: CGSize(width: 9, height: 4))
@@ -118,6 +118,7 @@ import SwiftUI
   var reduceMotion = false
   init(settings: PracticeSettings) {
     engine = PracticeEngine(settings: settings)
+    performance = CourtPerformance(game: engine)
     super.init(size: CGSize(width: 390, height: 520))
     scaleMode = .resizeFill
   }
@@ -146,7 +147,7 @@ import SwiftUI
       Immersion.shared.prepareAudio()
     }
     drawCourt()
-    updatePlayerAnimations(delta: 0)
+    performance.update(game: engine, dt: 0, reduceMotion: reduceMotion)
     render()
   }
   override func didChangeSize(_ oldSize: CGSize) {
@@ -377,7 +378,13 @@ import SwiftUI
       accumulator += dt
       while accumulator >= 1 / 120 {
         if engine.acceptsCourtMovement && engine.demo?.demonstration != true { applyInputs() }
-        engine.step(1 / 120)
+        let oldContact = engine.contactSerial
+        engine.step(PointReplay.tick)
+        performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
+        if engine.contactSerial != oldContact {
+          Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1)
+          trails.removeAll()
+        }
         accumulator -= 1 / 120
       }
     }
@@ -387,7 +394,6 @@ import SwiftUI
     if oldMiss != missPresentation.current { publishCoachMiss?(missPresentation.current) }
     let showGuides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     swipeCoach.update(guide: showGuides ? engine.movementGuide(0) : nil, delta: dt)
-    updatePlayerAnimations(delta: dt)
     if engine.bounceSerial != oldBounce { Immersion.shared.hit(bounce: true, x: engine.ball.x) }
     if oldPhase.isPlaying && !engine.phase.isPlaying {
       if engine.flight?.power == .ace { Immersion.shared.cheer() }
@@ -466,7 +472,8 @@ import SwiftUI
     swipeCoach.dismiss()
     actors.forEach { $0.reset() }
     trails.removeAll()
-    observedContactSerial = engine.contactSerial
+    performance = CourtPerformance(game: engine)
+    performance.update(game: engine, dt: 0, reduceMotion: reduceMotion)
   }
 
   private func positionPlayers() {
@@ -479,139 +486,10 @@ import SwiftUI
     }
   }
 
-  private func incomingTiming(for side: Int, flight: BallFlight) -> (Double, TennisStrokeStyle) {
-    let window = engine.contactWindow(side)
-    return (
-      max(0, (window?.entry ?? 1) * flight.duration - flight.elapsed),
-      window?.overhead == true
-        ? .overhead
-        : window?.volley == true
-          ? .volley : engine.players[side].kind.strokeStyle
-    )
-  }
-
-  private func updatePlayerAnimations(delta: Double) {
-    guard actors.count == 2 else { return }
-    positionPlayers()
-    // Observe the engine event instead of starting a new independent SKAction after impact.
-    // This includes opening serves, which are initiated outside the frame loop.
-    let hit = engine.contactSerial != observedContactSerial
-    if hit, let flight = engine.flight {
-      observedContactSerial = engine.contactSerial
-      let actor = actors[flight.hitter]
-      actor.motion.hit(style: flight.stroke, elapsed: flight.elapsed)
-      Immersion.shared.hit(x: engine.ball.x, gain: flight.power?.contactGain ?? 1)
-      trails.removeAll()
-    }
-    for side in 0...1 {
-      let player = engine.players[side]
-      var arrival: Double?
-      var style = player.kind.strokeStyle
-      var reach = 30.0
-      if engine.phase == .live, let flight = engine.flight,
-        flight.hitter != side, flight.fault == nil, flight.power == nil,
-        !(side == 1 && (flight.opponentError == .unreachable || flight.dropReachable == false))
-      {
-        (arrival, style) = incomingTiming(for: side, flight: flight)
-        let contact = project(engine.intercept(side))
-        reach = abs(contact.x - actors[side].position.x) / actors[side].xScale
-      }
-      if engine.phase == .serving, let serve = engine.servePreparation, serve.server == side,
-        let elapsed = serve.tossElapsed {
-        arrival = max(0, ServePreparation.tossDuration - elapsed)
-        style = .serve
-      }
-      if side == 0, let assist = engine.assist {
-        arrival = max(0, assist.travelTime - assist.elapsed)
-        style = assist.power == .overhead ? .overhead : .groundstroke
-      }
-      let lateral = StrokeAnimation.lateralBallOffset(
-        ballX: engine.ball.x, playerX: player.pos.x, courtSide: side)
-      actors[side].motion.update(
-        delta: hit && engine.flight?.hitter == side ? 0 : delta,
-        lateralBall: lateral, arrival: arrival, incomingStyle: style, reach: reach)
-    }
-  }
-
-  private func displayedBallPosition() -> CGPoint {
-    if let resolution = engine.pointResolution, let impact = resolution.impact {
-      let pose = impact.ball(after: resolution.elapsed)
-      let ground = project(pose.position)
-      return CGPoint(x: ground.x, y: ground.y + pose.height * 20)
-    }
-    if engine.phase == .serving, let serve = engine.servePreparation {
-      let from = project(engine.players[serve.server].pos)
-      let direction = serve.server == 0 ? 1.0 : -1.0
-      let scale = actors[serve.server].xScale
-      let impact = actors[serve.server].motion.contactPose.racketCentre
-      if let t = serve.tossProgress {
-        // The toss finishes at the same string-bed position used by the outgoing flight.
-        return CGPoint(x: from.x + (-14 + (impact.x + 14) * t) * direction * scale,
-          y: from.y + (25 + (impact.y + (reduceMotion ? 0 : engine.queuedPower == .ace ? 14 : 10) - 25) * t + sin(t * .pi) * 34) * scale)
-      }
-      return CGPoint(x: from.x - 14 * direction * scale, y: from.y + 25 * scale)
-    }
-    guard let flight = engine.flight else { return project(engine.ball) }
-    if flight.kind == .drop && flight.dropReachable == false && flight.progress >= 0.8 {
-      let ground = project(flight.position)
-      return CGPoint(x: ground.x, y: ground.y + flight.height * 20)
-    }
-    let progress = flight.progress
-    let from = project(flight.from)
-    let groundLanding = project(flight.landing)
-    let landing = CGPoint(x: groundLanding.x,
-      y: groundLanding.y + (flight.fault == "net" ? 9 : 0))
-    let contact = project(flight.contact)
-    let hitter = actors[flight.hitter]
-    // Keep the origin fixed to the stroke location while the hitter starts recovering.
-    let localImpact = hitter.motion.contactPose.racketCentre
-    let direction = flight.hitter == 0 ? 1.0 : -1.0
-    let launchScale = 0.82 + clamp(flight.from.y / PracticeEngine.length, 0, 1) * 0.18
-    let origin = CGPoint(
-      x: from.x + localImpact.x * direction * launchScale,
-      y: from.y + (localImpact.y + (flight.serve && !reduceMotion ? (flight.power == .ace ? 14 : 10) : 0)) * launchScale)
-    if progress < 0.8 {
-      let t = progress / 0.8
-      let arc = sin(t * .pi) * flight.loft * 25 * engine.settings.surface.bounce
-      let airborne = CGPoint(
-        x: origin.x + (landing.x - origin.x) * t,
-        y: origin.y + (landing.y - origin.y) * t + arc)
-      let receiver = 1 - flight.hitter
-      if let assist = engine.assist, assist.power == .overhead, assist.impactProgress < 0.8 {
-        let blend = StrokeAnimation.ease(1 - (assist.travelTime - assist.elapsed) / 0.22)
-        let strings = actors[receiver].contactPoint(in: self)
-        return CGPoint(x: airborne.x + (strings.x - airborne.x) * blend,
-          y: airborne.y + (strings.y - airborne.y) * blend)
-      }
-      if let window = engine.contactWindow(receiver), window.volley {
-        let remaining = (window.entry - progress) * flight.duration
-        let blend = StrokeAnimation.ease(1 - remaining / 0.16)
-        let strings = actors[receiver].contactPoint(in: self)
-        return CGPoint(
-          x: airborne.x + (strings.x - airborne.x) * blend,
-          y: airborne.y + (strings.y - airborne.y) * blend)
-      }
-      return airborne
-    }
-    let receiver = 1 - flight.hitter
-    let kick = flight.serveProfile?.kick ?? 1
-    var endpoint = CGPoint(x: contact.x, y: contact.y + 31 * kick * actors[receiver].yScale)
-    if let power = flight.power {
-      let t = clamp((progress - 0.8) / 0.2, 0, 1)
-      let ground = project(flight.position)
-      let rise = power == .overhead ? 100 * sin(t * .pi / 2)
-        : (power == .ace ? 1.25 * kick : 1) * 31 * t
-      return CGPoint(x: ground.x, y: ground.y + rise * actors[receiver].yScale)
-    }
-    if flight.fault == nil && engine.players[receiver].pos.distance(to: flight.contact) <= 1.35 {
-      endpoint = actors[receiver].contactPoint(in: self)
-    }
-    let impactProgress = engine.assist?.impactProgress ?? engine.contactWindow(receiver)?.entry ?? 1
-    if engine.assist != nil { endpoint = actors[receiver].contactPoint(in: self) }
-    let t = clamp((progress - 0.8) / max(0.001, impactProgress - 0.8), 0, 1)
-    return CGPoint(
-      x: landing.x + (endpoint.x - landing.x) * t,
-      y: landing.y + (endpoint.y - landing.y) * t + sin(t * .pi) * (kick - 1) * 31 * actors[receiver].yScale)
+  private func projectWorld(_ point: CourtPoint3D) -> CGPoint {
+    let depth = clamp(Double(point.z) / PracticeEngine.length, 0, 1)
+    let ground = project(Vec(x: Double(point.x), y: Double(point.z)))
+    return CGPoint(x: ground.x, y: ground.y + CGFloat(point.y) * (0.82 + depth * 0.18) * 29)
   }
 
   private func render() {
@@ -630,18 +508,12 @@ import SwiftUI
       missedOpportunityRing.setScale(reduceMotion ? 1 : 1 + progress * 0.12)
     }
     for i in 0...1 {
-      actors[i].draw(
-        time: animationTime, velocity: engine.players[i].velocity, reduceMotion: reduceMotion,
-        split: engine.splitProgress(i),
-        servePreparing: engine.phase == .serving && engine.scoring.server == i,
-        serveToss: engine.scoring.server == i ? engine.servePreparation?.tossProgress : nil,
-        serveLanding: engine.serveLanding?.server == i ? engine.serveLanding?.progress : nil,
-        frustration: i == 1 ? reaction?.frustration ?? 0 : 0,
-        affirmation: i == 0 && reaction?.affirmation != nil,
-        reactionTime: engine.pointResolution?.elapsed ?? 0,
-        explosiveServe: i == 0 && (engine.queuedPower == .ace || engine.flight?.power == .ace),
-        surprise: i == 1 && engine.flight?.power == .ace ? (engine.ball.x < engine.players[1].pos.x ? 1 : -1) : 0,
-        acknowledge: i == 0 && engine.isResolvingPoint && engine.flight?.acknowledge == true)
+      if let frame = performance.frame {
+        actors[i].draw(pose: i == 0 ? frame.near : frame.far, project: projectWorld, in: self,
+          frustration: i == 1 ? reaction?.frustration ?? 0 : 0,
+          surprise: i == 1 && engine.flight?.power == .ace,
+          trail: !reduceMotion && engine.flight?.hitter == i && (engine.flight?.elapsed ?? 1) < 0.18)
+      }
       let progress = engine.splitProgress(i)
       splitRings[i].isHidden = progress == nil || !engine.phase.isPlaying
       splitRings[i].position = project(engine.players[i].pos)
@@ -649,9 +521,10 @@ import SwiftUI
       splitRings[i].alpha = 1 - (progress ?? 0) * 0.65
       splitRings[i].setScale(reduceMotion ? 1 : 1 + (progress ?? 0) * 0.35)
     }
-    let ground = project(engine.ball)
+    let ball = performance.frame?.ball ?? engine.worldBall
+    let ground = project(Vec(x: Double(ball.x), y: Double(ball.z)))
     shadow.position = ground
-    ballNode.position = displayedBallPosition()
+    ballNode.position = projectWorld(ball)
     let lift = max(0, ballNode.position.y - ground.y)
     ballNode.setScale(1 + min(0.3, lift / 150))
     let showingFlight = engine.phase == .live || engine.isResolvingPoint
@@ -667,8 +540,7 @@ import SwiftUI
     trail.isHidden = reduceMotion || !showingFlight
     faultRing.isHidden = engine.pointResolution?.showsMarker != true
     if let impact = engine.pointResolution?.impact {
-      let location = project(impact.point)
-      faultRing.position = CGPoint(x: location.x, y: location.y + impact.height * 20)
+      faultRing.position = projectWorld(impact.point.world(height: Float(impact.height)))
     }
     let guides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {

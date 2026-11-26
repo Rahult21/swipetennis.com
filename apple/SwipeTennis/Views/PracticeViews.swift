@@ -136,6 +136,7 @@ struct PracticeGameView: View {
   @State private var showCoach = false
   @State private var resumeAfterGuide = false
   @State private var showPointDetails = false
+  @State private var replayReview: ReplayReview?
   @EnvironmentObject private var slot: PracticeMatchSlot
   @State private var confirmingExit = false
   @State private var resumeAfterCancel = false
@@ -148,7 +149,7 @@ struct PracticeGameView: View {
   var game: PracticeEngine { session.snapshot }
   private var courtView: some View {
     SpriteView(
-      scene: session.scene, isPaused: session.paused,
+      scene: session.scene, isPaused: session.paused || replayReview != nil,
       preferredFramesPerSecond: ProcessInfo.processInfo.isLowPowerModeEnabled ? 60 : 120
     )
     .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
@@ -255,9 +256,13 @@ struct PracticeGameView: View {
       .accessibilityHidden(game.showsPointResult && !session.paused && !showCoach)
       .overlay {
         if game.showsPointResult && !session.paused && !showCoach {
-          PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true })
+          PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
+            onReplay: session.scene.performance.replay.canPlay ? {
+              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface)
+            } : nil)
         }
       }
+      .sheet(item: $replayReview) { PointReplayView(review: $0).presentationDetents([.large]) }
       .sheet(isPresented: $showPointDetails) {
         NavigationStack {
           List {
@@ -491,6 +496,7 @@ struct PointResultOverlay: View {
   let game: PracticeEngine
   let onContinue: () -> Void
   let onDetails: () -> Void
+  var onReplay: (() -> Void)? = nil
   var body: some View {
     GeometryReader { geometry in
       ZStack {
@@ -507,7 +513,7 @@ struct PointResultOverlay: View {
   }
   private func card(compact: Bool) -> some View {
     PointResultCard(game: game, compact: compact,
-      onContinue: onContinue, onDetails: onDetails)
+      onContinue: onContinue, onDetails: onDetails, onReplay: onReplay)
   }
 }
 
@@ -517,6 +523,7 @@ struct PointResultCard: View {
   var compact = false
   let onContinue: () -> Void
   let onDetails: () -> Void
+  var onReplay: (() -> Void)? = nil
   private var rows: [CoachPointSummary] { CoachPointSummary.rows(for: game.coach.events) }
   private var nextTitle: String {
     game.phase == .finished ? "Play again" : game.scoring.lastAward == .game ? "Next game" : "Next point"
@@ -573,7 +580,12 @@ struct PointResultCard: View {
           }.accessibilityElement(children: .combine)
         }
       }.frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("pointCoachSummary")
-      HStack(spacing: 12) {
+      HStack(spacing: 10) {
+        if let onReplay {
+          Button(action: onReplay) { Label("Replay point", systemImage: "play.circle") }
+            .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            .accessibilityIdentifier("replayPracticePoint")
+        }
         if !rows.isEmpty {
           Button("Details", action: onDetails).font(.subheadline)
             .frame(minHeight: 44).foregroundStyle(.white)

@@ -58,7 +58,7 @@ import UIKit
     crowd?.play()
   }
 
-  private func playHit(x: Double, gain: Double) {
+  func playHit(x: Double, gain: Double) {
     guard soundEnabled else { return }
     activateAudio()
     prepareAudio()

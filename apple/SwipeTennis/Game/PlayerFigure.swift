@@ -4,7 +4,6 @@ import SpriteKit
 /// than animating a detached racket sprite. Works at both court and enlarged preview scales.
 @MainActor final class PlayerFigure: SKNode {
   let courtSide: Int
-  var motion = StrokeAnimation()
   private let silhouette = SKNode()
   private let shadow = SKShapeNode(ellipseOf: CGSize(width: 33, height: 11))
   private let leftLeg = SKShapeNode(), rightLeg = SKShapeNode()
@@ -74,20 +73,12 @@ import SpriteKit
     racketTrail.zPosition = 12
     silhouette.addChild(racket)
     buildRacket()
-    draw(time: 0, velocity: .zero, reduceMotion: false)
   }
 
   required init?(coder: NSCoder) { fatalError("Use init(courtSide:)") }
 
   func reset() {
-    motion = StrokeAnimation()
     previousRacketCentres.removeAll()
-  }
-
-  /// Predicted string-bed contact in scene coordinates, also used to align the drawn ball.
-  func contactPoint(in scene: SKNode) -> CGPoint {
-    let p = motion.contactPose.racketCentre
-    return silhouette.convert(CGPoint(x: p.x, y: p.y), to: scene)
   }
 
   private func buildRacket() {
@@ -151,60 +142,16 @@ import SpriteKit
       strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 2)
   }
 
-  private func elbow(from shoulder: CGPoint, to wrist: CGPoint, outward: CGFloat) -> CGPoint {
-    let dx = wrist.x - shoulder.x
-    let dy = wrist.y - shoulder.y
-    let length = max(1, hypot(dx, dy))
-    let bend = min(6, max(1.5, 10 - length * 0.22)) * outward
-    return CGPoint(
-      x: (shoulder.x + wrist.x) / 2 - dy / length * bend,
-      y: (shoulder.y + wrist.y) / 2 + dx / length * bend)
-  }
-
-  func draw(time: Double, velocity: Vec, reduceMotion: Bool, split: Double? = nil,
-    servePreparing: Bool = false, serveToss: Double? = nil, serveLanding: Double? = nil,
-    frustration: Int = 0, affirmation: Bool = false, reactionTime: Double = 0,
-    explosiveServe: Bool = false, surprise: Double = 0, acknowledge: Bool = false) {
-    var pose =
-      reduceMotion
-      ? (motion.timeUntilContact != nil || motion.timeAfterContact != nil
-        ? motion.contactPose : motion.readyPose) : motion.pose
-    if frustration > 0 || affirmation {
-      pose = motion.readyPose
-      pose.grip = Vec(x: 18, y: frustration > 0 ? 17 : 23)
-      pose.racketAngle = -0.65
-      pose.shoulderTurn = frustration > 0 ? 0.18 : 0
-      pose.kneeBend = frustration > 0 ? 0.85 : 0.15
-      pose.supportHandOnGrip = false
-    }
-    if let landing = serveLanding {
-      pose.kneeBend += sin(landing * .pi) * 0.65
-    }
-    let jump = reduceMotion ? 0 : ServeMotion.jumpHeight(tossProgress: serveToss, landingProgress: serveLanding) * (explosiveServe ? 1.4 : 1)
-    let hop = reduceMotion ? 0 : split.map { sin($0 * .pi) } ?? 0
-    silhouette.zRotation = surprise * 0.19
-    silhouette.position.y = hop * 2.5 + jump
-    shadow.setScale(1 - jump * 0.015)
-    let running = serveLanding != nil ? 0 : min(1, velocity.length / 6)
-    let stride = reduceMotion ? 0 : sin(time * 17) * running
-    let lean = clamp(velocity.x / 6, -1, 1) * (courtSide == 0 ? 1.0 : -1.0) * 2
-    let shift = pose.weightShift + lean
-    let crouch = pose.kneeBend * 3 + hop * 1.5
-    let shoulderY = 33 - crouch
-    let hipY = 20 - crouch
-    let turn = pose.shoulderTurn
-    let shoulderWidth = 10 - abs(turn) * 2.7
-    let shoulderLeft = CGPoint(x: shift - shoulderWidth, y: shoulderY + turn * 2)
-    let shoulderRight = CGPoint(x: shift + shoulderWidth, y: shoulderY - turn * 2)
-    let hipLeft = CGPoint(x: shift * 0.5 - 4.3, y: hipY)
-    let hipRight = CGPoint(x: shift * 0.5 + 4.3, y: hipY)
-    let stanceWidth = 8 + pose.kneeBend * 3 + hop * 2
-    let leftFoot = CGPoint(x: -stanceWidth - stride * 2, y: 2 + max(0, stride) * 4)
-    let kick = reduceMotion ? 0 : serveLanding.map { sin($0 * .pi) * 11 } ?? 0
-    let rightFoot = CGPoint(x: stanceWidth - stride * 2 + kick * 0.3,
-      y: 2 + max(0, -stride) * 4 + kick)
-    let leftKnee = CGPoint(x: -7 + shift * 0.4, y: 10 - crouch + stride * 2)
-    let rightKnee = CGPoint(x: 7 + shift * 0.4, y: 10 - crouch - stride * 2)
+  func draw(pose: AthletePose, project: (CourtPoint3D) -> CGPoint, in scene: SKNode,
+    frustration: Int, surprise: Bool, trail: Bool) {
+    func joint(_ name: BodyJoint) -> CGPoint { silhouette.convert(project(pose[name]), from: scene) }
+    let leftFoot = joint(.leftShoe), rightFoot = joint(.rightShoe)
+    let leftKnee = joint(.leftKnee), rightKnee = joint(.rightKnee)
+    let hipLeft = joint(.leftHip), hipRight = joint(.rightHip)
+    let shoulderLeft = joint(.leftShoulder), shoulderRight = joint(.rightShoulder)
+    let shoulderY = (shoulderLeft.y + shoulderRight.y) / 2, hipY = (hipLeft.y + hipRight.y) / 2
+    let shift = (shoulderLeft.x + shoulderRight.x) / 2
+    shadow.setScale(max(0.65, 1 - CGFloat(min(pose[.leftShoe].y, pose[.rightShoe].y)) / 2))
     limb(leftLeg, [hipLeft, leftKnee, leftFoot], width: 4.8)
     limb(rightLeg, [hipRight, rightKnee, rightFoot], width: 4.8)
     limb(leftSock, [CGPoint(x: leftFoot.x, y: leftFoot.y + 4), leftFoot], width: 4.9)
@@ -229,13 +176,13 @@ import SpriteKit
       [
         shoulderLeft, CGPoint(x: shift - 4, y: shoulderY + 3),
         CGPoint(x: shift + 4, y: shoulderY + 3), shoulderRight,
-        CGPoint(x: shift * 0.5 + 6.5, y: hipY), CGPoint(x: shift * 0.5 - 6.5, y: hipY),
+        hipRight, hipLeft,
       ])
     polygon(
       shirtPanel,
       [
         shoulderLeft, CGPoint(x: shoulderLeft.x + 3, y: shoulderLeft.y - 1),
-        CGPoint(x: shift * 0.5 - 3.8, y: hipY), CGPoint(x: shift * 0.5 - 6.5, y: hipY),
+        CGPoint(x: hipLeft.x + 2, y: hipLeft.y), hipLeft,
       ])
     limb(
       hem,
@@ -251,8 +198,7 @@ import SpriteKit
       rect: CGRect(x: shift + 3, y: shoulderY - 5, width: 2.4, height: 1.3), transform: nil)
     // A back view for the near player; a face and shirt insignia for the far player.
     chestMark.isHidden = courtSide == 0
-    let headX = shift + turn * 1.6 + (frustration > 0 && !reduceMotion ? sin(reactionTime * 8) * 1.4 : 0)
-    let headY = shoulderY + (frustration > 0 ? 7.0 : 9.0)
+    let headX = joint(.head).x, headY = joint(.head).y
     neck.position = CGPoint(x: shift, y: shoulderY + 3)
     head.position = CGPoint(x: headX, y: headY)
     hair.path = CGPath(
@@ -272,36 +218,13 @@ import SpriteKit
       if frustration > 0 { features.addLine(to: CGPoint(x: headX, y: headY - 2)) }
       features.addLine(to: CGPoint(x: headX + 1, y: headY - 3))
     }
-    if surprise != 0 { features.addEllipse(in: CGRect(x: headX - 1, y: headY - 4, width: 2.4, height: 3)) }
+    if surprise { features.addEllipse(in: CGRect(x: headX - 1, y: headY - 4, width: 2.4, height: 3)) }
     face.path = features
-    let rightWrist = CGPoint(x: pose.grip.x, y: pose.grip.y)
-    let leftWrist: CGPoint
-    if acknowledge {
-      let lift = reduceMotion ? 1 : StrokeAnimation.ease(reactionTime / 0.25)
-      leftWrist = CGPoint(x: shoulderLeft.x - 8, y: shoulderY - 4 + 26 * lift)
-    } else if frustration > 0 {
-      leftWrist = frustration > 1 ? CGPoint(x: headX - 4, y: headY + 1)
-        : CGPoint(x: shoulderLeft.x - 8, y: shoulderY + 2)
-    } else if affirmation {
-      leftWrist = CGPoint(x: shift - 2, y: shoulderY - 3)
-    } else if servePreparing {
-      let lift = serveToss.map { StrokeAnimation.ease($0 / 0.35) * (1 - StrokeAnimation.ease(($0 - 0.7) / 0.3)) } ?? 0
-      leftWrist = CGPoint(x: -14 + 8 * lift, y: 25 + 31 * lift)
-    } else if pose.supportHandOnGrip {
-      // Two hands spaced along the handle, never floating away from the racket.
-      leftWrist = CGPoint(
-        x: rightWrist.x - sin(pose.racketAngle) * 4,
-        y: rightWrist.y + cos(pose.racketAngle) * 4)
-    } else if motion.style == .overhead && motion.timeUntilContact != nil {
-      leftWrist = CGPoint(x: shoulderLeft.x + 5, y: shoulderY + 18)
-    } else {
-      leftWrist = CGPoint(x: shoulderLeft.x - 5 - turn * 3, y: shoulderY - 8 + abs(turn) * 5)
-    }
-    for (arm, band, hand, shoulder, wrist, outward) in [
-      (leftArm, leftBand, leftHand, shoulderLeft, leftWrist, CGFloat(-1)),
-      (rightArm, rightBand, rightHand, shoulderRight, rightWrist, CGFloat(1)),
+    let rightWrist = joint(.grip)
+    for (arm, band, hand, shoulder, wrist, joint) in [
+      (leftArm, leftBand, leftHand, shoulderLeft, joint(.leftHand), joint(.leftElbow)),
+      (rightArm, rightBand, rightHand, shoulderRight, rightWrist, joint(.rightElbow)),
     ] {
-      let joint = elbow(from: shoulder, to: wrist, outward: outward)
       limb(arm, [shoulder, joint, wrist], width: 3.6)
       let bandPoint = CGPoint(
         x: wrist.x + (joint.x - wrist.x) * 0.18,
@@ -313,14 +236,18 @@ import SpriteKit
       hand.zPosition = 11
     }
     racket.position = rightWrist
-    racket.zRotation = pose.racketAngle
+    let centre = joint(.strings), edge = joint(.racketEdge)
+    let dx = centre.x - rightWrist.x, dy = centre.y - rightWrist.y
+    let shaft = max(0.01, hypot(dx, dy))
+    racket.zRotation = atan2(-dx, dy)
+    racket.yScale = shaft / 19
+    racket.xScale = max(0.19, abs((edge.x - centre.x) * dy - (edge.y - centre.y) * dx) / shaft / 6.5)
     racket.zPosition = 9
     head.zPosition = 6
     hair.zPosition = 6.1
     headband.zPosition = 6.2
     face.zPosition = 6.3
-    let centre = pose.racketCentre
-    if !reduceMotion, let elapsed = motion.timeAfterContact, elapsed < 0.18 {
+    if trail {
       previousRacketCentres.append(CGPoint(x: centre.x, y: centre.y))
       if previousRacketCentres.count > 5 { previousRacketCentres.removeFirst() }
     } else {
