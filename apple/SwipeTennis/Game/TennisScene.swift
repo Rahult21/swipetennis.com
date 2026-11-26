@@ -29,7 +29,7 @@ import SwiftUI
     scene.publishCoachMiss = { [weak self] miss in self?.coachMiss = miss }
   }
   func restoreInventory(owner: String?) {
-    guard inventoryKey == nil, !scene.engine.settings.local, let owner else { return }
+    guard inventoryKey == nil, !scene.engine.settings.tournament, !scene.engine.settings.local, let owner else { return }
     let key = "matchPowers." + owner
     inventoryKey = key
     let cooldownKey = "opponentReactionGames." + owner
@@ -42,7 +42,7 @@ import SwiftUI
       scene.engine.inventory = saved
     }
   }
-  func start(owner: String, slot: PracticeMatchSlot) throws {
+  func start(save: (PracticeEngine) throws -> Void) throws {
     var next = scene.engine
     if next.phase == .finished {
       next = PracticeEngine(settings: next.settings)
@@ -51,7 +51,7 @@ import SwiftUI
     }
     guard next.phase == .ready || next.phase == .point else { return }
     next.start()
-    if next.settings.pressureDay == nil { try slot.save(next, owner: owner) }
+    try save(next)
     scene.engine = next
     paused = false
     scene.suspended = false

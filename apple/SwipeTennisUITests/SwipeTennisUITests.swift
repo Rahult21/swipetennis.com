@@ -1,6 +1,39 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  func testCareerResumesAtSavedPointAfterQuickPlay() throws {
+    let app = XCUIApplication()
+    app.launch()
+    let career = app.buttons["soloCareer"]
+    XCTAssertTrue(career.waitForExistence(timeout: 10))
+    career.tap()
+    let play = app.buttons["playCareerGame"]
+    guard play.waitForExistence(timeout: 5) else { throw XCTSkip("The club chapter is already complete on this simulator.") }
+    play.tap()
+    let start = app.buttons["startPractice"]
+    if start.waitForExistence(timeout: 3) { start.tap() }
+    let next = app.buttons["nextPracticePoint"]
+    XCTAssertTrue(next.waitForExistence(timeout: 35))
+    let savedScore = app.staticTexts["resultScore"].label
+    XCTAssertFalse(savedScore.isEmpty)
+    app.terminate()
+    app.launch()
+    app.buttons["playPractice"].tap()
+    let quick = app.buttons["quickGuestPlay"]
+    if quick.exists { quick.tap() } else { app.buttons["takeCourt"].tap() }
+    XCTAssertTrue(start.waitForExistence(timeout: 8))
+    start.tap()
+    XCTAssertTrue(next.waitForExistence(timeout: 35))
+    app.terminate()
+    app.launch()
+    XCTAssertTrue(career.label.contains("Continue Career"))
+    career.tap()
+    XCTAssertTrue(play.label.contains("Resume game"))
+    play.tap()
+    XCTAssertTrue(next.waitForExistence(timeout: 10))
+    XCTAssertEqual(app.staticTexts["resultScore"].label, savedScore)
+  }
+
   func testGuestQuickPlayAndOptionalPointReplay() throws {
     let app = XCUIApplication()
     app.launch()

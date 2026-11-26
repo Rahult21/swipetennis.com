@@ -16,13 +16,15 @@ enum PracticeAward: String, Codable { case point, game, set, tiebreak }
 struct PracticeScore: Codable {
   let format: PracticeScoring
   let firstServer: Int
+  private let oneGame: Bool?
   private(set) var points = [0, 0]
   private(set) var games = [0, 0]
   private(set) var server: Int
   private(set) var winner: Int?
   private(set) var lastAward: PracticeAward = .point
 
-  init(format: PracticeScoring, firstServer: Int = 1) {
+  init(format: PracticeScoring, firstServer: Int = 1, oneGame: Bool = false) {
+    self.oneGame = oneGame ? true : nil
     self.format = format
     self.firstServer = firstServer == 0 ? 0 : 1
     server = self.firstServer
@@ -60,7 +62,9 @@ struct PracticeScore: Codable {
     games[side] += 1
     points = [0, 0]
     lastAward = .game
-    if games[side] >= 6 && games[side] - games[1 - side] >= 2 {
+    if oneGame == true {
+      winner = side
+    } else if games[side] >= 6 && games[side] - games[1 - side] >= 2 {
       winner = side
       lastAward = .set
     } else {

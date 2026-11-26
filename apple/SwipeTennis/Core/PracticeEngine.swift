@@ -106,6 +106,7 @@ struct PracticeSettings: Codable {
   var local = false
   var tournament = false
   var botST: Double?
+  var clubEncounter: ClubEncounter?
   var pressureDay: Int?
   var botSpeed: Double { botST.map { 0.85 + clamp($0,1,10)*0.026 } ?? difficulty.speed }
   var botReaction: Double { botST.map { 0.60 - clamp($0,1,10)*0.044 } ?? difficulty.reaction }
@@ -118,7 +119,7 @@ struct PracticeSettings: Codable {
   var opponentName = ""
 
   enum CodingKeys: String, CodingKey {
-    case local, tournament, botST, pressureDay, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
+    case local, tournament, botST, pressureDay, clubEncounter, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
   }
   init(
     local: Bool = false, difficulty: Difficulty = .easy, style: BotStyle = .baseline,
@@ -138,6 +139,7 @@ struct PracticeSettings: Codable {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     local = try values.decodeIfPresent(Bool.self, forKey: .local) ?? false
     botST = try values.decodeIfPresent(Double.self, forKey: .botST)
+    clubEncounter = try values.decodeIfPresent(ClubEncounter.self, forKey: .clubEncounter)
     pressureDay = try values.decodeIfPresent(Int.self, forKey: .pressureDay)
     tournament = try values.decodeIfPresent(Bool.self, forKey: .tournament) ?? false
     difficulty = try values.decodeIfPresent(Difficulty.self, forKey: .difficulty) ?? .easy
@@ -287,7 +289,7 @@ struct PracticeEngine: Codable {
 
   init(settings: PracticeSettings) {
     self.settings = settings
-    scoring = PracticeScore(format: settings.scoring)
+    scoring = settings.clubEncounter?.openingScore ?? PracticeScore(format: settings.scoring)
     if let day = settings.pressureDay, settings.scoring == .tiebreak {
       for _ in 0..<5 { scoring.award(0); scoring.award(1) }
       switch day % 3 {

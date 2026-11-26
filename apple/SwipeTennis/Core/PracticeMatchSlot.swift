@@ -32,7 +32,7 @@ struct SavedPracticeMatch: Codable, Identifiable {
   }
 
   func save(_ engine: PracticeEngine, owner: String) throws {
-    guard engine.phase != .ready, engine.phase != .finished, engine.demo == nil else { return }
+    guard engine.settings.clubEncounter == nil, engine.phase != .ready, engine.phase != .finished, engine.demo == nil else { return }
     let match = SavedPracticeMatch(owner: owner, engine: engine)
     let data = try JSONEncoder().encode(match)
     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)

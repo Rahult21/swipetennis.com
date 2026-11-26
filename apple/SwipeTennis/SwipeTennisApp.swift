@@ -4,12 +4,13 @@ import SwiftUI
   @StateObject private var store = AppStore()
   @StateObject private var coachAccount = CoachAccountStore()
   @StateObject private var demos = ShotDemoStore()
+  @StateObject private var career = SoloCareerStore()
   @StateObject private var practiceSlot = PracticeMatchSlot()
   @StateObject private var cups = CupStore()
   var body: some Scene {
     WindowGroup {
       RootView().environmentObject(store).environmentObject(coachAccount).environmentObject(demos)
-        .environmentObject(practiceSlot).environmentObject(cups)
+        .environmentObject(practiceSlot).environmentObject(cups).environmentObject(career)
         .onChange(of: coachAccount.identity?.userID, initial: true) { _, id in demos.activate(userID: id) }
         .onChange(of: coachAccount.identity?.userID, initial: true) { _, id in cups.reset(owner: id) }
         .onOpenURL { url in
@@ -62,6 +63,7 @@ struct HomeView: View {
         }.padding(.vertical, 4)
           .listRowBackground(Color.clear)
       }
+      SoloCareerLink()
       DailyPressureSection()
       Section {
         NavigationLink { PracticeSetupView() } label: {

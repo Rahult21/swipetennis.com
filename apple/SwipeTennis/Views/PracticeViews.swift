@@ -136,6 +136,7 @@ struct PracticeGameView: View {
   @State private var resumeAfterGuide = false
   @State private var showPointDetails = false
   @State private var replayReview: ReplayReview?
+  @EnvironmentObject private var career: SoloCareerStore
   @EnvironmentObject private var slot: PracticeMatchSlot
   @State private var confirmingExit = false
   @State private var resumeAfterCancel = false
@@ -214,7 +215,7 @@ struct PracticeGameView: View {
               .allowsHitTesting(game.humanServing)
             }
           }
-          if let power = game.inventory.held, game.phase.isPlaying && !session.paused {
+          if let power = game.inventory.held, !game.settings.tournament, game.phase.isPlaying && !session.paused {
             Button {
               session.scene.engine.usePower()
               session.scene.publish?(session.scene.engine)
@@ -300,6 +301,9 @@ struct PracticeGameView: View {
           DailyRival.record(day:day, won:winner == 0, owner:owner)
         }
       }
+      .onChange(of: session.paused) { _, paused in
+        if paused && game.settings.clubEncounter != nil && saveError == nil { checkpoint() }
+      }
       .onChange(of: game.inventory) { _, _ in checkpoint() }
       .fullScreenCover(isPresented: $showCoach, onDismiss: {
         if resumeAfterGuide && scenePhase == .active { session.resume() }
@@ -321,14 +325,24 @@ struct PracticeGameView: View {
   }
   private func advance() {
     do {
-      try session.start(owner: owner, slot: slot)
+      if game.settings.clubEncounter != nil && game.phase == .finished {
+        try career.checkpoint(session.scene.engine, owner: owner)
+        dismiss()
+        return
+      }
+      try session.start(save: saveMatch)
       saveError = nil
     } catch { showSaveError(error) }
   }
+  private func saveMatch(_ engine: PracticeEngine) throws {
+    if engine.settings.clubEncounter != nil { try career.checkpoint(engine, owner: owner) }
+    else if engine.settings.pressureDay == nil { try slot.save(engine, owner: owner) }
+  }
   private func checkpoint() {
     let engine = session.scene.engine
-    guard slot.match(for: owner)?.id == engine.coach.sessionID else { return }
     do {
+      if engine.settings.clubEncounter != nil { try career.checkpoint(engine, owner: owner); return }
+      guard slot.match(for: owner)?.id == engine.coach.sessionID else { return }
       if engine.phase == .finished { try slot.discard(engine.coach.sessionID, owner: owner) }
       else { try slot.save(engine, owner: owner) }
     } catch { showSaveError(error) }
@@ -350,7 +364,7 @@ struct PracticeGameView: View {
   private func leave(saving: Bool) {
     let engine = session.scene.engine
     do {
-      if saving && engine.settings.pressureDay == nil { try slot.save(engine, owner: owner) }
+      if engine.settings.clubEncounter != nil || saving { try saveMatch(engine) }
       else { try slot.discard(engine.coach.sessionID, owner: owner) }
       dismiss()
     } catch { showSaveError(error) }
@@ -432,7 +446,7 @@ struct PracticeSessionSheet: View {
   var game: PracticeEngine { session.snapshot }
   private var canSave: Bool { game.settings.pressureDay == nil && game.phase != .ready && game.phase != .finished }
   private var title: String {
-    confirmingExit ? "Leaving the court" : game.phase == .ready ? "Ready to play" : "Match paused"
+    confirmingExit ? "Leaving the court" : game.phase == .ready ? (game.settings.clubEncounter?.title ?? "Ready to play") : "Match paused"
   }
   private var primary: String {
     confirmingExit ? (canSave ? "Save & leave" : "Leave court") : game.phase == .ready ? "Start match" : "Resume match"
@@ -442,7 +456,7 @@ struct PracticeSessionSheet: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
           VStack(alignment: .leading, spacing: 10) {
-            Label("\(game.settings.surface.rawValue) court · \(game.scoring.format == .tennis ? "One set" : "Tiebreak")",
+            Label("\(game.settings.surface.rawValue) court · \(game.settings.clubEncounter != nil ? "One game" : game.scoring.format == .tennis ? "One set" : "Tiebreak")",
               systemImage: "tennisball").font(.subheadline.weight(.semibold)).foregroundStyle(TennisTheme.lime)
             ForEach(0..<2) { side in
               HStack {
@@ -452,7 +466,7 @@ struct PracticeSessionSheet: View {
                     .accessibilityLabel("Serving")
                 }
                 Spacer()
-                if game.phase != .ready {
+                if game.phase != .ready || game.settings.clubEncounter != nil {
                   Text(game.scoring.format == .tennis ? "\(game.scoring.games[side])   \(game.scoring.pointLabel(side))" : game.scoring.pointLabel(side))
                     .font(.title3.monospacedDigit()).accessibilityLabel(game.scoring.format == .tennis
                       ? "\(game.scoring.games[side]) games, \(game.scoring.pointLabel(side)) points" : "\(game.scoring.points[side]) points")
@@ -461,9 +475,16 @@ struct PracticeSessionSheet: View {
             }
           }
           .padding(16).background(Color(red: 0.08,green: 0.23,blue: 0.19), in: RoundedRectangle(cornerRadius: 18))
+          if let encounter = game.settings.clubEncounter, !confirmingExit {
+            Label(encounter.cue, systemImage: "figure.tennis").font(.subheadline)
+            if encounter == .debut && game.phase == .ready {
+              Text("Swipe toward yellow to run. While moving, swipe diagonally from your player to aim crosscourt.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            }
+          }
           if let saveError { Label(saveError, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
           if confirmingExit && canSave {
-            Text("Save this match to pick up from here in Play & practice.").font(.subheadline).foregroundStyle(.secondary)
+            Text(game.settings.clubEncounter == nil ? "Save this match to pick up from here in Play & practice." : "Continue Career will bring you back to this point.").font(.subheadline).foregroundStyle(.secondary)
           }
           Button {
             if confirmingExit { if canSave { onSave() } else { onDiscard() } }
@@ -476,7 +497,7 @@ struct PracticeSessionSheet: View {
           if confirmingExit {
             Button("Stay on court", action: onCancel).buttonStyle(.bordered).controlSize(.large)
               .frame(maxWidth: .infinity).accessibilityIdentifier("stayOnCourt")
-            if canSave {
+            if canSave && game.settings.clubEncounter == nil {
               Button("Leave without saving", role: .destructive, action: onDiscard)
                 .font(.subheadline).frame(maxWidth: .infinity,minHeight: 44)
             }
@@ -490,7 +511,7 @@ struct PracticeSessionSheet: View {
         }.padding(.horizontal,20).padding(.vertical,10)
       }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
         .toolbar {
-          if !confirmingExit && game.phase != .ready {
+          if !confirmingExit && game.phase != .ready && game.settings.clubEncounter == nil {
             ToolbarItem(placement: .topBarTrailing) {
               Menu { Button("Restart session", role: .destructive) { confirmRestart = true } }
                 label: { Label("Match options", systemImage: "ellipsis.circle") }
@@ -538,7 +559,7 @@ struct PointResultCard: View {
   var onReplay: (() -> Void)? = nil
   private var rows: [CoachPointSummary] { CoachPointSummary.rows(for: game.coach.events) }
   private var nextTitle: String {
-    game.phase == .finished ? "Play again" : game.scoring.lastAward == .game ? "Next game" : "Next point"
+    game.phase == .finished ? (game.settings.clubEncounter == nil ? "Play again" : "Career recap") : game.scoring.lastAward == .game ? "Next game" : "Next point"
   }
   var body: some View {
     VStack(spacing: compact ? 10 : 14) {
@@ -563,9 +584,10 @@ struct PointResultCard: View {
       }
       VStack(spacing: 3) {
         Text(game.scoreSummary).font(.caption.weight(.semibold))
+
         if game.scoring.format == .tennis && game.phase != .finished {
           Text("Points: \(game.name(0)) \(game.scoring.pointLabel(0)) · \(game.name(1)) \(game.scoring.pointLabel(1))")
-            .font(.caption)
+            .font(.caption).accessibilityIdentifier("resultScore")
         }
       }.monospacedDigit().foregroundStyle(TennisTheme.lime).multilineTextAlignment(.center)
       Rectangle().fill(.white.opacity(0.16)).frame(height: 1)
@@ -639,9 +661,8 @@ struct CoachPointBreakdown: View {
 }
 
 private enum DailyRival {
-  static let names = ["Casey", "Morgan", "Jules"]
-  static let styles: [BotStyle] = [.volley,.retriever,.aggressive]
-  static func index(_ day: Int) -> Int { (day + day / 3) % names.count }
+  static let rivals: [TourRival] = [.casey, .morgan, .jules]
+  static func index(_ day: Int) -> Int { (day + day / 3) % rivals.count }
   static func results(_ owner: String) -> [String:Bool] {
     UserDefaults.standard.dictionary(forKey:"pressure.results."+owner) as? [String:Bool] ?? [:]
   }
@@ -661,7 +682,8 @@ struct DailyPressureSection: View {
     TimelineView(.periodic(from:.now,by:60)) { time in
       let day = Int(time.date.timeIntervalSince1970 / 86400)
       let rival = DailyRival.index(day)
-      let name = DailyRival.names[rival]
+      let opponent = DailyRival.rivals[rival]
+      let name = opponent.rawValue
       let past = results.compactMap { key, won -> (Int,Bool)? in
         guard let date = Int(key), date < day, DailyRival.index(date) == rival else { return nil }
         return (date,won)
@@ -669,7 +691,7 @@ struct DailyPressureSection: View {
       Section("Daily pressure challenge") {
         let start = ["5–6","6–5","6–6"][day % 3]
         Button {
-          var settings = PracticeSettings(style:DailyRival.styles[rival],scoring:.tiebreak,opponentName:name)
+          var settings = PracticeSettings(style:opponent.style,scoring:.tiebreak,opponentName:name)
           settings.pressureDay = day
           match = SavedPracticeMatch(owner:owner,engine:PracticeEngine(settings:settings))
         } label: {
@@ -677,8 +699,8 @@ struct DailyPressureSection: View {
         }
         if let today = results[String(day)] { Text(today ? "Today’s challenge won" : "Today’s challenge lost") }
         if let last = past.first {
-          Text(last.1 ? "\(name) returns for a rematch after your last win. You won \(past.filter { $0.1 }.count) of your \(past.count) past meetings." : "\(name) won your last meeting. Read the \(DailyRival.styles[rival].rawValue.lowercased()) pattern and turn the result around.").font(.caption)
-        } else { Text("First meeting with \(name). \(DailyRival.styles[rival].detail)").font(.caption) }
+          Text(last.1 ? "\(name) returns for a rematch after your last win. You won \(past.filter { $0.1 }.count) of your \(past.count) past meetings." : "\(name) won your last meeting. Read the \(opponent.style.rawValue.lowercased()) pattern and turn the result around.").font(.caption)
+        } else { Text("First meeting with \(name). \(opponent.style.detail)").font(.caption) }
       }
     }.task(id:owner) { results = DailyRival.results(owner) }
       .fullScreenCover(item:$match,onDismiss:{ results = DailyRival.results(owner) }) { PracticeGameView(match:$0) }
