@@ -1,4 +1,5 @@
 import api from './worker.mjs';
+export {CupRoom} from './cup-room.mjs';
 
 // The existing Git-connected Worker serves the website and the native app's JSON API.
 export default {

@@ -178,10 +178,18 @@ struct Coachability: Codable {
     gameScore += pointScore
     setScore += pointScore
     let gameDone = award == .game || award == .set
-    records.append(CoachPointRecord(id: UUID(), sessionID: sessionID, pointIndex: records.count + 1,
+    records.append(CoachPointRecord(id: UUID(), sessionID: sessionID, pointIndex: (records.last?.pointIndex ?? 0) + 1,
       gameIndex: gameIndex, winner: winner, format: format == .tennis ? "tennis" : "tiebreak",
       events: events, gameCompleted: gameDone, setCompleted: award == .set))
     if gameDone { gameScore = 0; gameIndex += 1 }
+  }
+
+  var cupSnapshot: Coachability {
+    var copy = self
+    // Only the latest winner is needed by point explanations. Cup games do not
+    // submit Coachability records, so old points need not cross the network.
+    copy.records = Array(records.suffix(1))
+    return copy
   }
 }
 

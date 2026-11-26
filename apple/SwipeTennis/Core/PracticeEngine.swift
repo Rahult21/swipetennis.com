@@ -104,6 +104,7 @@ enum CourtSurface: String, Codable, CaseIterable {
 }
 struct PracticeSettings: Codable {
   var local = false
+  var tournament = false
   var difficulty: Difficulty = .easy
   var style: BotStyle = .baseline
   var surface: CourtSurface = .grass
@@ -113,7 +114,7 @@ struct PracticeSettings: Codable {
   var opponentName = ""
 
   enum CodingKeys: String, CodingKey {
-    case local, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
+    case local, tournament, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
   }
   init(
     local: Bool = false, difficulty: Difficulty = .easy, style: BotStyle = .baseline,
@@ -132,6 +133,7 @@ struct PracticeSettings: Codable {
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     local = try values.decodeIfPresent(Bool.self, forKey: .local) ?? false
+    tournament = try values.decodeIfPresent(Bool.self, forKey: .tournament) ?? false
     difficulty = try values.decodeIfPresent(Difficulty.self, forKey: .difficulty) ?? .easy
     style = try values.decodeIfPresent(BotStyle.self, forKey: .style) ?? .baseline
     surface = try values.decodeIfPresent(CourtSurface.self, forKey: .surface) ?? .grass

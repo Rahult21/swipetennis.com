@@ -1,5 +1,6 @@
 import {verifyAppleToken, randomToken, digest} from './apple-auth.mjs';
 import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from './rules.mjs';
+import {validCode} from './cup-rules.mjs';
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store','X-Content-Type-Options': 'nosniff'}});
 const fail = (status, message) => Object.assign(new Error(message), {status});
 async function body(request) {
@@ -43,6 +44,49 @@ export default {
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
       if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 3});
+      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 1, players: 4, liveInvites: true});
+      if (path === '/cups' || path.startsWith('/cups/')) {
+        const account = await user(request, env);
+        const roomRequest = (code, action, payload) => {
+          const headers = {'X-Cup-User': JSON.stringify(account)};
+          if (request.headers.get('Upgrade')) headers.Upgrade = request.headers.get('Upgrade');
+          if (payload !== undefined) headers['Content-Type'] = 'application/json';
+          return env.CUPS.get(env.CUPS.idFromName(code)).fetch(new Request(`https://cup${action}`, {
+            method: payload === undefined ? 'GET' : 'POST', headers,
+            body: payload === undefined ? undefined : JSON.stringify(payload)}));
+        };
+        if (path === '/cups' && request.method === 'GET') {
+          const rows = await env.DB.prepare('SELECT cup_code FROM cup_memberships WHERE user_id=? ORDER BY joined_at DESC LIMIT 20').bind(account.id).all();
+          const cups = await Promise.all(rows.results.map(async row => {
+            const response = await roomRequest(row.cup_code, '/');
+            return response.ok ? response.json() : null;
+          }));
+          return json({cups: cups.filter(Boolean)});
+        }
+        if (path === '/cups' && request.method === 'POST') {
+          const data = await body(request);
+          if (!/^[a-f0-9-]{36}$/i.test(data.requestID ?? '')) throw fail(400, 'Missing cup request ID.');
+          const seed = await digest(account.id + ':' + data.requestID);
+          const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          const code = Array.from({length: 8}, (_, i) => alphabet[parseInt(seed.slice(i * 2, i * 2 + 2), 16) % alphabet.length]).join('');
+          const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM cup_memberships WHERE user_id=? AND joined_at>?').bind(account.id, Date.now() - 86400000).first();
+          if (count.n >= 20) throw fail(429, 'You have joined twenty cups today. Try again tomorrow.');
+          const response = await roomRequest(code, '/create', {...data, code});
+          if (response.ok) await env.DB.prepare('INSERT OR IGNORE INTO cup_memberships VALUES(?,?,?)').bind(account.id, code, Date.now()).run();
+          return response;
+        }
+        const route = path.match(/^\/cups\/([A-Z2-9]{8})(\/.*)?$/);
+        if (!route || !validCode(route[1])) throw fail(404, 'Check the eight-character invite code.');
+        const action = route[2] ?? '/';
+        const write = ['/join', '/ready', '/start', '/leave'].includes(action);
+        if (!write && action !== '/' && !/^\/matches\/(semi-[12]|final)\/socket$/.test(action)) throw fail(404, 'Not found');
+        if ((write && request.method !== 'POST') || (!write && request.method !== 'GET')) throw fail(405, 'Method not allowed');
+        const response = await roomRequest(route[1], action, write ? await body(request) : undefined);
+        if (response.ok && action === '/join') {
+          await env.DB.prepare('INSERT OR IGNORE INTO cup_memberships VALUES(?,?,?)').bind(account.id, route[1], Date.now()).run();
+        }
+        return response;
+      }
       if (path === '/auth/challenge' && request.method === 'POST') {
         const id = crypto.randomUUID(), nonce = randomToken();
         await env.DB.batch([
@@ -74,6 +118,12 @@ export default {
       }
       if (path === '/me' && request.method === 'DELETE') {
         const account = await user(request, env);
+        const cups = await env.DB.prepare('SELECT cup_code FROM cup_memberships WHERE user_id=?').bind(account.id).all();
+        for (const row of cups.results) {
+          const response = await env.CUPS.get(env.CUPS.idFromName(row.cup_code)).fetch(new Request('https://cup/delete-account', {
+            method: 'POST', headers: {'X-Cup-User': JSON.stringify(account), 'Content-Type': 'application/json'}, body: '{}'}));
+          if (!response.ok && ![403, 404].includes(response.status)) throw fail(503, 'Could not remove your cup profile. Please retry.');
+        }
         await env.DB.prepare('DELETE FROM users WHERE id=?').bind(account.id).run();
         return json({deleted: true});
       }

@@ -5,11 +5,17 @@ import SwiftUI
   @StateObject private var coachAccount = CoachAccountStore()
   @StateObject private var demos = ShotDemoStore()
   @StateObject private var practiceSlot = PracticeMatchSlot()
+  @StateObject private var cups = CupStore()
   var body: some Scene {
     WindowGroup {
       RootView().environmentObject(store).environmentObject(coachAccount).environmentObject(demos)
-        .environmentObject(practiceSlot)
+        .environmentObject(practiceSlot).environmentObject(cups)
         .onChange(of: coachAccount.identity?.userID, initial: true) { _, id in demos.activate(userID: id) }
+        .onChange(of: coachAccount.identity?.userID, initial: true) { _, id in cups.reset(owner: id) }
+        .onOpenURL { url in
+          if let code = QuickCup.inviteCode(from: url.absoluteString) { cups.pendingInvite = code }
+          else if url.scheme == "swipetennis" && url.host == "cups" { cups.pendingInvite = "" }
+        }
         .task { await coachAccount.restore() }.tint(TennisTheme.accent)
     }
   }
@@ -17,6 +23,7 @@ import SwiftUI
 struct RootView: View {
   @State private var dismissedStorageError = false
   @EnvironmentObject var store: AppStore
+  @EnvironmentObject private var cups: CupStore
   var body: some View {
     TabView {
       NavigationStack { HomeView() }.tabItem { Label("Court", systemImage: "tennisball") }
@@ -24,6 +31,11 @@ struct RootView: View {
       NavigationStack { HistoryView() }.tabItem { Label("Journal", systemImage: "book.closed") }
       NavigationStack { SettingsView() }.tabItem {
         Label("Settings", systemImage: "gearshape")
+      }
+    }
+    .sheet(isPresented: Binding(get: { cups.pendingInvite != nil }, set: { if !$0 { cups.pendingInvite = nil } })) {
+      NavigationStack {
+        CupHubView().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { cups.pendingInvite = nil } } }
       }
     }
     .alert(
@@ -60,6 +72,17 @@ struct HomeView: View {
           } icon: { Image(systemName: "figure.tennis").foregroundStyle(TennisTheme.accent) }
           .padding(.vertical, 5)
         }.accessibilityIdentifier("playPractice")
+      }
+      Section {
+        NavigationLink { CupHubView() } label: {
+          Label {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Quick Cup").font(.headline)
+              Text("Friends, four players, one trophy").font(.subheadline).foregroundStyle(.secondary)
+            }
+          } icon: { Image(systemName: "trophy.fill").foregroundStyle(TennisTheme.accent) }
+          .padding(.vertical, 5)
+        }.accessibilityIdentifier("quickCup")
       }
       Section("Learn & improve") {
         ShotDemoLink()

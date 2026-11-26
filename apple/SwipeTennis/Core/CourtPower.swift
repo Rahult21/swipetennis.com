@@ -36,7 +36,7 @@ struct AssistedContact: Codable {
 
 extension PracticeEngine {
   var canUsePower: Bool {
-    inventory.held != nil && demo == nil && !settings.local && phase.isPlaying
+    inventory.held != nil && demo == nil && !settings.local && !settings.tournament && phase.isPlaying
       && inventory.armed != true && queuedPower == nil
   }
 
@@ -47,7 +47,7 @@ extension PracticeEngine {
   }
 
   mutating func startArmedPower() {
-    guard inventory.armed == true, let power = inventory.held, queuedPower == nil, demo == nil, !settings.local else { return }
+    guard inventory.armed == true, let power = inventory.held, queuedPower == nil, demo == nil, !settings.local, !settings.tournament else { return }
     if power == .ace {
       guard phase == .serving, servePreparation?.server == 0 else { return }
       queuedPower = power
@@ -177,7 +177,7 @@ extension PracticeEngine {
   }
 
   mutating func awardPowerIfDue(random: () -> Double) {
-    guard demo == nil, !settings.local, inventory.held == nil, momentum.winsInRow > 0,
+    guard demo == nil, !settings.local, !settings.tournament, inventory.held == nil, momentum.winsInRow > 0,
       momentum.winsInRow.isMultiple(of: 2) else { return }
     let choices = CourtPower.allCases
     inventory.held = choices[Int(clamp(random(), 0, 0.999999) * Double(choices.count))]

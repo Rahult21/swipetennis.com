@@ -12,6 +12,7 @@
     "db:migrate:remote": "wrangler d1 migrations apply swipetennisdb --remote",
     "db:migrate:ci": "node apple/Backend/scripts/migrate-ci.mjs",
     "test:api": "node --test apple/Backend/tests/*.test.mjs",
+    "test:cups": "node apple/Backend/tests/cup-integration.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {

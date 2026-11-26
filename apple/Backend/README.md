@@ -1,5 +1,19 @@
 # Cloudflare API and automatic D1 migrations
 
+## Quick Cup
+
+**Court → Quick Cup** creates a four-player lobby. Share its eight-character code or `https://swipetennis.com/cup/CODE`. The website opens `swipetennis://cup/CODE` in an already-installed iPhone/iPad app. Apple sign-in is required; the app is not on the App Store and invites do not install it.
+
+Friends join and mark themselves ready. Only the host starts the cup. The shuffled draw locks at start and open slots receive clearly labeled AI players at the selected Easy/Medium/Hard level, initially the host's practice preference. This is in-game difficulty, not a claimed real-world UTR. Bot styles vary, but level stays fixed. Bot-only matches are labeled simulated. Semifinals feed one final; matches are first to seven points, win by two. Powers are disabled, and cups do not affect Coachability or a competitive rating.
+
+`CUPS` is a SQLite-backed Durable Object binding. The existing Git-connected deployment applies its configuration and class migration. `0003_quick_cups.sql` adds the account/cup index to D1. No new secrets or manual production commands are required. If the provider rejects the binding or migration, correct the existing build token's Worker deployment permissions and rebuild the same GitHub commit; do not deploy locally.
+
+Authenticated endpoints are `GET/POST /api/cups`, `GET /api/cups/CODE`, `POST /api/cups/CODE/{join,ready,start,leave}`, and WebSocket `/api/cups/CODE/matches/{semi-1,semi-2,final}/socket`. Public `/api/cups/capabilities` identifies protocol version 1. The Worker verifies the existing session before forwarding identity to a private room. The room serializes roster/results and enforces membership, host-only starting, capacity, readiness, score progression, snapshot ownership, message sizes and message rates. Creation and result delivery can be retried safely.
+
+The first human in each match runs the native simulation. The other sends typed controls and receives 20 Hz snapshots. Both see their own baseline at the bottom. The room checkpoints each scored point and periodically saves live state. This is casual peer-authoritative play, not server-simulated anti-cheat. Host latency affects the remote player; real cross-region device testing is needed before adding ranked play. Missing players have 60 seconds to join or reconnect. One missing player forfeits; two missing players cancel the cup. Cups expire after 24 hours; results and account indexes are removed 30 days later. Account deletion anonymizes shared bracket entries and forfeits unfinished participation.
+
+After starting the local Worker and applying local migrations, run `npm run test:api` and `npm run test:cups`. The cup integration suite creates fictional local accounts and exercises four-human/mixed cups through real WebSockets, including reconnect checkpoints and final results. Native UI tests may use simulator-only environment variables `SWIPETENNIS_LOCAL_TEST_URL=http://127.0.0.1:8788/api/`, `SWIPETENNIS_LOCAL_TEST_USER`, and `SWIPETENNIS_LOCAL_TEST_TOKEN` with a matching seeded local session. These overrides are compiled out of physical-device builds; production authentication is unchanged.
+
 The native iOS app calls **https://swipetennis.com/api/**. The existing **swipetennis-com** Worker serves the website assets and the app's JSON API. Production configuration lives in the repository-root `wrangler.jsonc`.
 
 - GitHub repository: `Rahult21/swipetennis.com`, branch `main`

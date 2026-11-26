@@ -91,6 +91,17 @@ import SwiftUI
 }
 @MainActor final class TennisScene: SKScene {
   var engine: PracticeEngine
+  var controlledSide: Int?
+  var perspectiveSide = 0
+  var isReplica = false
+  var onCupInput: ((CupInput) -> Void)?
+  var onCupFrame: ((PracticeEngine) -> Void)?
+  private var networkPublishAt = 0.0
+  private var replicaFrom: [Vec] = []
+  private var replicaTo: [Vec] = []
+  private var replicaElapsed = 0.05
+  private var replicaFlightFrom: Double?
+  private var replicaFlightTo: Double?
   var publish: ((PracticeEngine) -> Void)?
   var publishCoachMiss: ((CoachMiss?) -> Void)?
   private var missPresentation = CoachMissPresentation()
@@ -171,6 +182,7 @@ import SwiftUI
   }
   // Perspective projection keeps far court smaller while retaining exact inverse touch mapping.
   func project(_ p: Vec) -> CGPoint {
+    let p = CupPerspective.court(p, side: perspectiveSide)
     let t = (p.y + 3) / 29.77
     let width = size.width * (0.64 + 0.24 * t)
     return CGPoint(
@@ -180,7 +192,7 @@ import SwiftUI
   func unproject(_ p: CGPoint) -> Vec {
     let t = (size.height - 52 - p.y) / max(1, size.height - 90)
     let width = size.width * (0.64 + 0.24 * t)
-    return Vec(x: (p.x - size.width / 2) / width * 10.97 + 4.115, y: t * 29.77 - 3)
+    return CupPerspective.court(Vec(x: (p.x - size.width / 2) / width * 10.97 + 4.115, y: t * 29.77 - 3), side: perspectiveSide)
   }
   private func polygon(_ values: [Vec], fill: UIColor, stroke: UIColor = .clear, width: CGFloat = 1)
     -> SKShapeNode
@@ -387,10 +399,21 @@ import SwiftUI
     let showedGauges = engine.displayedServeGauges != nil
     let oldResultVisible = engine.showsPointResult
     let oldBounce = engine.bounceSerial
-    if engine.needsSimulation {
+    if isReplica {
+      replicaElapsed += dt
+      let t = min(1, replicaElapsed / 0.05)
+      if replicaFrom.count == 2 && replicaTo.count == 2 {
+        for side in 0...1 {
+          engine.players[side].pos = Vec(x: replicaFrom[side].x + (replicaTo[side].x - replicaFrom[side].x) * t,
+            y: replicaFrom[side].y + (replicaTo[side].y - replicaFrom[side].y) * t)
+        }
+      }
+      if let from = replicaFlightFrom, let to = replicaFlightTo { engine.flight?.elapsed = from + (to - from) * t }
+      performance.update(game: engine, dt: dt, reduceMotion: reduceMotion)
+    } else if engine.needsSimulation {
       accumulator += dt
       while accumulator >= 1 / 120 {
-        if engine.acceptsCourtMovement && engine.demo?.demonstration != true { applyInputs() }
+        if controlledSide == nil && engine.acceptsCourtMovement && engine.demo?.demonstration != true { applyInputs() }
         let oldContact = engine.contactSerial
         engine.step(PointReplay.tick)
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
@@ -406,7 +429,7 @@ import SwiftUI
     missPresentation.update(coach: engine.coach, delta: dt)
     if oldMiss != missPresentation.current { publishCoachMiss?(missPresentation.current) }
     let showGuides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
-    swipeCoach.update(guide: showGuides ? engine.movementGuide(0) : nil, delta: dt)
+    swipeCoach.update(guide: showGuides && controlledSide == nil ? engine.movementGuide(0) : nil, delta: dt)
     if engine.bounceSerial != oldBounce { Immersion.shared.hit(bounce: true, x: engine.ball.x) }
     if oldPhase.isPlaying && !engine.phase.isPlaying {
       if (engine.pointResolution?.reaction?.frustration ?? 0) > 0 { Immersion.shared.opponentExclamation() }
@@ -418,6 +441,10 @@ import SwiftUI
     }
     if oldPhase == .serveFault && engine.phase == .serving { configureMotion(); trails.removeAll() }
     render()
+    if !isReplica, currentTime - networkPublishAt >= 0.05 || oldPhase != engine.phase {
+      networkPublishAt = currentTime
+      onCupFrame?(engine)
+    }
     if currentTime - publishAt > 0.1 || oldInventory != engine.inventory || oldPhase != engine.phase
       || oldResultVisible != engine.showsPointResult || showedGauges != (engine.displayedServeGauges != nil) {
       publishAt = currentTime
@@ -484,6 +511,25 @@ import SwiftUI
     missPresentation.restore(from: engine.coach)
   }
 
+  func receiveCupSnapshot(_ value: PracticeEngine) {
+    let old = engine
+    engine = value
+    replicaFrom = old.players.map(\.pos)
+    replicaTo = value.players.map(\.pos)
+    replicaElapsed = 0
+    replicaFlightFrom = old.contactSerial == value.contactSerial ? old.flight?.elapsed : nil
+    replicaFlightTo = value.flight?.elapsed
+    if old.phase != value.phase { trails.removeAll() }
+    if old.contactSerial != value.contactSerial { Immersion.shared.hit(x: value.ball.x) }
+    if old.bounceSerial != value.bounceSerial { Immersion.shared.hit(bounce: true, x: value.ball.x) }
+    publish?(value)
+  }
+
+  private func cupInput(_ input: CupInput, side: Int) {
+    if let onCupInput { onCupInput(input) }
+    else { input.apply(to: &engine, side: side) }
+  }
+
   func resetRallyPresentation() {
     swipeCoach.dismiss()
     actors.forEach { $0.reset() }
@@ -497,13 +543,14 @@ import SwiftUI
       let p = engine.players[i].pos
       actors[i].position = project(p)
       // Scale by actual court depth so approach shots keep their perspective.
-      actors[i].setScale(0.82 + clamp(p.y / PracticeEngine.length, 0, 1) * 0.18)
-      actors[i].zPosition = 20 + p.y
+      let depth = CupPerspective.court(p, side: perspectiveSide).y
+      actors[i].setScale(0.82 + clamp(depth / PracticeEngine.length, 0, 1) * 0.18)
+      actors[i].zPosition = 20 + depth
     }
   }
 
   private func projectWorld(_ point: CourtPoint3D) -> CGPoint {
-    let depth = clamp(Double(point.z) / PracticeEngine.length, 0, 1)
+    let depth = clamp(CupPerspective.court(Vec(x: Double(point.x), y: Double(point.z)), side: perspectiveSide).y / PracticeEngine.length, 0, 1)
     let ground = project(Vec(x: Double(point.x), y: Double(point.z)))
     return CGPoint(x: ground.x, y: ground.y + CGFloat(point.y) * (0.82 + depth * 0.18) * 29)
   }
@@ -561,8 +608,8 @@ import SwiftUI
     let guides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {
       // Each human sees one next-action guide: receive, then recover after contact.
-      let visible = engine.phase == .serving
-        || (guides && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local))
+      let visible = (controlledSide == nil || controlledSide == side) && (engine.phase == .serving
+        || (guides && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local)))
       let contact = engine.contactGuide(side)
       let golden = engine.showsGoldenContact(side)
       let chasingOut = engine.outBallChaseTarget(side) != nil
@@ -788,12 +835,12 @@ import SwiftUI
       if hypot(point.x - serveTouch.start.x, point.y - serveTouch.start.y) >= 8 { serveTouch.dragging = true }
       serveTouches[touch] = serveTouch
       if serveTouch.dragging {
-        engine.aimServe(at: unproject(point), side: engine.scoring.server, finished: ended)
+        cupInput(CupInput(kind: "serveAim", point: unproject(point), finished: ended), side: engine.scoring.server)
       } else if ended {
         if engine.demo == nil, let target = engine.servePreparation?.target {
-          engine.aimServe(at: target, side: engine.scoring.server)
+          cupInput(CupInput(kind: "serveAim", point: target), side: engine.scoring.server)
         } else {
-          engine.requestServe(engine.scoring.server)
+          cupInput(CupInput(kind: "serve"), side: engine.scoring.server)
         }
       }
       if ended { publish?(engine) }
@@ -802,12 +849,12 @@ import SwiftUI
     guard var gesture = touchGestures[touch] else { return }
     let action = gesture.update(
       at: unproject(touch.location(in: self)),
-      screenPoint: Vec(x: touch.location(in: self).x, y: -touch.location(in: self).y),
+      screenPoint: CupPerspective.screen(Vec(x: touch.location(in: self).x, y: -touch.location(in: self).y), side: perspectiveSide),
       ended: ended, timestamp: touch.timestamp)
     touchGestures[touch] = gesture
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
-      engine.apply(action, side: gesture.side, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch)
+      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch), side: gesture.side)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }
@@ -829,13 +876,13 @@ import SwiftUI
     guard engine.acceptsCourtMovement else { return }
     for touch in touches {
       let p = unproject(touch.location(in: self))
-      if engine.canAimServe(engine.scoring.server), let serve = engine.servePreparation,
+      if (controlledSide == nil || controlledSide == engine.scoring.server), engine.canAimServe(engine.scoring.server), let serve = engine.servePreparation,
         p.distance(to: serve.target) <= 1.1 {
         serveTouches[touch] = ServeTouch(start: touch.location(in: self))
         continue
       }
-      var side = engine.settings.local && p.y < 11.885 ? 1 : 0
-      if SlicePath.isNetPost(p), let receiver = (0...1).first(where: { engine.canChooseShot($0) }) {
+      var side = controlledSide ?? (engine.settings.local && p.y < 11.885 ? 1 : 0)
+      if SlicePath.isNetPost(p), let receiver = (0...1).first(where: { (controlledSide == nil || controlledSide == $0) && engine.canChooseShot($0) }) {
         side = receiver
         touchGestures[touch] = PracticeGesture(side: side, intent: .slice,
           shotEpoch: engine.shotGestureEpoch(side))
@@ -846,7 +893,7 @@ import SwiftUI
       let finger = touch.location(in: self)
       var onPlayer = false
       // A figure at the net can extend into the other half on screen. Its receiving owner wins.
-      for candidate in 0...(engine.settings.local ? 1 : 0) where engine.canChooseShot(candidate) {
+      for candidate in 0...(engine.settings.local ? 1 : 0) where (controlledSide == nil || controlledSide == candidate) && engine.canChooseShot(candidate) {
         let player = project(engine.players[candidate].pos)
         if abs(finger.x - player.x) <= 25 && finger.y >= player.y - 12 && finger.y <= player.y + 58 {
           side = candidate

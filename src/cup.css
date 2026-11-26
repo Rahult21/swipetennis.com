@@ -1,0 +1,28 @@
+.cup-page { min-height: 100dvh; background: #f7f5ed; color: #183d30; padding: 0 5vw; }
+.mode-navigation a { color: #183d30; padding: 12px 16px; font-size: .9375rem; font-weight: 600; text-underline-offset: 4px; }
+.cup-header { max-width: 1120px; margin: auto; display: flex; justify-content: space-between; align-items: center; min-height: 96px; border-bottom: 1px solid #183d3022; gap: 20px; }
+.cup-header > span, .cup-eyebrow { font-size: .875rem; font-weight: 700; letter-spacing: .1em; }
+.cup-invite { max-width: 1120px; margin: 70px auto; display: grid; grid-template-columns: 1fr 1.15fr; align-items: center; gap: clamp(32px, 6vw, 90px); }
+.cup-art { background: #183d30; color: #e4ef8a; min-height: 480px; border-radius: 160px 160px 24px 24px; display: flex; align-items: center; justify-content: center; flex-direction: column; padding: 40px 28px; }
+.cup-art svg { width: 220px; margin: 36px 0 28px; }
+.cup-art p { letter-spacing: .12em; font-size: .875rem; font-weight: 600; }
+.cup-draw { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; padding-top: 40px; }
+.cup-draw span { text-align: center; border: 1px solid #e4ef8a66; border-radius: 8px; padding: 12px 4px; color: #f7f5ed; font-size: .875rem; }
+.cup-draw span:nth-child(n+3) { border-style: dashed; color: #f7f5edbb; }
+.cup-copy h1 { font-family: Georgia, serif; font-size: clamp(2.6rem, 4.7vw, 4.4rem); line-height: 1.08; font-weight: 400; letter-spacing: -.035em; margin: 18px 0 24px; }
+.cup-copy h1 em { color: #497052; }
+.cup-copy > p { font-size: 1.0625rem; line-height: 1.6; }
+.cup-copy .cup-eyebrow { font-size: .875rem; }
+.cup-code { background: white; border: 1px solid #183d3022; border-radius: 12px; padding: 18px 20px; margin: 26px 0 18px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.cup-code span { grid-column: 1/-1; font-size: .875rem; letter-spacing: .08em; }
+.cup-code strong { font-family: ui-monospace, monospace; font-size: 1.9rem; letter-spacing: .1em; user-select: all; }
+.cup-code button { background: none; border: 1px solid #183d3055; padding: 12px; border-radius: 7px; font: inherit; color: inherit; cursor: pointer; min-height: 44px; }
+.cup-open { display: block; padding: 18px 24px; text-align: center; border-radius: 10px; background: #183d30; color: #f7f5ed; font-weight: 600; text-decoration: none; margin-top: 24px; }
+.cup-copy .cup-requirement { font-size: .875rem; line-height: 1.6; color: #52645a; margin-top: 16px; }
+.cup-message { min-height: 1.5em; color: #345c42; }
+.cup-rules { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: .875rem; padding: 20px 0; border-top: 1px solid #183d3022; }
+.cup-home { color: #183d30; font-size: .9375rem; text-underline-offset: 4px; }
+.cup-footer { max-width: 1120px; margin: auto; padding: 26px 0; border-top: 1px solid #183d3022; color: #52645a; font-size: .875rem; }
+.cup-page a:focus-visible, .cup-page button:focus-visible { outline: 3px solid #b5c24f; outline-offset: 4px; }
+@media (max-width: 700px) { .cup-header { min-height: 80px; } .cup-header > span { font-size: .75rem; } .cup-invite { grid-template-columns: 1fr; margin: 30px auto 45px; gap: 32px; } .cup-art { min-height: 0; padding: 24px; border-radius: 20px; } .cup-draw { display: none; } .cup-art svg { width: 100px; margin: 0; } .cup-art p { margin-bottom: 0; font-size: .75rem; } .cup-copy h1 { font-size: 2.8rem; } .cup-code { padding: 16px; } .cup-code strong { font-size: 1.6rem; } }
+@media (prefers-reduced-motion: reduce) { .cup-page * { scroll-behavior: auto; } }

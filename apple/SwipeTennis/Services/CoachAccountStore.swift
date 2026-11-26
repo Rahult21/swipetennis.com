@@ -24,11 +24,7 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
   private var syncing = false
   private let queueURL: URL
   private let keychainService = "com.swipetennis.coach-account"
-  private var api: URL? {
-    guard let value = Bundle.main.object(forInfoDictionaryKey: "CoachAPIURL") as? String,
-      let url = URL(string: value), url.scheme == "https" else { return nil }
-    return url
-  }
+  private var api: URL? { CupAPI.url }
   var isSignedIn: Bool { identity != nil }
 
   init() {
@@ -43,6 +39,7 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
     if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data {
       identity = try? JSONDecoder().decode(CoachIdentity.self, from: data)
     }
+    if let fixture = CupAPI.localTestIdentity { identity = fixture }
     pendingCount = pending.filter { $0.userID == identity?.userID }.count
   }
 
@@ -66,7 +63,7 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
   private func accountError(_ message: String) -> NSError {
     NSError(domain: "SwipeTennis", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
   }
-  private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil,
+  func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil,
     authenticated: Bool = false) async throws -> T {
     guard let api, let url = URL(string: String(path.drop(while: { $0 == "/" })), relativeTo: api) else {
       throw accountError("The online leaderboard is not connected yet. Please try again later.")
@@ -123,6 +120,7 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
   }
 
   func restore() async {
+    if CupAPI.localTestIdentity != nil { return }
     guard let identity else { return }
     do {
       let state = try await ASAuthorizationAppleIDProvider().credentialState(forUserID: identity.appleUserID)
