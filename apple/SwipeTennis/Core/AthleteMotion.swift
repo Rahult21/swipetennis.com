@@ -104,6 +104,11 @@ struct AthleteMotion {
     let time = Float(elapsed ?? swing.timeUntilContact.map { -$0 } ?? -2)
     let sideOfBall: Float = swing.stance == .forehand ? 1 : -1
     let strike = elapsed != nil ? hitPoint : target ?? local(sideOfBall * 0.7, 1, 0.28)
+    let incomingGap = game.contactGuide(side).map { player.pos.distance(to: $0) }
+    let quality = elapsed != nil && game.flight?.hitter == side ? game.flight?.contactQuality
+      : incomingGap.map { player.rallyContact(gap: $0) }
+    let blocked = (quality == .stretched || quality == .diving) && swing.style != .serve && swing.style != .overhead
+    let planted = quality == .planted && swing.style == .groundstroke
     let volley = swing.style == .volley
     let forehand = swing.style == .groundstroke && swing.stance == .forehand
     let backhand = swing.stance == .backhand && (swing.style == .groundstroke || swing.style == .lob)
@@ -174,6 +179,13 @@ struct AthleteMotion {
     pose[.rightShoe] = (reduceMotion ? centre + right * stanceWidth : feet.right) + up * ankleHeight
     pose[.leftShoe] += (up * 0.18 - reachDirection * 0.45) * dive + forward * (0.19 * jump)
     pose[.rightShoe] += (up * 0.29 - reachDirection * 0.51) * dive + (up * 0.17 - forward * 0.24) * jump
+    if planted {
+      let lead = swing.stance == .forehand ? BodyJoint.leftShoe : .rightShoe
+      let rear: BodyJoint = lead == .leftShoe ? .rightShoe : .leftShoe
+      let plant = drive * (1 - ramp(time, 0.025, 0.18))
+      pose[lead] += (forward * 0.21 + right * sideOfBall * 0.08) * plant
+      pose[rear] -= forward * (0.10 * plant)
+    }
     if let landing {
       pose[.rightShoe] += (up * 0.32 - forward * 0.24) * Float(sin(landing * .pi))
     }
@@ -199,7 +211,7 @@ struct AthleteMotion {
     // Lead the drive with the hips. On the serve, hold the tossing shoulder up until release.
     let powerCoil: Float = activePower == .rally ? (backhand ? 0.18 : -0.24) : activePower == .ace ? -0.35 : 0
     let hips = axis(hipTurn + powerCoil * (1 - 1.6 * ramp(time,-0.20,0)) * coil + moveTurn * (1 - drive))
-    let shoulders = axis(chestTurn + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
+    let shoulders = axis(chestTurn * (blocked ? 0.25 : planted ? 1.27 : 1) + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
       + moveTurn * (1 - (backhand ? coil : drive)))
     if activePower == .rally { pelvis += forward * (0.095 * pushOff) }
     var wrongStep = CourtPoint3D.zero
@@ -238,7 +250,15 @@ struct AthleteMotion {
     let ready = local(0.16, atNet ? 1.48 : 1.29, 0.43)
     var strings: CourtPoint3D
     var shaft: CourtPoint3D
-    if backhand {
+    if blocked {
+      // Meet the ball in front with a firm face and only a short extension.
+      let set = local(sideOfBall * 0.38, max(0.58, strike.y), 0.34)
+      strings = ready + (set - ready) * load
+      strings += (strike - strings) * ramp(time, -0.09, 0)
+      strings += (forward * 0.14 + up * 0.09) * ramp(time, 0, 0.09)
+      strings += (ready - strings) * (1 - finish)
+      shaft = up * 0.78 + right * sideOfBall * 0.72
+    } else if backhand {
       let set = local(-0.56, 1.40, -0.33 + 0.12 * rush)
       let drop = local(-0.68, max(0.29, strike.y - 0.24), -0.30 + 0.14 * rush)
       let follow = local(0.42, swing.style == .lob ? 1.89 : 1.73, 0.06 + rush * 0.18)

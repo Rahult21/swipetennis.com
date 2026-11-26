@@ -55,7 +55,7 @@ struct CourtGuideCard: View {
     "Earn Coachability Points", "Read your opponent", "Scores & a fresh start", "Court markings & out balls"]
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
-      Text("Every tap and swipe, illustrated in eight pages.")
+      Text("Swipe farther to hit deeper, or tap a spot across the net to aim there before contact. Swipe faster to sprint. Watch the energy bars beside the score and run at rally pace to recover. Set your feet early for a stronger drive, or stretch for a shorter block.")
         .font(.subheadline).foregroundStyle(.secondary)
       ForEach(topics.indices, id: \.self) { index in
         Button {

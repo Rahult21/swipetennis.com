@@ -875,7 +875,7 @@ import SwiftUI
     touchGestures[touch] = gesture
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
-      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch), side: gesture.side)
+      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch, runPace: gesture.runPace), side: gesture.side)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }

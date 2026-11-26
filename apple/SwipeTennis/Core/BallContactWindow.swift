@@ -14,6 +14,7 @@ struct NetEffort: Codable {
   let from, landing: Vec
   let target: CourtPoint3D
   let reachable: Bool
+  var afterBounce: Bool?
 
   func position(at time: Double) -> Vec {
     let duration = impactTime - startTime + 0.10

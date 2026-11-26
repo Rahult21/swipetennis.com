@@ -28,6 +28,7 @@ struct PracticeGesture {
   private var screenStart: Vec?
   private var screenTravelled = 0.0
   private var circlePoints: [Vec] = []
+  private(set) var runPace = 1.0
   private var startedAt: Double?
 
   mutating func update(at point: Vec, screenPoint: Vec? = nil, ended: Bool = false, timestamp: Double? = nil)
@@ -40,6 +41,10 @@ struct PracticeGesture {
     let screen = screenPoint ?? point
     if screenStart == nil { screenStart = screen }
     if startedAt == nil { startedAt = timestamp }
+    if let timestamp, let startedAt, let screenStart, screenPoint != nil, timestamp > startedAt {
+      let speed = screenStart.distance(to: screen) / max(1.0 / 120, timestamp - startedAt)
+      runPace = clamp(1 + (speed - 340) / 1050, 0.75, 1.5)
+    }
     if intent != .slice, let guide = targetGuide {
       let delta = Vec(x: point.x - start.x, y: point.y - start.y)
       let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
@@ -118,6 +123,10 @@ extension PracticeEngine {
     if delta.length < 12 { beginSplit(side); return }
     guard let selection = ShotSwipe.read(delta) else { return }
     choose(side, selection.kind)
+    // Distance inside the far baseline, in metres. A short angle stays shorter than a drive.
+    let reach = clamp((delta.length - 16) / 132, 0, 1)
+    let deep = selection.kind == .angle ? 3.6 : 0.85
+    players[side].swipeDepth = 8.8 + (deep - 8.8) * reach
     if selection.kind == .lob && selection.lateral == 0 {
       players[side].aim?.x = Self.width / 2
     }
@@ -139,6 +148,17 @@ extension PracticeEngine {
     guard phase.isPlaying else { return }
     if phase == .serving && servePreparation?.server == side {
       requestServe(side)
+      return
+    }
+    let farDepth = side == 0 ? point.y : Self.length - point.y
+    if phase == .live, canChooseShot(side), demo == nil, (0...Self.width).contains(point.x),
+       farDepth >= 0 && farDepth < Self.net - 0.5 {
+      let target = Self.aim(side, point)
+      let across = abs(target.x - players[side].pos.x)
+      let kind: ShotKind = across < 1.4 ? .line : (farDepth > 5 && across > 3 ? .angle : .cross)
+      choose(side, kind)
+      players[side].aim = target
+      players[side].tappedLanding = target
       return
     }
     if canTapNetShot(side) {

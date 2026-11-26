@@ -125,6 +125,7 @@ struct CupInput: Codable {
   var shot: ShotKind?
   var shotEpoch: Int?
   var movementEpoch: Int?
+  var runPace: Double?
   var speed: ServeLevel?
   var spin: ServeLevel?
   var finished: Bool?
@@ -133,8 +134,9 @@ struct CupInput: Codable {
     self.kind = kind; self.point = point; self.shot = shot; self.shotEpoch = shotEpoch
     self.movementEpoch = movementEpoch; self.speed = speed; self.spin = spin; self.finished = finished
   }
-  init(_ action: PracticeGestureAction, shotEpoch: Int?, movementEpoch: Int?) {
+  init(_ action: PracticeGestureAction, shotEpoch: Int?, movementEpoch: Int?, runPace: Double? = nil) {
     self.init(kind: "", shotEpoch: shotEpoch, movementEpoch: movementEpoch)
+    self.runPace = runPace
     switch action {
     case .move(let p): kind = "move"; point = p
     case .aim(let p): kind = "aim"; point = p
@@ -165,7 +167,7 @@ struct CupInput: Codable {
     case "serveTune": engine.adjustServe(speed: speed, spin: spin, side: side)
     default: break
     }
-    if let action { engine.apply(action, side: side, shotEpoch: shotEpoch, movementEpoch: movementEpoch) }
+    if let action { engine.apply(action, side: side, shotEpoch: shotEpoch, movementEpoch: movementEpoch, runPace: runPace) }
   }
 }
 

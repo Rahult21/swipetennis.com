@@ -80,7 +80,7 @@ extension PracticeEngine {
       side, CourtTactics.netCoverage(side: side, opponentContact: flight.contact))
   }
 
-  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil) {
+  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil, runPace: Double? = nil) {
     guard !phase.isPlaying || side != 0 || (queuedPower == nil && flight?.power == nil) else { return }
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
@@ -92,11 +92,13 @@ extension PracticeEngine {
     case .courtTap(let point): tapCourt(side, at: point)
     case .run(let delta):
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }
+      players[side].runPace = clamp(runPace ?? 1, 0.75, 1.5)
       swipeCourt(side, delta: delta)
     case .shotSwipe(let delta): selectShotSwipe(delta, side: side)
     case .guidedMove(let kind):
       // Resolve against the live target: the ball may have moved since the swipe began.
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }
+      players[side].runPace = clamp(runPace ?? 1, 0.75, 1.5)
       switch kind {
       case .receive: receiveAtGuide(side)
       case .approach: followShot(side)

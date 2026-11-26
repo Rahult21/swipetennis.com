@@ -64,6 +64,7 @@ struct CourtBillboard: View {
       HStack(spacing: 8) {
         Text("COACH \(game.coach.pointScore >= 0 ? "+" : "")\(game.coach.pointScore)")
           .frame(maxWidth: .infinity, alignment: .leading)
+        Text("ENERGY").frame(width: 34)
         if game.scoring.format == .tennis { Text("G").frame(width: 24) }
         Text("PTS").frame(width: 36)
       }.font(.system(size: 8, weight: .semibold)).foregroundStyle(.white.opacity(0.55))
@@ -74,6 +75,10 @@ struct CourtBillboard: View {
             .accessibilityLabel(game.scoring.server == side ? "Serving" : "Receiving")
           Text(game.name(side)).font(.system(size: 12, weight: .medium))
             .lineLimit(1).minimumScaleFactor(0.65).frame(maxWidth: .infinity, alignment: .leading)
+          let energy = game.players[side].energyLevel
+          ProgressView(value: energy).frame(width: 34)
+            .tint(energy < 0.35 ? .orange : TennisTheme.lime)
+            .accessibilityLabel("Energy").accessibilityValue("\(Int(energy * 100)) percent")
           if game.scoring.format == .tennis {
             Text("\(game.scoring.games[side])").font(.system(size: 14, weight: .medium)).frame(width: 24)
               .accessibilityLabel("\(game.scoring.games[side]) games")
