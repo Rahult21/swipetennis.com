@@ -54,11 +54,21 @@ struct PointReplayView: View {
             .onChange(of: time >= review.clip.duration) { _, ended in if ended { pause() } }
         }
         VStack(spacing: 10) {
-          Picker("Camera", selection: $angle) {
-            ForEach(ReplayAngle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+          HStack(spacing: 4) {
+            ForEach(ReplayAngle.allCases, id: \.self) { view in
+              Button { angle = view } label: {
+                Text(view.rawValue).font(.subheadline.weight(.semibold))
+                  .frame(maxWidth: .infinity, minHeight: 44)
+                  .foregroundStyle(view == angle ? Color.white : Color.primary)
+                  .background(view == angle ? Color(red: 0.10, green: 0.38, blue: 0.29) : .clear, in: Capsule())
+                  .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .accessibilityAddTraits(view == angle ? .isSelected : [])
+              .accessibilityIdentifier("replayCamera\(view.rawValue)")
+            }
           }
-          .pickerStyle(.segmented)
-          .accessibilityIdentifier("replayCamera")
+          .padding(3).background(.quaternary, in: Capsule())
           TimelineView(.animation(minimumInterval: 0.1, paused: anchor == nil)) { _ in
             let time = cursor
             VStack(spacing: 10) {
