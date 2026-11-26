@@ -8,6 +8,7 @@ import UIKit
   private let skin: SimpleMaterial, fabric: SimpleMaterial
   private let shorts = SimpleMaterial(color: UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1), roughness: 0.9, isMetallic: false)
   private let white = SimpleMaterial(color: .white, roughness: 0.87, isMetallic: false)
+  private let garment: ReplayShorts
   private let sphere: MeshResource
   private let side: Int
   private var limbs: [ModelEntity] = []
@@ -20,23 +21,20 @@ import UIKit
       : UIColor(red: 0.48, green: 0.285, blue: 0.19, alpha: 1), roughness: 0.85, isMetallic: false)
     fabric = SimpleMaterial(color: side == 0 ? UIColor(red: 0.26, green: 0.76, blue: 0.84, alpha: 1)
       : UIColor(red: 0.99, green: 0.42, blue: 0.17, alpha: 1), roughness: 0.92, isMetallic: false)
-    for part in [torso, hips, face, racket, stamp] { root.addChild(part) }
+    garment = ReplayShorts(material: shorts)
+    for part in [torso, hips, face, racket, stamp, garment.model] { root.addChild(part) }
     // Cross sections give the shirt a waist, rib cage and sloping shoulder seams.
     let jersey = Self.profile([
       [0.159,-0.27,0.115], [0.181,-0.245,0.119], [0.167,-0.085,0.110],
       [0.19,0.045,0.122], [0.218,0.146,0.136], [0.216,0.195,0.12],
       [0.173,0.226,0.109], [0.087,0.259,0.074]])
-    torso.addChild(ModelEntity(mesh: jersey, materials: [fabric]))
+    torso.addChild(ModelEntity(mesh: jersey, materials: [Self.jerseyMaterial(side: side, base: fabric)]))
     for x: Float in [-0.195,0.195] {
       ellipsoid(torso, [x,0.218,0], [0.087,0.068,0.099], fabric)
     }
-    let stripe = Self.profile([[0.178,-0.247,0.118], [0.182,-0.235,0.121]])
-    torso.addChild(ModelEntity(mesh: stripe, materials: [fabric]))
     ellipsoid(face, [0, -0.148, 0.008], [0.063, 0.102, 0.063], skin)
     ellipsoid(torso, [0, 0.236, 0], [0.105, 0.030, 0.095], white)
     ellipsoid(torso, [0.12, 0.12, -0.124], [0.025, 0.011, 0.006], white)
-    hips.addChild(ModelEntity(mesh: Self.profile([[0.164,-0.103,0.126], [0.194,-0.059,0.138],
-      [0.186,0.026,0.132], [0.161,0.063,0.116]]), materials: [shorts]))
     face.addChild(ModelEntity(mesh: Self.profile([[0.047,-0.12,0.064], [0.076,-0.095,0.084],
       [0.094,-0.035,0.099], [0.098,0.025,0.106], [0.094,0.082,0.10],
       [0.061,0.119,0.071], [0.004,0.138,0.006]]), materials: [skin]))
@@ -58,7 +56,7 @@ import UIKit
     let forearm = limb([(-0.56,1.02),(-0.28,1.08),(0.13,0.84),(0.54,0.61)])
     let meshes = [thigh, cuff, calf, sock, arm, cuff, forearm, cuff, sphere]
     for _ in 0..<2 {
-      for (mesh, material) in zip(meshes, [skin, shorts, skin, white, skin, fabric, skin, white, skin]) {
+      for (mesh, material) in zip(meshes, [skin, white, skin, white, skin, fabric, skin, white, skin]) {
         let part = ModelEntity(mesh: mesh, materials: [material])
         root.addChild(part); limbs.append(part)
       }
@@ -66,6 +64,13 @@ import UIKit
       ellipsoid(shoe, [0, 0.005, -0.046], [0.062, 0.065, 0.142], white)
       ellipsoid(shoe, [0, -0.038, -0.05], [0.064, 0.025, 0.145], shorts)
       ellipsoid(shoe, [0, 0.032, -0.089], [0.043, 0.035, 0.068], fabric)
+      let laces = ReplayMeshLines()
+      for row in 0..<3 {
+        let z = -0.062 - Float(row)*0.022
+        laces.line([-0.029,0.062,z],[0.028,0.062,z-0.013],radius: 0.003)
+        laces.line([0.029,0.062,z],[-0.028,0.062,z-0.013],radius: 0.003)
+      }
+      shoe.addChild(laces.model(color: .white))
     }
     let frame = ReplayMeshLines()
     var previous = CourtPoint3D(0, 0.49 + 0.175, 0)
@@ -92,30 +97,68 @@ import UIKit
     ellipsoid(racket, [0, 0.058, 0], [0.018, 0.11, 0.019], white)
   }
 
+  /// UVs wrap the torso from the side seam. The knit, shoulder panels and hems turn with the shirt.
+  private static func jerseyMaterial(side: Int, base: SimpleMaterial) -> SimpleMaterial {
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1; format.opaque = true
+    let bounds = CGRect(x: 0,y: 0,width: 512,height: 512)
+    let teal = UIColor(red: 0.23,green: 0.68,blue: 0.75,alpha: 1)
+    let coral = UIColor(red: 0.94,green: 0.42,blue: 0.23,alpha: 1)
+    let image = UIGraphicsImageRenderer(size: bounds.size,format: format).image { renderer in
+      let ctx = renderer.cgContext
+      ctx.setFillColor((side == 0 ? teal : coral).cgColor); ctx.fill(bounds)
+      for x: CGFloat in [0,256,512] {
+        let panel = UIBezierPath()
+        panel.move(to: CGPoint(x: x-72,y: 0)); panel.addLine(to: CGPoint(x: x+72,y: 0))
+        panel.addQuadCurve(to: CGPoint(x: x+21,y: 170),controlPoint: CGPoint(x: x+35,y: 94))
+        panel.addLine(to: CGPoint(x: x+14,y: 510)); panel.addLine(to: CGPoint(x: x-14,y: 510))
+        panel.addLine(to: CGPoint(x: x-21,y: 170)); panel.close()
+        UIColor.black.withAlphaComponent(0.19).setFill(); panel.fill()
+        UIColor.white.withAlphaComponent(0.50).setStroke(); panel.lineWidth = 2; panel.stroke()
+      }
+      ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.065).cgColor)
+      ctx.setLineWidth(1)
+      for y in stride(from: -12, through: 520, by: 5) {
+        ctx.move(to: CGPoint(x: 0,y: y)); ctx.addLine(to: CGPoint(x: 512,y: y+12))
+      }
+      ctx.strokePath()
+      ctx.setFillColor(UIColor.black.withAlphaComponent(0.15).cgColor)
+      ctx.fill(CGRect(x: 0,y: 491,width: 512,height: 3))
+    }
+    guard let cg = image.cgImage, let texture = try? TextureResource.generate(from: cg, options: .init(semantic: .color)) else { return base }
+    var result = base
+    result.color = .init(tint: .white, texture: .init(texture))
+    return result
+  }
+
   /// Elliptical rings in ascending height, with normals following the change in radius.
   private static func profile(_ rings: [CourtPoint3D]) -> MeshResource {
     var vertices: [CourtPoint3D] = [], normals: [CourtPoint3D] = [], indices: [UInt32] = []
-    let sides = 20
+    let sides = 20, stride = 21
+    var uv: [SIMD2<Float>] = []
+    let firstY = rings[0].y, span = max(0.00001, rings[rings.count-1].y-firstY)
     for (row, ring) in rings.enumerated() {
       let tangent = rings[min(rings.count-1,row+1)] - rings[max(0,row-1)]
-      for n in 0..<sides {
-        let a = 2 * Float.pi * Float(n) / Float(sides), c = cos(a), s = sin(a)
+      for n in 0...sides {
+        let u = Float(n) / Float(sides), a = 2 * Float.pi * u, c = cos(a), s = sin(a)
         vertices.append([ring.x*c, ring.y, ring.z*s])
+        uv.append([u, 1 - (ring.y-firstY)/span])
         let dy = CourtPoint3D(tangent.x*c, tangent.y, tangent.z*s)
         let da = CourtPoint3D(-ring.x*s, 0, ring.z*c)
         normals.append(simd_normalize(simd_cross(dy, da)))
-        if row > 0 {
-          let k = UInt32(row*sides+n), next = UInt32(row*sides + (n+1)%sides), stride = UInt32(sides)
-          indices += [k-stride,k,next, k-stride,next,next-stride]
+        if row > 0 && n < sides {
+          let k = UInt32(row*stride+n), lower = k-UInt32(stride)
+          indices += [lower,k,k+1, lower,k+1,lower+1]
         }
       }
     }
-    let last = UInt32((rings.count-1) * sides)
+    let last = UInt32((rings.count-1) * stride)
     for n in 1..<(sides-1) {
       indices += [0, UInt32(n), UInt32(n+1), last, last+UInt32(n+1), last+UInt32(n)]
     }
     var mesh = MeshDescriptor()
     mesh.positions = MeshBuffers.Positions(vertices); mesh.normals = MeshBuffers.Normals(normals)
+    mesh.textureCoordinates = .init(uv)
     mesh.primitives = .triangles(indices)
     return (try? MeshResource.generate(from: [mesh])) ?? .generateSphere(radius: 0.1)
   }
@@ -133,6 +176,7 @@ import UIKit
   }
 
   func draw(_ p: AthletePose) {
+    garment.draw(p)
     let hip = (p[.leftHip] + p[.rightHip]) / 2
     let shoulder = (p[.leftShoulder] + p[.rightShoulder]) / 2
     let up = simd_normalize(shoulder - hip)
@@ -153,11 +197,11 @@ import UIKit
       let foot = p[i == 0 ? .leftShoe : .rightShoe]
       let s = p[i == 0 ? .leftShoulder : .rightShoulder], e = p[i == 0 ? .leftElbow : .rightElbow]
       let hand = p[i == 0 ? .leftHand : .grip], j = i * 9
-      segment(limbs[j], h, k, 0.091)
-      segment(limbs[j+1], h, h + (k-h) * 0.58, 0.105)
+      segment(limbs[j], h + (k-h) * 0.41, k, 0.084)
+      segment(limbs[j+1], foot + (k-foot)*0.33, foot + (k-foot)*0.37, 0.062)
       segment(limbs[j+2], k, foot, 0.066)
       segment(limbs[j+3], foot, foot + (k-foot) * 0.36, 0.060)
-      segment(limbs[j+4], s, e, 0.064)
+      segment(limbs[j+4], s + (e-s) * 0.36, e, 0.062)
       segment(limbs[j+5], s, s + (e-s) * 0.46, 0.076)
       segment(limbs[j+6], e, hand, 0.048)
       segment(limbs[j+7], hand + (e-hand)*0.12, hand + (e-hand)*0.26, 0.045)
@@ -202,13 +246,31 @@ import UIKit
     }
   }
 
-  func model(color: UIColor) -> ModelEntity {
+  func oval(_ center: CourtPoint3D, radii: CourtPoint3D) {
+    let base = UInt32(vertices.count), sectors = 8
+    for row in 0...4 {
+      let phi = Float(row) * .pi / 4
+      for i in 0..<sectors {
+        let a = 2 * Float.pi * Float(i) / Float(sectors)
+        let n = CourtPoint3D(sin(phi)*cos(a),cos(phi),sin(phi)*sin(a))
+        vertices.append(center + radii*n); normals.append(simd_normalize(n / radii))
+        if row > 0 {
+          let k = base + UInt32(row*sectors+i), next = base + UInt32(row*sectors+(i+1)%sectors), prev = UInt32(sectors)
+          indices += [k-prev,next-prev,k, next-prev,next,k]
+        }
+      }
+    }
+  }
+  func descriptor() -> MeshDescriptor {
     var descriptor = MeshDescriptor()
     descriptor.positions = MeshBuffers.Positions(vertices)
     descriptor.normals = MeshBuffers.Normals(normals)
     descriptor.primitives = .triangles(indices)
+    return descriptor
+  }
+  func model(color: UIColor) -> ModelEntity {
     let entity = ModelEntity()
-    if let mesh = try? MeshResource.generate(from: [descriptor]) {
+    if let mesh = try? MeshResource.generate(from: [descriptor()]) {
       entity.model = ModelComponent(mesh: mesh, materials: [SimpleMaterial(color: color, roughness: 0.75, isMetallic: false)])
     }
     return entity

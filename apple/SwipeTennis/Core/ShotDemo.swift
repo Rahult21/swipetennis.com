@@ -52,7 +52,7 @@ enum DemoLesson: String, Codable, CaseIterable, Identifiable {
     case .centerLob: return "Tap yellow behind the baseline. Swipe straight back from your player to lob through center."
     case .dropShot: return "Tap yellow first. Draw a quick, closed circle before the ball arrives."
     case .slice: return "Tap yellow. Swipe from either net post to the diagonally opposite end of your baseline."
-    case .approachVolley: return "Tap gold and swipe up from your player. AFTER the hit, make a new forward swipe from empty court."
+    case .approachVolley: return "Tap gold and swipe up from your player. After the hit, swipe forward again before the far bounce."
     case .overhead: return "Tap yellow to get under the lob. Swipe up from your player before the ball arrives."
     case .firstReturn: return "Tap yellow early. Swipe up from your player to return straight back at the server."
     case .secondReturn: return "Tap yellow inside the baseline. Swipe diagonally from your player and meet the second serve early."
@@ -221,7 +221,7 @@ struct ShotDemoRun {
     if lesson.isFootwork && stage == .receive {
       return "Tap YELLOW and reach it before the ball. Your player returns automatically; then go back to white."
     }
-    if stage == .approachFlight { return "Your approach is away. Swipe FORWARD from empty court now to follow it to the net." }
+    if stage == .approachFlight { return "Your shot is away. Swipe forward before it bounces to follow it in." }
     if stage == .volleyReceive { return "Tap yellow to meet the reply. Swipe up from your player for a volley before the bounce." }
     if stage == .finishFlight { return "Watch your shot land." }
     return lesson.instruction
@@ -356,7 +356,7 @@ extension PracticeEngine {
         demo?.scriptTap = false
         demo?.scriptShot = false
       } else if run.stage == .approachFlight {
-        guard run.approached else { finishShotDemo(success: false, message: "After the approach shot, make a NEW forward swipe from empty court."); return }
+        guard run.approached else { finishShotDemo(success: false, message: "After contact, start and finish a new forward swipe before the far bounce."); return }
         players[1].pos = current.landing
         players[1].destination = current.landing
         let cover = CourtTactics.netCoverage(side: 0, opponentContact: players[1].pos)

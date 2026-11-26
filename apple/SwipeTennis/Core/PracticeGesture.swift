@@ -16,6 +16,7 @@ enum CourtTouchIntent { case movement, shot, slice }
 struct PracticeGesture {
   let side: Int
   var intent: CourtTouchIntent = .movement
+  var movementEpoch: Int?
   var shotEpoch: Int?
   var allowsDrop = false
   private var start: Vec?
@@ -141,7 +142,7 @@ extension PracticeEngine {
     guard acceptsCourtMovement, delta.length >= 0.55,
       phase != .serving || servePreparation?.server != side else { return }
     let forward = delta.y * (side == 0 ? -1 : 1)
-    if flight?.hitter == side && forward > 1 && abs(delta.x) <= forward * 0.75 {
+    if flight?.hitter == side && forward >= 0.55 && abs(delta.x) <= forward * 0.75 {
       followShot(side)
       return
     }
@@ -152,9 +153,14 @@ extension PracticeEngine {
       let alignment = (delta.x * path.x + delta.y * path.y) / max(0.001, delta.length * path.length)
       if alignment >= 0.65 { move(side, to: guide.to); return }
     }
+    // Off-player swipes can run to an incoming yellow target. Open-court forward
+    // movement is reserved for the separate outgoing approach window.
+    let receiving = canChooseShot(side) && outBallChaseTarget(side) == nil
+    if receiving && forward > 0 && abs(delta.x) <= forward * 0.75 { return }
+    let depth = receiving && forward > 0 ? 0 : delta.y
     let scale = min(1.5, 8 / delta.length)
-    move(side, to: Vec(x: players[side].pos.x + delta.x * scale,
-      y: players[side].pos.y + delta.y * scale))
+    steer(side, to: Vec(x: players[side].pos.x + delta.x * scale,
+      y: players[side].pos.y + depth * scale))
   }
 
   func recoveryGuide(_ side: Int) -> Vec? {

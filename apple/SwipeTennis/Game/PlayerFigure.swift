@@ -142,6 +142,23 @@ import SpriteKit
       strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 2)
   }
 
+  private static func outline(_ points: [CGPoint]) -> [CGPoint] {
+    let sorted = points.sorted { $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x }
+    func boundary(_ points: [CGPoint]) -> [CGPoint] {
+      var edge: [CGPoint] = []
+      for point in points {
+        while edge.count >= 2 {
+          let a = edge[edge.count-2], b = edge[edge.count-1]
+          if (b.x-a.x)*(point.y-a.y) > (b.y-a.y)*(point.x-a.x) { break }
+          edge.removeLast()
+        }
+        edge.append(point)
+      }
+      return Array(edge.dropLast())
+    }
+    return boundary(sorted) + boundary(sorted.reversed())
+  }
+
   func draw(pose: AthletePose, project: (CourtPoint3D) -> CGPoint, in scene: SKNode,
     frustration: Int, surprise: Bool, trail: Bool) {
     func joint(_ name: BodyJoint) -> CGPoint { silhouette.convert(project(pose[name]), from: scene) }
@@ -149,7 +166,7 @@ import SpriteKit
     let leftKnee = joint(.leftKnee), rightKnee = joint(.rightKnee)
     let hipLeft = joint(.leftHip), hipRight = joint(.rightHip)
     let shoulderLeft = joint(.leftShoulder), shoulderRight = joint(.rightShoulder)
-    let shoulderY = (shoulderLeft.y + shoulderRight.y) / 2, hipY = (hipLeft.y + hipRight.y) / 2
+    let shoulderY = (shoulderLeft.y + shoulderRight.y) / 2
     let shift = (shoulderLeft.x + shoulderRight.x) / 2
     shadow.setScale(max(0.65, 1 - CGFloat(min(pose[.leftShoe].y, pose[.rightShoe].y)) / 2))
     limb(leftLeg, [hipLeft, leftKnee, leftFoot], width: 4.8)
@@ -163,14 +180,15 @@ import SpriteKit
       shoe.strokeColor = ink.withAlphaComponent(0.6)
       shoe.lineWidth = 0.6
     }
-    polygon(
-      shorts,
-      [
-        CGPoint(x: shift * 0.5 - 7, y: hipY + 3), CGPoint(x: shift * 0.5 + 7, y: hipY + 3),
-        CGPoint(x: shift * 0.5 + 7.8, y: hipY - 5), CGPoint(x: shift * 0.5 + 1, y: hipY - 5),
-        CGPoint(x: shift * 0.5, y: hipY - 2), CGPoint(x: shift * 0.5 - 1, y: hipY - 5),
-        CGPoint(x: shift * 0.5 - 7.8, y: hipY - 5),
-      ])
+    let garment = TennisShorts.mesh
+    let cloth = garment.positions(for: pose).map { silhouette.convert(project($0), from: scene) }
+    let drape = CGMutablePath()
+    // Just three overlapping cloth outlines for SpriteKit to tessellate at court scale.
+    for group in garment.silhouetteGroups {
+      let outline = Self.outline(group.map { cloth[Int($0)] })
+      drape.addLines(between: outline); drape.closeSubpath()
+    }
+    shorts.path = drape
     polygon(
       shirt,
       [
@@ -186,7 +204,7 @@ import SpriteKit
       ])
     limb(
       hem,
-      [CGPoint(x: shift * 0.5 - 6, y: hipY + 0.5), CGPoint(x: shift * 0.5 + 6, y: hipY + 0.5)],
+      [hipLeft, hipRight],
       width: 1)
     limb(
       collar,

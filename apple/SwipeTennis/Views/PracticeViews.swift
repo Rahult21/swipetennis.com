@@ -62,7 +62,7 @@ struct PracticeSetupView: View {
         }.pickerStyle(.segmented)
         if !settings.local { Toggle("All-court training", isOn: $settings.allCourtTraining) }
       } header: { Text("Court") } footer: {
-        Text("You choose when to move in. Swipe forward after your shot to approach the net.")
+        Text("Swipe forward after your shot and before the far bounce to approach the net.")
       }
       Section {
         Picker("Scoring", selection: $settings.scoring) {
@@ -431,60 +431,73 @@ struct PracticeSessionSheet: View {
   @State private var confirmRestart = false
   @State private var showGuide = false
   var game: PracticeEngine { session.snapshot }
-  var title: String { confirmingExit ? "Leave the court?" : session.paused ? "Paused" : "Ready to play" }
-  var actionTitle: String { game.phase == .ready ? "Start practice" : "Resume rally" }
+  private var canSave: Bool { game.phase != .ready && game.phase != .finished }
+  private var title: String {
+    confirmingExit ? "Leaving the court" : game.phase == .ready ? "Ready to play" : "Match paused"
+  }
+  private var primary: String {
+    confirmingExit ? (canSave ? "Save & leave" : "Leave court") : game.phase == .ready ? "Start match" : "Resume match"
+  }
   var body: some View {
     NavigationStack {
-      List {
-        if let saveError { Section { Text(saveError).foregroundStyle(.red) } }
-        if confirmingExit {
-          Section {
-            if game.phase != .ready && game.phase != .finished {
-              Button("Save & leave", systemImage: "bookmark", action: onSave)
-                .accessibilityIdentifier("saveAndLeave")
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          VStack(alignment: .leading, spacing: 10) {
+            Label("\(game.settings.surface.rawValue) court · \(game.scoring.format == .tennis ? "One set" : "Tiebreak")",
+              systemImage: "tennisball").font(.subheadline.weight(.semibold)).foregroundStyle(TennisTheme.lime)
+            ForEach(0..<2) { side in
+              HStack {
+                Text(game.name(side)).font(.title3.weight(.semibold))
+                if game.scoring.server == side {
+                  Image(systemName: "tennisball.fill").font(.caption).foregroundStyle(TennisTheme.lime)
+                    .accessibilityLabel("Serving")
+                }
+                Spacer()
+                if game.phase != .ready {
+                  Text(game.scoring.format == .tennis ? "\(game.scoring.games[side])   \(game.scoring.pointLabel(side))" : game.scoring.pointLabel(side))
+                    .font(.title3.monospacedDigit()).accessibilityLabel(game.scoring.format == .tennis
+                      ? "\(game.scoring.games[side]) games, \(game.scoring.pointLabel(side)) points" : "\(game.scoring.points[side]) points")
+                }
+              }.foregroundStyle(.white)
+            }
+          }
+          .padding(16).background(Color(red: 0.08,green: 0.23,blue: 0.19), in: RoundedRectangle(cornerRadius: 18))
+          if let saveError { Label(saveError, systemImage: "exclamationmark.circle").foregroundStyle(.red) }
+          if confirmingExit && canSave {
+            Text("Save this match to pick up from here in Play & practice.").font(.subheadline).foregroundStyle(.secondary)
+          }
+          Button {
+            if confirmingExit { if canSave { onSave() } else { onDiscard() } }
+            else if game.phase == .ready { onStart() } else { session.resume() }
+          } label: {
+            Label(primary, systemImage: confirmingExit ? (canSave ? "bookmark.fill" : "door.left.hand.open") : "play.fill")
+              .font(.headline).frame(maxWidth: .infinity, minHeight: 32)
+          }.buttonStyle(.borderedProminent).controlSize(.large).tint(Color(red: 0.10,green: 0.38,blue: 0.29))
+            .accessibilityIdentifier(confirmingExit ? (canSave ? "saveAndLeave" : "leaveCourt") : "startPractice")
+          if confirmingExit {
+            Button("Stay on court", action: onCancel).buttonStyle(.bordered).controlSize(.large)
+              .frame(maxWidth: .infinity).accessibilityIdentifier("stayOnCourt")
+            if canSave {
               Button("Leave without saving", role: .destructive, action: onDiscard)
-            } else {
-              Button("Leave court", role: .destructive, action: onDiscard)
+                .font(.subheadline).frame(maxWidth: .infinity,minHeight: 44)
             }
-            Button("Cancel", role: .cancel, action: onCancel)
-          } footer: {
-            if game.phase != .ready && game.phase != .finished {
-              Text("Save this match on your iPhone to pick up at this point from Play & practice.")
-            }
+          } else {
+            HStack {
+              Button("How to play", systemImage: "questionmark.circle") { showGuide = true }
+              Spacer()
+              Button("Leave court", systemImage: "door.left.hand.open", action: onLeave)
+            }.font(.subheadline.weight(.medium)).buttonStyle(.borderless).frame(minHeight: 44)
           }
-        } else {
-          Section {
-            Label(session.paused ? "Take a breath." : "Make the court your own.",
-              systemImage: session.paused ? "pause.circle" : "tennisball")
-              .font(.title2.bold()).padding(.vertical, 4)
-            Text(session.paused ? "Your rally is paused."
-              : "Swipe from your player to choose a shot. Swipe elsewhere to move. Tap yellow to receive and white to recover.")
-              .font(.subheadline).foregroundStyle(.secondary)
-          }
-          if session.paused && game.phase != .ready {
-            Section { Button("Restart session", role: .destructive) { confirmRestart = true } }
-          }
-        }
-      }.listStyle(.insetGrouped).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-          if !confirmingExit {
-            Button(actionTitle) {
-              if game.phase == .ready { onStart() }
-              else { session.resume() }
-            }.buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth: .infinity)
-              .accessibilityIdentifier("startPractice").padding(.horizontal, 20).padding(.vertical, 10)
-              .background(.bar)
-          }
-        }
+        }.padding(.horizontal,20).padding(.vertical,10)
+      }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
         .toolbar {
-          if !confirmingExit {
-            ToolbarItem(placement: .cancellationAction) { Button("Leave", action: onLeave) }
+          if !confirmingExit && game.phase != .ready {
             ToolbarItem(placement: .topBarTrailing) {
-              Button("How to play", systemImage: "questionmark.circle") { showGuide = true }.labelStyle(.iconOnly)
+              Menu { Button("Restart session", role: .destructive) { confirmRestart = true } }
+                label: { Label("Match options", systemImage: "ellipsis.circle") }
             }
           }
-        }
-        .sheet(isPresented: $showGuide) { CourtGuideView() }
+        }.sheet(isPresented: $showGuide) { CourtGuideView() }
         .confirmationDialog("Restart this practice session?", isPresented: $confirmRestart, titleVisibility: .visible) {
           Button("Restart", role: .destructive) { session.restart() }
         }
@@ -557,6 +570,10 @@ struct PointResultCard: View {
       Rectangle().fill(.white.opacity(0.16)).frame(height: 1)
       HStack {
         Text("Coachability").font(.subheadline.weight(.semibold))
+        if !rows.isEmpty {
+          Button(action: onDetails) { Image(systemName: "info.circle").frame(width: 44,height: 44) }
+            .buttonStyle(.plain).accessibilityLabel("All Coachability actions for this point")
+        }
         Spacer()
         Text("\(game.coach.pointScore >= 0 ? "+" : "")\(game.coach.pointScore) CP")
           .font(.headline.monospacedDigit()).foregroundStyle(TennisTheme.lime)
@@ -582,14 +599,13 @@ struct PointResultCard: View {
       }.frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("pointCoachSummary")
       HStack(spacing: 10) {
         if let onReplay {
-          Button(action: onReplay) { Label("Replay point", systemImage: "play.circle") }
-            .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+          Button(action: onReplay) {
+            Label("Replay point", systemImage: "arrow.counterclockwise.circle.fill")
+              .font(.headline).foregroundStyle(Color(red: 0.06,green: 0.16,blue: 0.27))
+              .frame(maxWidth: .infinity,minHeight: 46)
+              .background(Color(red: 0.55,green: 0.83,blue: 1), in: RoundedRectangle(cornerRadius: 14))
+          }.buttonStyle(.plain).accessibilityHint("Watch this point at half speed from three angles.")
             .accessibilityIdentifier("replayPracticePoint")
-        }
-        if !rows.isEmpty {
-          Button("Details", action: onDetails).font(.subheadline)
-            .frame(minHeight: 44).foregroundStyle(.white)
-            .accessibilityLabel("All Coachability actions for this point")
         }
         Button(action: onContinue) {
           Text(nextTitle).font(.headline).frame(maxWidth: .infinity, minHeight: 44)

@@ -73,7 +73,7 @@ extension PracticeEngine {
     return onReceivingSide && flight.position.distance(to: flight.landing) <= 3
   }
 
-  private func advancingToNet(_ side: Int) -> Bool {
+  func advancingToNet(_ side: Int) -> Bool {
     let player = players[side]
     let forward = (player.pos.y - player.destination.y) * (side == 0 ? 1 : -1)
     return followingApproach[side] || (forward > 0.15 && abs(player.destination.y - Self.net) < abs(player.pos.y - Self.net))

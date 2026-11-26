@@ -418,7 +418,7 @@ import SwiftUI
         let x = Double(pad.leftThumbstick.xAxis.value)
         let y = -Double(pad.leftThumbstick.yAxis.value)
         if abs(x) + abs(y) > 0.15 {
-          engine.move(
+          engine.steer(
             side,
             to:
               Vec(x: engine.players[side].pos.x + x * 1.8, y: engine.players[side].pos.y + y * 1.8))
@@ -427,11 +427,11 @@ import SwiftUI
           pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed,
           pad.buttonY.isPressed,
         ]
-        for i in 0..<4 where pressed[i] { engine.choose(side, ShotKind.allCases[i]) }
+        for i in 0..<4 where pressed[i] && engine.canChooseShot(side) { engine.choose(side, ShotKind.allCases[i]) }
       } else if side == 0 && !engine.settings.local && UserDefaults.standard.bool(forKey: "tilt") {
         let t = Immersion.shared.tilt
         if t.length > 0.12 {
-          engine.move(
+          engine.steer(
             0,
             to: Vec(x: engine.players[0].pos.x + t.x * 1.8, y: engine.players[0].pos.y + t.y * 1.8))
         }
@@ -444,7 +444,7 @@ import SwiftUI
         let dx = (pressed[1] ? 1.0 : 0) - (pressed[0] ? 1.0 : 0)
         let dy = (pressed[3] ? 1.0 : 0) - (pressed[2] ? 1.0 : 0)
         if dx != 0 || dy != 0 {
-          engine.move(
+          engine.steer(
             side,
             to:
               Vec(
@@ -457,7 +457,7 @@ import SwiftUI
         let shots: [GCKeyCode] =
           side == 0 ? [.keyZ, .keyX, .keyC, .keyV] : [.one, .two, .three, .four]
         for (index, key) in shots.enumerated()
-        where keyboard.button(forKeyCode: key)?.isPressed == true {
+        where engine.canChooseShot(side) && keyboard.button(forKeyCode: key)?.isPressed == true {
           engine.choose(side, ShotKind.allCases[index])
         }
       }
@@ -716,7 +716,7 @@ import SwiftUI
       from = project(white)
       tap = true
     } else if demo.stage == .approachFlight {
-      guard !demo.approached else { return }
+      guard !demo.approached, engine.canFollowShot(0) else { return }
       from = CGPoint(x: player.x + 44, y: player.y - 5)
       to = CGPoint(x: from.x, y: from.y + 65)
     } else if demo.stage == .receive || demo.stage == .volleyReceive {
@@ -789,7 +789,7 @@ import SwiftUI
     touchGestures[touch] = gesture
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
-      engine.apply(action, side: gesture.side, shotEpoch: gesture.shotEpoch)
+      engine.apply(action, side: gesture.side, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }
@@ -835,8 +835,8 @@ import SwiftUI
           break
         }
       }
-      let intent: CourtTouchIntent = onPlayer && engine.canChooseShot(side) ? .shot : .movement
-      touchGestures[touch] = PracticeGesture(side: side, intent: intent,
+      let intent: CourtTouchIntent = engine.canChooseShot(side) && (onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
+      touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side))
       applyTouch(touch)
     }

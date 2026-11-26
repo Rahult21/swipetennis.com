@@ -11,7 +11,7 @@ extension PracticeEngine {
     if phase == .ready {
       return CourtInstruction(
         title: "Build the point. Finish at net.",
-        detail: "Swipe from your player to choose a shot. Swipe elsewhere to move.", symbol: "figure.tennis")
+        detail: "Tap yellow to receive, then swipe to choose your shot before contact.", symbol: "figure.tennis")
     }
     if isResolvingPoint {
       if let impact = pointResolution?.impact {
@@ -68,7 +68,7 @@ extension PracticeEngine {
     if flight.hitter == 0, movementGuide(0)?.kind == .approach {
       return CourtInstruction(
         title: "Swipe in along the yellow line",
-        detail: "Your shot is away. Swipe forward now to follow it to the net.",
+        detail: "Start a new forward swipe now. Finish it before the far bounce.",
         symbol: "hand.point.up.fill")
     }
     if attacking[0] && flight.hitter == 0 && followingApproach[0] {

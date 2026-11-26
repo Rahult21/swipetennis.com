@@ -48,7 +48,7 @@ extension PracticeEngine {
         ? MovementGuide(kind: .receive, from: from, to: to) : nil
     }
     if followingApproach[side] { return nil }
-    if approachAvailable[side] || attacking[side] || (side == 0 && !coach.approaches.isEmpty) {
+    if canFollowShot(side) && (approachAvailable[side] || attacking[side] || (side == 0 && !coach.approaches.isEmpty)) {
       let to = CourtTactics.netCoverage(side: side, opponentContact: flight.contact)
       return from.distance(to: to) > 0.5
         ? MovementGuide(kind: .approach, from: from, to: to) : nil
@@ -58,8 +58,15 @@ extension PracticeEngine {
       ? MovementGuide(kind: .recover, from: from, to: to) : nil
   }
 
+  func canFollowShot(_ side: Int) -> Bool {
+    guard phase == .live, let flight, flight.hitter == side, flight.fault == nil,
+      flight.progress < 0.8, side == 0 || settings.local else { return false }
+    // A successful approach split closes this exchange, even just before the bounce.
+    return !(splitTimed[side] && splitStarted[side] >= time - flight.elapsed && attacking[side])
+  }
+
   mutating func followShot(_ side: Int) {
-    guard phase == .live, let flight, flight.hitter == side, flight.fault == nil else { return }
+    guard canFollowShot(side), let flight else { return }
     if side == 0 { demo?.approached = true }
     if !followingApproach[side] { tactics[side].approaches += 1 }
     approachAvailable[side] = false
@@ -72,16 +79,18 @@ extension PracticeEngine {
       side, CourtTactics.netCoverage(side: side, opponentContact: flight.contact))
   }
 
-  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil) {
+  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil) {
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
-    case .move(let point): move(side, to: point)
-    case .aim(let point): players[side].aim = point
+    case .move(let point): steer(side, to: point)
+    case .aim(let point): if canChooseShot(side) { players[side].aim = point }
     case .shot(let kind):
       if kind == .drop || kind == .slice { selectTouchShot(kind, side: side, epoch: shotEpoch) }
-      else { choose(side, kind) }
+      else if canChooseShot(side) { choose(side, kind) }
     case .courtTap(let point): tapCourt(side, at: point)
-    case .run(let delta): swipeCourt(side, delta: delta)
+    case .run(let delta):
+      guard movementEpoch == nil || movementEpoch == contactSerial else { return }
+      swipeCourt(side, delta: delta)
     case .shotSwipe(let delta): selectShotSwipe(delta, side: side)
     case .guidedMove(let kind):
       // Resolve against the live target: the ball may have moved since the swipe began.

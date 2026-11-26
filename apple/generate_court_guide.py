@@ -242,7 +242,7 @@ for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,tit
 para('First serve starts fast and flat. Second starts slow with high spin. More spin adds margin and gives the receiver time.',24,64,size=10,leading=12)
 c.showPage()
 
-page(2,'Choose the next shot.','YOUR MOVES 2/3  -  Tap yellow first. While running, make ONE shot gesture and release before contact.')
+page(2,'Choose the next shot.','YOUR MOVES 2/3  -  Tap yellow, then finish your shot swipe before contact.')
 items=[('Up: down the line','Start ON your moving player; swipe toward the net.','line'),
  ('Diagonal: crosscourt','Start ON your player; swipe forward toward the opposite side.','cross'),
  ('Sideways: short angle','Start ON your player; swipe left or right.','angle'),
@@ -253,7 +253,7 @@ for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,tit
 para('On clean rally contact, crosscourt lands 7 in 8, line or a change of direction 4 in 5, and short angle 2 in 3. Hit behind a moving opponent to slow their next chase.',24,64,size=10,leading=12)
 c.showPage()
 
-page(3,'Combine. Then react.','YOUR MOVES 3/3  -  Shot selection happens BEFORE contact. An approach needs a NEW swipe AFTER contact.')
+page(3,'Combine. Then react.','YOUR MOVES 3/3  -  Hit first. Start a fresh swipe and finish it before the far bounce.')
 for row,(top,title,stages) in enumerate([
  (513,'Attack: meet it, hit it, follow it',[('1 TAP GOLD','receive'),('2 SHOT + HIT','hit'),('3 SWIPE IN','approach')]),
  (291,'Baseline: recover, split, receive',[('1 TAP WHITE','recover'),('2 TIMED TAP','split'),('3 TAP YELLOW','receive')])]):
@@ -272,7 +272,7 @@ for row,(top,title,stages) in enumerate([
             arrow(me[0],me[1]+3,*q(.4,.4),GOLD,1.3,True)
         elif kind=='recover':ring(*q(.5,0),white,10);hand(*q(.5,0),.48,True)
         else:hand(*q(.8,.22),.48,True);ring(*me,MINT,11);ball(*q(.43,.76),3);ring(*q(.43,.76),MINT,8)
-    text=('Swipe forward after contact. Your player plants where they are when the ball bounces across the net. Then move to yellow for a <b>volley</b> or under a lob for an <b>overhead</b>.' if row==0 else
+    text=('After you hit, swipe forward before the far bounce. Your player plants at the bounce, or stops if the opponent volleys first. Then move to yellow for a <b>volley</b> or under a lob for an <b>overhead</b>.' if row==0 else
       'Reach white, then tap anywhere as your shot bounces across the net. You have 3 m of ball travel on either side of the bounce. Look for a mint pulse, then tap yellow.')
     para(text,24,top-140,size=12.3,leading=16)
 para('<b>First serve:</b> UP returns at the server. <b>Second serve:</b> reach yellow inside the baseline and hit on the rise.',24,94,size=12,leading=16)

@@ -135,23 +135,37 @@ enum ReplayAngle: String, CaseIterable {
     for x in [x0, x0+width] { box([x,0.54,netZ], [0.085,1.08,0.085], surround) }
     let wall = UIColor(red: 0.075, green: 0.20, blue: 0.19, alpha: 1)
     let seats = [ReplayMeshLines(), ReplayMeshLines()]
-    // Low perimeter walls and stepped stands provide scale behind the receiver.
-    for z: Float in [-10,33.77] {
-      box([4.115,1.12,z], [40,2.24,0.28], wall)
-      box([4.115,2.25,z], [40,0.06,0.3], chalk)
-      let direction: Float = z < 0 ? -1 : 1
-      for row in 0..<4 {
-        let rise = 2.55 + Float(row)*0.40
-        let rowZ = z + direction * (1.4 + Float(row)*1.1)
-        box([4.115,rise/2,rowZ], [40,rise,1], UIColor(red: 0.39,green: 0.43,blue: 0.40,alpha: 1))
-        for seat in 0..<48 where seat % 12 != 0 {
-          let x = Float(seat)*0.77 - 13.99
-          let batch = seats[(seat / 12 + row / 3) % seats.count]
-          batch.box(center: [x,rise+0.08,rowZ], size: [0.54,0.14,0.4])
-          batch.box(center: [x,rise+0.24,rowZ+direction*0.18], size: [0.53,0.34,0.075])
+    let crowd = ReplayCrowd()
+    let terraces = ReplayMeshLines()
+    // Each stand faces the court. Breaks between seating sections remain open as aisles.
+    for end in 0..<4 {
+      let sideStand = end >= 2
+      let outward: CourtPoint3D = sideStand ? [end == 2 ? -1 : 1,0,0] : [0,0,end == 0 ? -1 : 1]
+      let across: CourtPoint3D = sideStand ? [0,0,1] : [1,0,0]
+      let boundary = CourtPoint3D(4.115,0,11.885) + outward * (sideStand ? 15.115 : 21.885)
+      let count = sideStand ? 58 : 40
+      let width = Float(count)*0.74
+      let yaw = atan2(outward.x,outward.z)
+      func size(_ w: Float, _ h: Float, _ d: Float) -> CourtPoint3D { sideStand ? [d,h,w] : [w,h,d] }
+      if !sideStand {
+        box(boundary + [0,1.12,0],size(width,2.24,0.28),wall)
+        box(boundary + [0,2.25,0],size(width,0.06,0.30),chalk)
+      }
+      for row in 0..<7 {
+        let rise = 2.35 + Float(row)*0.48
+        let center = boundary + outward*(0.9 + Float(row)*0.89)
+        terraces.box(center: center+[0,rise/2,0], size: size(width,rise,0.90))
+        for seat in 0..<count where seat % 12 != 0 {
+          let position = center + across*((Float(seat)+0.5)*0.74-width/2) + [0,rise+0.42,0]
+          let batch = seats[(seat/12+row/3)%2]
+          batch.box(center: position, size: size(0.54,0.10,0.42))
+          batch.box(center: position + outward*0.19 + [0,0.17,0], size: size(0.54,0.35,0.07))
+          crowd.seat(at: position + [0,0.05,0], yaw: yaw)
         }
       }
     }
+    court.addChild(terraces.model(color: UIColor(red: 0.39,green: 0.43,blue: 0.40,alpha: 1)))
+    court.addChild(crowd.model())
     court.addChild(seats[0].model(color: UIColor(red: 0.11,green: 0.34,blue: 0.32,alpha: 1)))
     court.addChild(seats[1].model(color: UIColor(red: 0.24,green: 0.47,blue: 0.42,alpha: 1)))
     let braces = ReplayMeshLines()

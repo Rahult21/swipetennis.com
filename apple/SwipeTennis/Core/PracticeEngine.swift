@@ -332,6 +332,14 @@ struct PracticeEngine: Codable {
     followingApproach[side] = false
     players[side].destination = Self.own(side, point)
   }
+  // Free steering can still chase an incoming ball or recover laterally after the bounce.
+  mutating func steer(_ side: Int, to target: Vec) {
+    var destination = target
+    if flight?.hitter == side && !canFollowShot(side) {
+      destination.y = side == 0 ? max(target.y, players[side].pos.y) : min(target.y, players[side].pos.y)
+    }
+    move(side, to: destination)
+  }
   mutating func start(random: () -> Double = { Double.random(in: 0..<1) }) {
     guard phase == .ready || phase == .point else { return }
     for i in 0...1 {
@@ -441,6 +449,9 @@ struct PracticeEngine: Codable {
         distance: players[1].pos.distance(to: contact), speed: speed)
       duration = max(duration, (travel + 0.15) / 0.86)
     }
+    let receiver = 1 - side
+    let closeRun = (receiver == 0 || settings.local) && flight?.hitter == receiver
+      && (followingApproach[receiver] || ((flight?.progress ?? 1) < 0.8 && advancingToNet(receiver)))
     // The next flight leaves the exact 3D point reached by the incoming ball on this tick.
     let impact = serve ? serviceImpact(at: from, side: side, explosive: queuedPower == .ace)
       : flight.flatMap { $0.hitter != side ? $0.worldBall(at: $0.progress) : nil } ?? from.world(height: 0.93)
@@ -463,7 +474,11 @@ struct PracticeEngine: Codable {
         approach ? Vec(x: clamp(aim.x, 2, 6.23), y: 8) : Self.recovery(1, contact)
       if settings.style == .retriever { players[1].destination.y = -1.7 }
     }
-    let receiver = 1 - side
+    if closeRun || followingApproach[receiver] {
+      // An opponent volley can close the approach window before there is a bounce.
+      players[receiver].destination = players[receiver].pos
+      players[receiver].velocity = .zero
+    }
     followingApproach[receiver] = false
     approachAvailable[receiver] = false
     if serve {
@@ -647,7 +662,7 @@ struct PracticeEngine: Codable {
     }
     if side == 0 { assessCoachReturn(incoming: f, aim: aim, kind: kind, clean: fault == nil, explicit: p.aim != nil) }
     players[side].aim = nil
-    if !bot && (kind == .drop || kind == .slice) { players[side].kind = .cross }
+    if !bot { players[side].kind = .cross }
     if overhead { tactics[side].overheads += 1 } else if volley { tactics[side].volleys += 1 }
     if !bot && (volley || overhead)
       && (aim.x - Self.width / 2) * (players[1 - side].pos.x - Self.width / 2) < 0
