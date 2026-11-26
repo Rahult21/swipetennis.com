@@ -254,7 +254,10 @@ extension PracticeEngine {
         if clean {
           coach.approaches.append(CoachApproach(rule: .changeDirectionApproach, opportunity: contactSerial,
             from: players[0].pos, createdAt: time))
-        } else { coach.record(.changeDirectionApproach, opportunity: contactSerial, success: false, time: time) }
+        } else {
+          coach.record(.changeDirectionApproach, opportunity: contactSerial, success: false, time: time,
+            detail: "Your change of direction missed before you could follow it in.")
+        }
       }
     }
   }

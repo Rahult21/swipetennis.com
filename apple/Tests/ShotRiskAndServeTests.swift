@@ -108,6 +108,9 @@ final class ShotRiskAndServeTests: XCTestCase {
       XCTAssertTrue(game.feedback.reason.contains("lower-percentage"))
       XCTAssertTrue(game.feedback.reason.contains("crosscourt"))
       XCTAssertTrue(game.pointSplitSummary.contains("No timed split"))
+      let change = try XCTUnwrap(game.coach.events.last { $0.rule == .changeDirectionApproach })
+      XCTAssertEqual(change.compactReason, "Changed direction and missed the target")
+      XCTAssertEqual(change.points, -1)
     }
   }
 

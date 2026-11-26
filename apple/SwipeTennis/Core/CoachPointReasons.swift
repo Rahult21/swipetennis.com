@@ -48,6 +48,7 @@ extension CoachEvent {
       case "You did not reach the white recovery circle on a baseline exchange.": return "Missed the white recovery circle"
       case "You reached white, but did not tap to split before the next ball.": return "Reached white; missed the split step"
       case "Your short-ball return missed before you could follow it in.": return "Short-ball return missed"
+      case "Your change of direction missed before you could follow it in.": return "Changed direction and missed the target"
       case "Your deep-ball return missed.": return "Deep-ball return missed"
       case "Your first-serve return missed.": return "First-serve return missed"
       case "Your second-serve return missed.": return "Second-serve return missed"
