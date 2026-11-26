@@ -20,8 +20,8 @@ files=[]; source=[]; resources=[]
 for path in sorted((root/'SwipeTennis').rglob('*')):
     if not path.is_file() or 'Assets.xcassets/' in str(path): continue
     rel=str(path.relative_to(root)); ext=path.suffix
-    if ext not in ['.swift','.wav','.xcprivacy','.pdf','.mp4']: continue
-    typ={'.swift':'sourcecode.swift','.wav':'audio.wav','.xcprivacy':'text.xml','.pdf':'image.pdf','.mp4':'file'}[ext]
+    if ext not in ['.swift','.wav','.xcprivacy','.pdf','.mp4','.csv']: continue
+    typ={'.swift':'sourcecode.swift','.wav':'audio.wav','.xcprivacy':'text.xml','.pdf':'image.pdf','.mp4':'file','.csv':'text'}[ext]
     ref=add(rel,'{isa = PBXFileReference; lastKnownFileType = '+typ+'; path = "'+rel+'"; sourceTree = SOURCE_ROOT;}'); files.append(ref)
     build=add(rel+'build','{isa = PBXBuildFile; fileRef = '+ref+';}')
     (source if ext=='.swift' else resources).append(build)

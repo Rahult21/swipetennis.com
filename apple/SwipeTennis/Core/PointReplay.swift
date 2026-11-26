@@ -17,6 +17,7 @@ struct RecordedStrike {
   let point: CourtPoint3D
   let gain: Double
   let power: CourtPower?
+  var blocked = false
 }
 
 /// Only the active point is retained. All three cameras read the same fixed-step samples.
@@ -25,6 +26,9 @@ struct PointReplay {
   static let speed = 0.5
   private(set) var frames: [RallyFrame] = []
   private(set) var strikes: [RecordedStrike] = []
+  private(set) var decisions: [Int: DecisionSnapshot] = [:]
+  private(set) var heights: [Int: ContactReading] = [:]
+  private(set) var serviceRetry: PracticeEngine?
   private var cuts: Set<Int> = []
   private var gap = true
   private(set) var ceremonyStart: Double?
@@ -39,23 +43,33 @@ struct PointReplay {
 
   mutating func record(_ frame: RallyFrame, game: PracticeEngine, hit: Bool) {
     guard game.demo == nil else { return }
+    if game.phase == .serving, game.scoring.server == 0, let preparation = game.servePreparation,
+       !preparation.requested, !preparation.isTossing { serviceRetry = game }
     let active = game.phase == .live || game.servePreparation?.isTossing == true ||
       (game.pointResolution?.elapsed ?? .infinity) <= PointResolution.resultDelay
     guard active else { gap = true; return }
     if gap { cuts.insert(frames.count); gap = false }
     frames.append(frame)
     if hit, let flight = game.flight {
+      if flight.fault == nil {
+        let receiver = 1-flight.hitter
+        decisions[receiver] = DecisionSnapshot(game: game, frame: frame, receiver: receiver)
+      }
+      if !flight.serve { heights[flight.hitter] = ContactReading(frame: frame, hitter: flight.hitter, flight: flight) }
       strikes.append(RecordedStrike(time: duration, hitter: flight.hitter, point: frame.ball,
-        gain: flight.power?.contactGain ?? 1, power: flight.power))
+        gain: flight.power?.contactGain ?? 1, power: flight.power, blocked: flight.contactQuality == .stretched || flight.contactQuality == .diving))
     }
   }
 
   func suffix(from first: Int) -> Self {
     var clip = Self()
+    clip.decisions = decisions
+    clip.heights = heights
+    clip.serviceRetry = serviceRetry
     clip.frames = Array(frames.dropFirst(first))
     let origin = Double(first) * Self.tick
     clip.strikes = strikes.filter { $0.time >= origin - 0.000001 }.map {
-      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power)
+      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, blocked: $0.blocked)
     }
     clip.cuts = Set(cuts.filter { $0 >= first }.map { $0 - first })
     return clip
@@ -72,7 +86,16 @@ struct PointReplay {
   }
 }
 
+struct ShoeContact {
+  let x: Double
+  let intensity: Double
+  let surface: CourtSurface
+}
+
 struct CourtPerformance {
+  private var shoeRaised = Array(repeating: false,count:4)
+  private var lastStep = [-1.0,-1.0]
+  private(set) var steps: [ShoeContact] = []
   private var athletes = [AthleteMotion(), AthleteMotion()]
   private var serial: Int
   private(set) var frame: RallyFrame?
@@ -86,6 +109,26 @@ struct CourtPerformance {
     let near = athletes[0].sample(game: game, side: 0, hit: hit && game.flight?.hitter == 0, dt: dt, reduceMotion: reduceMotion)
     let far = athletes[1].sample(game: game, side: 1, hit: hit && game.flight?.hitter == 1, dt: dt, reduceMotion: reduceMotion)
     let next = RallyFrame(near: near, far: far, ball: game.worldBall)
+    steps.removeAll(keepingCapacity:true)
+    if dt > 0 && game.phase.isPlaying {
+      for side in 0...1 {
+        let body = side == 0 ? near : far
+        let speed = game.players[side].velocity.length
+        for foot in 0...1 {
+          let index = side*2+foot
+          let shoe = body[foot == 0 ? .leftShoe : .rightShoe]
+          let lift = shoe.y - 0.06 - 0.14*sin(body.heelPitch)
+          if lift > 0.048 { shoeRaised[index] = true }
+          if lift < 0.022 && shoeRaised[index] {
+            shoeRaised[index] = false
+            if speed > 1 && game.time-lastStep[side] > 0.15 {
+              steps.append(ShoeContact(x:Double(shoe.x),intensity:min(1,speed/5),surface:game.settings.surface))
+              lastStep[side] = game.time
+            }
+          }
+        }
+      }
+    }
     frame = next
     if dt > 0 { replay.record(next, game: game, hit: hit) }
   }

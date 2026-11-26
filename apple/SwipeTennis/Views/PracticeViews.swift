@@ -5,6 +5,7 @@ struct PracticeSetupView: View {
   @EnvironmentObject var store: AppStore
   @EnvironmentObject var account: CoachAccountStore
   @EnvironmentObject private var demos: ShotDemoStore
+  @State private var training: TrainingExercise?
   @State private var settings = PracticeSettings()
   @EnvironmentObject private var slot: PracticeMatchSlot
   @State private var presentedMatch: SavedPracticeMatch?
@@ -45,6 +46,10 @@ struct PracticeSetupView: View {
             Label("Continue guided demo", systemImage: "figure.tennis")
           }.accessibilityIdentifier("unlockCourtDemo")
         }
+      }
+      Section("Tactics practice") {
+        Button("Serve + 1", systemImage: "scope") { training = .servePlusOne }
+        Button("Net positioning", systemImage: "figure.tennis") { training = .net }
       }
       Section {
         Picker("Play against", selection: $settings.local) {
@@ -89,6 +94,7 @@ struct PracticeSetupView: View {
         Button { showGuide = true } label: { Label("How to play", systemImage: "hand.draw") }
       } footer: { Text("Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot.") }
     }.navigationTitle("Play & practice")
+      .fullScreenCover(item:$training) { TrainingCourtView($0,surface:settings.surface) }
       .safeAreaInset(edge: .bottom) {
         Button { takeCourt(using: settings) } label: {
           Label(savedMatch == nil ? "Take the court" : "Start new match", systemImage: demos.progress.unlocksCourt ? "play.fill" : "lock.fill").frame(maxWidth: .infinity)
@@ -140,6 +146,7 @@ struct PracticeGameView: View {
   @State private var showCoach = false
   @State private var resumeAfterGuide = false
   @State private var showPointDetails = false
+  @State private var training: TrainingExercise?
   @State private var replayReview: ReplayReview?
   @EnvironmentObject private var career: SoloCareerStore
   @EnvironmentObject private var slot: PracticeMatchSlot
@@ -256,6 +263,8 @@ struct PracticeGameView: View {
       .overlay {
         if game.showsPointResult && !session.paused && !showCoach {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
+            onRetry: retrySeed == nil || game.coach.records.last?.winner != 1 || game.settings.local ? nil : { training = .retry },
+            contact: session.scene.performance.replay.heights[0]?.label,
             onReplay: session.scene.performance.replay.canPlay ? {
               replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, venue:game.settings.matchVenue, handshake:game.phase == .finished,stadium:session.scene.stadium)
             } : nil)
@@ -266,6 +275,9 @@ struct PracticeGameView: View {
           replayReview = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
             venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished,stadium:session.scene.stadium)
         }
+      }
+      .fullScreenCover(item:$training) { mode in
+        if let seed = retrySeed { TrainingCourtView(mode,surface:game.settings.surface,original:seed,comparison:game.feedback.title + " " + game.feedback.reason) }
       }
       .sheet(item: $replayReview) { PointReplayView(review: $0).presentationDetents([.large]) }
       .sheet(isPresented: $showPointDetails) {
@@ -287,7 +299,7 @@ struct PracticeGameView: View {
         UIApplication.shared.isIdleTimerDisabled = true
       }
       .onDisappear {
-        session.pause()
+        if training == nil { session.pause() }
         UIApplication.shared.isIdleTimerDisabled = false
       }
       .onChange(of: scenePhase) { _, phase in
@@ -328,6 +340,11 @@ struct PracticeGameView: View {
           .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
           .interactiveDismissDisabled(confirmingExit || !session.paused || game.phase == .ready)
       }
+  }
+  private var retrySeed: PracticeEngine? {
+    let recording = session.scene.performance.replay
+    if game.flight?.serve == true && game.flight?.hitter == 0 { return recording.serviceRetry }
+    return recording.decisions[0]?.game ?? recording.serviceRetry
   }
   private func setServe(speed: ServeLevel? = nil, spin: ServeLevel? = nil, side: Int) {
     session.scene.engine.adjustServe(speed: speed, spin: spin, side: side)
@@ -539,6 +556,8 @@ struct PointResultOverlay: View {
   let game: PracticeEngine
   let onContinue: () -> Void
   let onDetails: () -> Void
+  var onRetry: (() -> Void)? = nil
+  var contact: String?
   var onReplay: (() -> Void)? = nil
   var body: some View {
     GeometryReader { geometry in
@@ -556,7 +575,7 @@ struct PointResultOverlay: View {
   }
   private func card(compact: Bool) -> some View {
     PointResultCard(game: game, compact: compact,
-      onContinue: onContinue, onDetails: onDetails, onReplay: onReplay)
+      onContinue: onContinue, onDetails: onDetails, onRetry:onRetry, contact:contact, onReplay: onReplay)
   }
 }
 
@@ -566,6 +585,8 @@ struct PointResultCard: View {
   var compact = false
   let onContinue: () -> Void
   let onDetails: () -> Void
+  var onRetry: (() -> Void)? = nil
+  var contact: String?
   var onReplay: (() -> Void)? = nil
   private var rows: [CoachPointSummary] { CoachPointSummary.rows(for: game.coach.events) }
   private var nextTitle: String {
@@ -592,6 +613,9 @@ struct PointResultCard: View {
         Button(action: onContinue) { Image(systemName: "xmark").frame(width: 44, height: 44) }
           .buttonStyle(.plain).accessibilityLabel(nextTitle).accessibilityIdentifier("closePointResult")
       }
+      if let note = game.changeoverNote { Label(note,systemImage:"binoculars.fill").font(.caption) }
+      if let contact { Text("Last contact · " + contact).font(.caption.monospacedDigit()) }
+      if let onRetry { Button("Retry this ball",systemImage:"arrow.uturn.backward",action:onRetry).font(.subheadline).buttonStyle(.bordered) }
       VStack(spacing: 3) {
         Text(game.scoreSummary).font(.caption.weight(.semibold))
           .accessibilityIdentifier(game.scoring.format == .tiebreak ? "resultScore" : "resultGames")

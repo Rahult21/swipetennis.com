@@ -1,6 +1,26 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  func testTacticsPracticeModesReturnToSetup() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1", "YES"]
+    app.launch()
+    app.buttons["playPractice"].tap()
+    for mode in ["Serve + 1", "Net positioning"] {
+      let modeButton = app.buttons[mode]
+      for _ in 0..<3 where !modeButton.isHittable { app.swipeUp() }
+      modeButton.tap()
+      let play = app.buttons["startTacticalAttempt"]
+      for _ in 0..<2 where !play.isHittable { app.swipeUp() }
+      XCTAssertTrue(play.waitForExistence(timeout:5))
+      play.tap()
+      let done = app.buttons["Done"]
+      XCTAssertTrue(done.waitForExistence(timeout:10))
+      done.tap()
+      XCTAssertTrue(app.navigationBars["Play & practice"].waitForExistence(timeout:8))
+    }
+  }
+
   func testLockerRoomChangesKitAndKeepsItWhenReopened() {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1", "YES"]
@@ -95,8 +115,22 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:15))
     app.buttons["replayCameraNeutral"].tap()
     XCTAssertTrue(app.buttons["Share highlight"].exists)
+    app.buttons["Replay the decision"].tap()
+    XCTAssertTrue(app.staticTexts["At your opponent’s contact"].waitForExistence(timeout:5))
+    app.buttons["Frozen 3D view"].tap()
+    app.buttons["Done"].firstMatch.tap()
+    XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:5))
     app.buttons["Done"].tap()
     XCTAssertTrue(replay.waitForExistence(timeout:8))
+    let retry = app.buttons["Retry this ball"]
+    if retry.exists {
+      let saved = app.staticTexts["resultScore"].label
+      retry.tap()
+      app.buttons["startTacticalAttempt"].tap()
+      app.buttons["Done"].tap()
+      XCTAssertTrue(replay.waitForExistence(timeout:8))
+      XCTAssertEqual(app.staticTexts["resultScore"].label,saved)
+    }
   }
   func testTournamentPointReplay() throws {
     let env = ProcessInfo.processInfo.environment

@@ -249,6 +249,7 @@ struct PracticeEngine: Codable {
     case landingSerial, ball, rally, bestRally, time, reactAt, approach, balanced, attempts, feedback
     case history, contactSerial, bounceSerial, attacking, followingApproach, approachAvailable
     case splitStarted, splitTimed, tactics, opponentErrors, coach, dropGestureEpoch, dropReturns
+    case scoutedReplies, rivalReads
     case inventory, powerEarnedThisPoint, queuedPower, assist, momentum
   }
 
@@ -260,6 +261,8 @@ struct PracticeEngine: Codable {
     CourtPlayer(pos: Vec(x: 4.115, y: $0), destination: Vec(x: 4.115, y: $0))
   }
   var scoring: PracticeScore
+  var scoutedReplies: [ScoutedReply]?
+  var rivalReads: RivalReads?
   var phase: PracticePhase = .ready
   var flight: BallFlight?
   var pointResolution: PointResolution?
@@ -519,6 +522,7 @@ struct PracticeEngine: Codable {
     ball = from
     players[1 - side].settled = 0
     reactAt = time + (trainingApproach ? 0.08 : settings.botReaction)
+    if side == 0 && fault == nil { readCareerShot(serve: serve, from: from, aim: landing) }
     rally += 1
     bestRally = max(bestRally, rally)
     contactSerial += 1
@@ -840,6 +844,12 @@ struct PracticeEngine: Codable {
       flight!.duration *= settings.difficulty == .tough ? 0.82 : 0.93
       flight!.loft = 0.85
     }
+    if side == 1 && demo == nil {
+      let backhand = (flight!.strikeOrigin?.x ?? Float(p.pos.x)) > Float(p.pos.x)
+      let reply = ScoutedReply(stretched: quality == .stretched || quality == .diving,
+        short: Self.isShortBall(flight!, receiving: 0), backhand: backhand)
+      scoutedReplies = Array(((scoutedReplies ?? []) + [reply]).suffix(12))
+    }
     flight!.contactQuality = quality
     if demo == nil && !lineApproach {
       let forward = kind == .line ? 1.5 : 1
@@ -896,7 +906,9 @@ struct PracticeEngine: Codable {
       // The bot can sprint up to its existing style speed instead of stacking movement bonuses.
       let gait = bot ? min(1, 0.90 * effort) : min(max(1.5, boost), boost * effort)
       let maxSpeed = baseSpeed * gait * fatigue * (turning ? 0.6 : 1)
-      let acceleration = 11 * (bot ? 1 : gait) * fatigue
+      let braking = p.velocity.length > 1 && (p.velocity.x * (p.destination.x-p.pos.x) + p.velocity.y * (p.destination.y-p.pos.y) < 0 || d < p.velocity.length*p.velocity.length/18)
+      let traction = settings.surface == .clay ? (braking ? 0.71 : 0.96) : settings.surface == .hard ? 1.07 : (braking ? 0.89 : 1)
+      let acceleration = 11 * (bot ? 1 : gait) * fatigue * traction
       // A tap can split and queue a run together; the hop must not stall that run.
       let splitting = d <= Self.contactRadius && time >= splitStarted[i] && time < splitStarted[i] + 0.18
       let speed = splitting ? 0 : min(maxSpeed, sqrt(2 * acceleration * d))

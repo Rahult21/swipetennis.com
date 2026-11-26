@@ -436,6 +436,7 @@ import SwiftUI
       if !engine.showsPointResult { accumulator += dt }
       while accumulator >= PointReplay.tick {
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
+        for step in performance.steps { Immersion.shared.footfall(step,perspective:perspectiveSide) }
         accumulator -= PointReplay.tick
       }
     } else if engine.needsSimulation {
@@ -445,8 +446,9 @@ import SwiftUI
         let oldContact = engine.contactSerial
         engine.step(PointReplay.tick)
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
+        for step in performance.steps { Immersion.shared.footfall(step,perspective:perspectiveSide) }
         if engine.contactSerial != oldContact {
-          Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1)
+          Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1, blocked:engine.flight?.contactQuality == .stretched || engine.flight?.contactQuality == .diving)
           trails.removeAll()
         }
         accumulator -= 1 / 120
@@ -553,7 +555,7 @@ import SwiftUI
     replicaFlightFrom = old.contactSerial == value.contactSerial ? old.flight?.elapsed : nil
     replicaFlightTo = value.flight?.elapsed
     if old.phase != value.phase { trails.removeAll() }
-    if old.contactSerial != value.contactSerial { Immersion.shared.hit(x: value.ball.x) }
+    if old.contactSerial != value.contactSerial { Immersion.shared.hit(x: perspectiveSide == 0 ? value.ball.x : PracticeEngine.width-value.ball.x, gain:value.flight?.power?.contactGain ?? 1, blocked:value.flight?.contactQuality == .stretched || value.flight?.contactQuality == .diving) }
     if old.bounceSerial != value.bounceSerial { Immersion.shared.hit(bounce: true, x: value.ball.x) }
     publish?(value)
   }

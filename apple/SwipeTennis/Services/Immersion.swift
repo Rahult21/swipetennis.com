@@ -17,7 +17,28 @@ import UIKit
   var soundEnabled: Bool { UserDefaults.standard.object(forKey: "sound") as? Bool ?? true }
   var hapticsEnabled: Bool { UserDefaults.standard.object(forKey: "haptics") as? Bool ?? true }
   var volume: Float { Float(UserDefaults.standard.object(forKey: "courtVolume") as? Double ?? 0.3) }
+  private var textures: [String:[AVAudioPlayer]] = [:]
   private var audioActive = false
+  private func texture(_ file: String) -> AVAudioPlayer? {
+    if textures[file] == nil, let url = Bundle.main.url(forResource:file,withExtension:"wav") {
+      textures[file] = (0..<2).compactMap { _ in
+        let player = try? AVAudioPlayer(contentsOf:url)
+        player?.prepareToPlay()
+        return player
+      }
+    }
+    return textures[file]?.first(where:{ !$0.isPlaying }) ?? textures[file]?.first
+  }
+
+  func footfall(_ step: ShoeContact, perspective: Int) {
+    guard soundEnabled, volume > 0 else { return }
+    activateAudio()
+    guard let player = texture("shoe-" + step.surface.rawValue.lowercased()) else { return }
+    player.volume = volume * Float(0.30 + 0.40*step.intensity)
+    player.pan = Float(clamp((step.x/4.115-1)*(perspective == 0 ? 1 : -1),-0.85,0.85))
+    player.currentTime = 0
+    player.play()
+  }
   private init() {
     // This update restores audible play once; later user mute/volume choices are retained.
     let defaults = UserDefaults.standard
@@ -58,18 +79,18 @@ import UIKit
     crowd?.play()
   }
 
-  func playHit(x: Double, gain: Double) {
+  func playHit(x: Double, gain: Double, blocked: Bool = false) {
     guard soundEnabled else { return }
     activateAudio()
     prepareAudio()
-    guard let player = audio.first(where: { !$0.isPlaying }) ?? audio.first else { return }
+    guard let player = blocked ? texture("block") : audio.first(where: { !$0.isPlaying }) ?? audio.first else { return }
     player.pan = Float(clamp(x / 4.115 - 1, -0.85, 0.85))
     player.volume = volume * 0.5 * Float(gain)
     player.currentTime = 0
     player.play()
   }
 
-  func hit(bounce: Bool = false, x: Double = 4.115, gain: Double = 1) {
+  func hit(bounce: Bool = false, x: Double = 4.115, gain: Double = 1, blocked: Bool = false) {
     if hapticsEnabled {
       if CHHapticEngine.capabilitiesForHardware().supportsHaptics {
         do {
@@ -93,7 +114,7 @@ import UIKit
       }
     }
     // Only racket contact plays audio; court bounces retain their tactile feedback.
-    if !bounce { playHit(x: x, gain: gain) }
+    if !bounce { playHit(x: x, gain: gain, blocked: blocked) }
   }
 
   func opponentExclamation() {
@@ -141,6 +162,7 @@ import UIKit
     finishRally()
     speech.stopSpeaking(at: .immediate)
     audio.forEach { $0.stop() }
+    textures.values.forEach { $0.forEach { $0.stop() } }
     crowd?.stop()
     if audioActive { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     audioActive = false

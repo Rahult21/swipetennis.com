@@ -40,6 +40,7 @@ private func hinge(_ start: CourtPoint3D, _ end: CourtPoint3D, length: Float, be
 }
 
 struct AthleteMotion {
+  private var capture = CapturedTransitions()
   private var feet = CourtFootwork()
   private var swing = StrokeAnimation()
   private var hitPoint = CourtPoint3D.zero
@@ -173,7 +174,9 @@ struct AthleteMotion {
     let step = (forward * 0.36 + right * (sideOfBall * 0.15)) * volleyStep
     let stance = max(rush, kneeLoad)
     feet.advance(centre: centre, velocity: player.velocity.world(), destination: player.destination.world(),
-      facing: sign, strideBias: step, dt: Float(dt), readiness: stance)
+      facing: sign, strideBias: step, dt: Float(dt), readiness: stance, surface: game.settings.surface)
+    let recoveryRun = game.phase == .live && game.flight?.hitter == side && !game.followingApproach[side] && abs(player.velocity.x) > 0.9
+    let captured = capture.step(speed:speed,remaining:player.pos.distance(to:player.destination),recovering:recoveryRun,dt:Float(dt))
     var pose = AthletePose()
     pose.heelPitch = readiness * 0.015 + 0.045 * rush + 0.17 * pushOff
     let ankleHeight = 0.06 + 0.14 * sin(pose.heelPitch) + hop + leap
@@ -182,6 +185,17 @@ struct AthleteMotion {
     pose[.rightShoe] = (reduceMotion ? centre + right * stanceWidth : feet.right) + up * ankleHeight
     pose[.leftShoe] += (up * 0.18 - reachDirection * 0.45) * dive + forward * (0.19 * jump)
     pose[.rightShoe] += (up * 0.29 - reachDirection * 0.51) * dive + (up * 0.17 - forward * 0.24) * jump
+    if !reduceMotion {
+      // Keep the support foot anchored. Retarget the captured crossover onto the airborne shoe.
+      let movingRight = player.velocity.x*Double(sign) >= 0
+      for joint in [BodyJoint.leftShoe,.rightShoe] {
+        let left = joint == .leftShoe
+        let delta = (left == movingRight) ? captured.left : captured.right
+        let weight = min(1,max(0,(pose[joint].y-ankleHeight)/0.07))
+        let cross = max(-0.24,min(0.24,delta.x))*(movingRight ? 1 : -1)
+        pose[joint] += (right*cross + forward * abs(cross)*0.55 + up*max(-0.035,min(0.10,delta.y))) * weight
+      }
+    }
     if planted {
       let lead = swing.stance == .forehand ? BodyJoint.leftShoe : .rightShoe
       let rear: BodyJoint = lead == .leftShoe ? .rightShoe : .leftShoe
@@ -210,6 +224,7 @@ struct AthleteMotion {
     let offset = shoeMid - centre
     let support = CourtPoint3D(max(-0.19, min(0.19, offset.x)), 0, max(-0.14, min(0.14, offset.z)))
     var pelvis = centre + support * 0.72 + weight + weightForward + up * (0.99 - bend + 0.022 * pushOff + hop + leap)
+    if !reduceMotion { pelvis.y += max(-0.07,min(0.06,captured.pelvis)) }
     pelvis += (reachDirection * 0.16 - up * 0.47) * dive
     // Lead the drive with the hips. On the serve, hold the tossing shoulder up until release.
     let powerCoil: Float = activePower == .rally ? (backhand ? 0.18 : -0.24) : activePower == .ace ? -0.35 : 0
@@ -330,6 +345,12 @@ struct AthleteMotion {
       if !effort.reachable { extensionPoint -= reachDirection * 0.23 }
       strings += (extensionPoint - strings) * dive
       shaft += (reachDirection + up * 0.05 - shaft) * dive
+    }
+    if volley && !reduceMotion && time < 0 {
+      let prep = CapturedTransitions.sample("volley", seconds: time+0.52)
+      let blend = 1-ramp(time,-0.16,-0.015)
+      strings += (right * prep.hand.x * sideOfBall + up * prep.hand.y) * (0.55*blend)
+      shaft += right * (prep.hand.x*blend) + forward * (prep.hand.y*blend)
     }
     if let start = transitionStart, !hit {
       let blend = ramp(Float(game.time - transitionTime), 0, min(0.09, Float(arrival ?? 0.1) + Float(game.time - transitionTime)))

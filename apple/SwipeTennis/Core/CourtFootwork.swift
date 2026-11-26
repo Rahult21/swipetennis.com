@@ -16,7 +16,7 @@ struct CourtFootwork {
   private var length: Float = 0.4
 
   mutating func advance(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
-    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1) {
+    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1, surface: CourtSurface = .hard) {
     let base = CourtPoint3D((0.175 + 0.070 * readiness) * facing, 0, (0.025 + 0.03 * readiness) * facing)
     guard let last = previous, simd_distance(centre, last) < 1.8 else {
       previous = centre; left = centre - base; right = centre + base
@@ -32,6 +32,7 @@ struct CourtFootwork {
     if !stepping {
       let moving = speed > 0.12 && remaining > 0.04
       length = lateral ? min(0.40, 0.16 + speed * 0.055) : min(0.70, 0.21 + speed * 0.072)
+      if surface == .grass { length *= 0.84 }
       let lead = moving ? velocity / speed * min(remaining, length * 1.15) : .zero
       let goals = (left: centre - base + lead + strideBias, right: centre + base + lead)
       let leftGap = simd_distance(left, goals.left), rightGap = simd_distance(right, goals.right)
@@ -62,6 +63,11 @@ struct CourtFootwork {
     progress = min(1, progress + (replanting ? dt / 0.065 : max(travel / length, dt * 6)))
     let u = progress * progress * (3 - 2 * progress)
     var shoe = liftOff + (touchdown - liftOff) * u
+    if surface == .clay && lateral && speed > 2.6 && remaining < 1.7 && !replanting {
+      // The planted outside shoe slides with the body during deceleration.
+      let slide = (centre-last)*0.54
+      if leftSwings { right += slide } else { left += slide }
+    }
     if !replanting { shoe.y = (0.055 + min(speed, 6) * (lateral ? 0.010 : 0.025)) * sin(progress * .pi) }
     if leftSwings { left = shoe } else { right = shoe }
     if progress >= 1 {

@@ -27,6 +27,7 @@ struct PointReplayView: View {
   @State private var anchor: TimeInterval?
   @State private var resumeAfterScrub = false
   @State private var playbackID = 0
+  @State private var decision = false
   @State private var ready = false
   @State private var highlight: Image?
 
@@ -120,7 +121,21 @@ struct PointReplayView: View {
             }
           }
         }
+        if !review.automatic, review.clip.decisions[review.side] != nil {
+          ToolbarItem(placement:.topBarTrailing) { Button("Decision",systemImage:"scope") { pause(); decision = true }.accessibilityLabel("Replay the decision") }
+        }
         ToolbarItem(placement: .confirmationAction) { Button(review.automatic ? "Skip" : "Done") { dismiss() } } }
+    }
+    .sheet(isPresented:$decision) {
+      if let moment = review.clip.decisions[review.side] {
+        NavigationStack {
+          DecisionReviewView(moment:moment)
+            .safeAreaInset(edge:.bottom) {
+              if let height = review.clip.heights[review.side] { Text(height.label + " · " + height.cue).font(.subheadline).padding() }
+            }
+            .toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { decision = false } } }
+        }
+      }
     }
     .task {
       guard !review.automatic else { return }

@@ -69,7 +69,14 @@ extension PracticeEngine {
   mutating func followShot(_ side: Int) {
     guard canFollowShot(side), let flight else { return }
     if side == 0 { demo?.approached = true }
-    if !followingApproach[side] { tactics[side].approaches += 1 }
+    if !followingApproach[side] {
+      tactics[side].approaches += 1
+      if side == 0 && settings.clubEncounter != nil {
+        var reads = rivalReads ?? RivalReads()
+        reads.observeApproach(flight.landing.x < Self.width/2 ? 0 : 1)
+        rivalReads = reads
+      }
+    }
     approachAvailable[side] = false
     attacking[side] = true
     followingApproach[side] = true

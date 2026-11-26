@@ -73,7 +73,7 @@ enum ReplayAngle: String, CaseIterable {
     if playing, playbackID == view.playbackID, seconds > view.lastTime {
       for hit in replay.strikes where hit.time > view.lastTime && hit.time <= seconds {
         let x = angle == .opponent ? PracticeEngine.width - Double(hit.point.x) : Double(hit.point.x)
-        Immersion.shared.playHit(x: x, gain: hit.gain)
+        Immersion.shared.playHit(x: x, gain: hit.gain, blocked:hit.blocked)
       }
     }
     view.playbackID = playbackID; view.lastTime = seconds

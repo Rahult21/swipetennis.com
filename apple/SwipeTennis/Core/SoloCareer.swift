@@ -92,6 +92,7 @@ struct ClubResult: Identifiable, Codable {
 }
 
 struct SoloCareer: Codable {
+  var readsByRival: [String: RivalReads]?
   var results: [ClubResult] = []
   var active: PracticeEngine?
   var completedCount: Int { results.filter(\.advanced).count }
@@ -99,6 +100,10 @@ struct SoloCareer: Codable {
   var started: Bool { active != nil || !results.isEmpty }
   func meetings(with rival: TourRival) -> [ClubResult] { results.filter { $0.encounter.rival == rival } }
   mutating func record(_ game: PracticeEngine, encounter: ClubEncounter) {
+    if let memory = game.rivalReads {
+      if readsByRival == nil { readsByRival = [:] }
+      readsByRival?[encounter.rival.rawValue] = memory
+    }
     if let winner = game.scoring.winner {
       results.append(ClubResult(id: game.coach.sessionID, encounter: encounter, won: winner == 0,
         coachPoints: game.coach.records.reduce(0) { $0 + $1.points }, review: encounter.review(game)))
@@ -157,7 +162,8 @@ struct SoloCareer: Codable {
     var career = progress(for: owner)
     if let active = career.active { return SavedPracticeMatch(owner: owner, engine: active) }
     guard let next = career.next else { return nil }
-    let game = next.makeGame()
+    var game = next.makeGame()
+    game.rivalReads = career.readsByRival?[next.rival.rawValue]
     career.active = game
     var updated = saves
     updated[owner] = career
