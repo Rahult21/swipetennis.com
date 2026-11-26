@@ -42,7 +42,8 @@ try {
   sql(accounts.map(a => `INSERT INTO users VALUES('${a.id}','local-test-${a.id}','${a.mask}',${Date.now()});
     INSERT INTO auth_sessions VALUES('${createHash('sha256').update(a.token).digest('hex')}','${a.id}',${Date.now() + 600000});`).join('\n'));
   const token = accounts[0].token;
-  assert.deepEqual(await api('/me', {token}), {userID: accounts[0].id, emailMask: accounts[0].mask});
+  assert.deepEqual(await api('/me', {token}), {userID: accounts[0].id, emailMask: accounts[0].mask,
+    stRating: {points: 4, humanMatches: 0, wins: 0, tentative: true}});
   const session = randomUUID(), points = Array.from({length: 24}, (_, i) => point(session, i));
   const submit = records => api('/points', {method: 'POST', body: {points: records}, token});
   assert.equal((await submit(points.slice(0, 20))).accepted.length, 20);

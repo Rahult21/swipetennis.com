@@ -1,5 +1,27 @@
 import Foundation
 
+struct STRating: Codable, Equatable {
+  var points: Double = 4
+  var humanMatches: Int = 0
+  var wins: Int = 0
+  var tentative: Bool = true
+  var label: String { Self.label(points, tentative: tentative) }
+  static func label(_ points: Double, tentative: Bool) -> String {
+    let number = points.formatted(.number.precision(.fractionLength(0...2)))
+    return "ST \(number)\(tentative ? "t" : "")"
+  }
+}
+struct STRatingChange: Codable {
+  let userID: String
+  let before: Double
+  let after: Double
+  let humanMatches: Int
+  let tentative: Bool
+  var summary: String {
+    "\(STRating.label(before, tentative: humanMatches <= 5)) → \(STRating.label(after, tentative: tentative))"
+  }
+}
+
 enum CupLevel: String, Codable, CaseIterable, Identifiable {
   case easy, medium, hard
   var id: String { rawValue }
@@ -14,6 +36,7 @@ struct CupPlayer: Codable, Identifiable {
   let ready: Bool
   var level: CupLevel?
   var style: String?
+  var stRating: STRating?
   var isBot: Bool { kind == "bot" }
   var botStyle: BotStyle {
     switch style {
@@ -33,6 +56,7 @@ struct CupMatch: Codable, Identifiable {
   let score: [Int]
   let winnerID: String?
   let reason: String?
+  var ratingChanges: [STRatingChange]?
   var title: String { id == "final" ? "Final" : id == "semi-1" ? "Semifinal 1" : "Semifinal 2" }
   var complete: Bool { status == "complete" }
 }

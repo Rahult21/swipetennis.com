@@ -605,7 +605,7 @@ import SwiftUI
     if let impact = engine.pointResolution?.impact {
       faultRing.position = projectWorld(impact.point.world(height: Float(impact.height)))
     }
-    let guides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
+    let guides = engine.settings.tournament || engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {
       // Each human sees one next-action guide: receive, then recover after contact.
       let visible = (controlledSide == nil || controlledSide == side) && (engine.phase == .serving
@@ -654,8 +654,9 @@ import SwiftUI
     } else {
       targetRing.strokeColor = .systemOrange
       targetRing.setScale(1)
-      targetRing.isHidden = !guides || engine.phase != .live || engine.players[0].aim == nil
-      if let aim = engine.players[0].aim { targetRing.position = project(aim) }
+      let aimingSide = controlledSide ?? 0
+      targetRing.isHidden = !guides || engine.phase != .live || engine.players[aimingSide].aim == nil
+      if let aim = engine.players[aimingSide].aim { targetRing.position = project(aim) }
     }
     let serveInFlight = engine.phase == .live && engine.flight?.serve == true && (engine.flight?.progress ?? 1) < 0.8
     serveRing.isHidden = engine.phase != .serving && !serveInFlight
@@ -669,6 +670,12 @@ import SwiftUI
       line.addLine(to: project(serve.target))
       if let receiver = engine.serveReceiveTarget(1 - serve.server) { line.addLine(to: project(receiver)) }
       servePath.path = line.copy(dashingWithPhase: 0, lengths: [4, 5])
+    }
+    if engine.settings.tournament && engine.settings.local,
+      engine.phase == .serving, controlledSide != engine.scoring.server {
+      // Do not expose the human server's private aim before contact.
+      serveRing.isHidden = true
+      servePath.isHidden = true
     }
     drawTacticalGuides(enabled: guides)
     drawSwipeCoach(enabled: guides)

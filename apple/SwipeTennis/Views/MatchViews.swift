@@ -14,8 +14,6 @@ struct MatchSetupView: View {
   @EnvironmentObject var store: AppStore
   @State private var name1 = ""
   @State private var name2 = ""
-  @State private var utr1 = ""
-  @State private var utr2 = ""
   @State private var mode: ScoringMode = .swipe
   @State private var bestOfThree = true
   @State private var useSetTiebreak = false
@@ -36,13 +34,11 @@ struct MatchSetupView: View {
       Section("You") {
         TextField("Your name (optional)", text: $name1).textContentType(.name).accessibilityIdentifier(
           "playerOne")
-        TextField("UTR (optional)", text: $utr1).keyboardType(.decimalPad)
         Toggle("Make my default player", isOn: $useDefault)
       }
       Section("Opponent") {
         TextField("Opponent name (optional)", text: $name2).textContentType(.name).accessibilityIdentifier(
           "playerTwo")
-        TextField("UTR (optional)", text: $utr2).keyboardType(.decimalPad)
       }
       Section("Match format") {
         Picker("Sets", selection: $bestOfThree) {
@@ -62,8 +58,8 @@ struct MatchSetupView: View {
       Section {
         Button("Start match") {
           let players = [
-            TennisPlayer(name: displayName(name1, fallback: "You"), utr: utr1),
-            TennisPlayer(name: displayName(name2, fallback: "Opponent"), utr: utr2),
+            TennisPlayer(name: displayName(name1, fallback: "You")),
+            TennisPlayer(name: displayName(name2, fallback: "Opponent")),
           ]
           if useDefault { store.data.player = players[0] }
           store.update(
@@ -77,7 +73,6 @@ struct MatchSetupView: View {
       .onAppear {
         if let p = store.data.player {
           name1 = p.name
-          utr1 = p.utr
         }
       }
   }
@@ -105,7 +100,6 @@ struct Scoreboard: View {
                 .accessibilityLabel(match.server == p ? "Serving" : "Receiving")
               VStack(alignment: .leading, spacing: 2) {
                 Text(match.players[p].name).font(.headline)
-                if !match.players[p].utr.isEmpty { Text("UTR \(match.players[p].utr)").font(.caption).foregroundStyle(.secondary) }
               }
               Spacer(minLength: 0)
             }

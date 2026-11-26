@@ -2,6 +2,33 @@ import XCTest
 @testable import TennisCore
 
 final class QuickCupTests: XCTestCase {
+  func testSTRankingStartsTentativeAndDisplaysFractionalProgress() throws {
+    XCTAssertEqual(STRating().label, "ST 4t")
+    let rating = try JSONDecoder().decode(STRating.self, from: Data(#"{"points":4.4,"humanMatches":5,"wins":3,"tentative":false}"#.utf8))
+    XCTAssertEqual(rating.label, "ST 4.4")
+    XCTAssertEqual(rating.humanMatches - rating.wins, 2)
+  }
+  func testHumanCupGuideAppearsAfterContactForBothPlayersAndTracksIncomingPath() throws {
+    for server in 0...1 {
+      var settings = PracticeSettings(local: true)
+      settings.tournament = true
+      var game = PracticeEngine(settings: settings)
+      game.scoring = PracticeScore(format: .tiebreak, firstServer: server)
+      game.start()
+      XCTAssertNil(game.serveReceiveTarget(1 - server))
+      XCTAssertNil(game.contactGuide(1 - server))
+      game.phase = .live
+      game.launch(server, aim: Vec(x: 1, y: server == 0 ? 2 : 22), kind: .cross)
+      let first = try XCTUnwrap(game.contactGuide(1 - server))
+      XCTAssertEqual(first, game.intercept(1 - server))
+      XCTAssertNil(game.contactGuide(server))
+      game.launch(server, aim: Vec(x: 7, y: server == 0 ? 2 : 22), kind: .cross)
+      let changed = try XCTUnwrap(game.contactGuide(1 - server))
+      XCTAssertNotEqual(first.x, changed.x)
+      CupInput(kind: "receive", movementEpoch: game.contactSerial).apply(to: &game, side: 1 - server)
+      XCTAssertEqual(game.players[1 - server].destination, changed)
+    }
+  }
   func testShortSwipeCommandRoundTripsAndMovesOnlyTheAssignedHuman() throws {
     for side in 0...1 {
       var game = PracticeEngine(settings: .init(local: true))

@@ -108,6 +108,7 @@ struct CoachAccountView: View {
     Group {
       if let identity = account.identity {
         Label(identity.emailMask, systemImage: "person.crop.circle.badge.checkmark").font(.headline)
+        STRankingSummary(rating: identity.stRating ?? STRating())
         Text(account.pendingCount == 0 ? "Your completed points are ready to sync with your personal bests."
           : "\(account.pendingCount) completed points waiting to sync.").font(.subheadline).foregroundStyle(.secondary)
         if identity.emailMask.contains("•") {
@@ -138,5 +139,22 @@ struct CoachAccountView: View {
         Button("Delete", role: .destructive) { Task { await account.deleteAccount() } }
         Button("Cancel", role: .cancel) {}
       } message: { Text("This removes your cloud records and signs you out. This cannot be undone.") }
+  }
+}
+
+struct STRankingSummary: View {
+  let rating: STRating
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(rating.label).font(.title2.bold()).accessibilityIdentifier("stRating")
+      Text("\(rating.wins) wins · \(rating.humanMatches - rating.wins) losses against human players")
+        .font(.subheadline)
+      Text(rating.tentative
+        ? "Tentative · \(max(0, 5 - rating.humanMatches)) more completed human matches to establish your ranking."
+        : "Established SwipeTennis ranking")
+        .font(.caption).foregroundStyle(.secondary)
+      Text("ST ranges from 1 to 10. New players start at 4t. Only completed online matches against humans change ST; bots, practice, manual scoring and forfeits do not.")
+        .font(.caption).foregroundStyle(.secondary)
+    }.padding(.vertical, 4)
   }
 }

@@ -1,6 +1,7 @@
 import {verifyAppleToken, randomToken, digest} from './apple-auth.mjs';
 import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from './rules.mjs';
 import {validCode} from './cup-rules.mjs';
+import {ratingFor} from './st-ratings.mjs';
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store','X-Content-Type-Options': 'nosniff'}});
 const fail = (status, message) => Object.assign(new Error(message), {status});
 async function body(request) {
@@ -44,9 +45,10 @@ export default {
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
       if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 3});
-      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 1, players: 4, liveInvites: true});
+      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 2, players: 4, liveInvites: true, stRankings: true});
       if (path === '/cups' || path.startsWith('/cups/')) {
         const account = await user(request, env);
+        account.stRating = await ratingFor(env.DB, account.id);
         const roomRequest = (code, action, payload) => {
           const headers = {'X-Cup-User': JSON.stringify(account)};
           if (request.headers.get('Upgrade')) headers.Upgrade = request.headers.get('Upgrade');
@@ -110,11 +112,11 @@ export default {
         const account = await env.DB.prepare('SELECT id,email_mask FROM users WHERE apple_sub=?').bind(claims.sub).first();
         const token = randomToken();
         await env.DB.prepare('INSERT INTO auth_sessions VALUES(?,?,?)').bind(await digest(token), account.id, Date.now() + 30 * 86400000).run();
-        return json({token, userID: account.id, emailMask: account.email_mask});
+        return json({token, userID: account.id, emailMask: account.email_mask, stRating: await ratingFor(env.DB, account.id)});
       }
       if (path === '/me' && request.method === 'GET') {
         const account = await user(request, env);
-        return json({userID: account.id, emailMask: account.email_mask});
+        return json({userID: account.id, emailMask: account.email_mask, stRating: await ratingFor(env.DB, account.id)});
       }
       if (path === '/me' && request.method === 'DELETE') {
         const account = await user(request, env);

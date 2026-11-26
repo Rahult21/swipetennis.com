@@ -152,7 +152,7 @@ struct SettingsView: View {
       Section("Player profile") {
         if let player = store.data.player {
           LabeledContent(
-            player.name, value: player.utr.isEmpty ? "Default player" : "UTR \(player.utr)")
+            player.name, value: "Default player")
           Button("Clear default player") {
             store.data.player = nil
             store.save()

@@ -38,6 +38,7 @@ struct CupHubView: View {
           Section {
             TextField("Your court name", text: $name).textContentType(.nickname)
               .onChange(of: name) { _, value in name = String(value.prefix(24)) }
+            STRankingSummary(rating: account.identity?.stRating ?? STRating())
           } header: { Text("Your player") } footer: { Text("Your court name is visible to the friends in your cup.") }
           Section {
             TextField("Invite code or link", text: $invite).textInputAutocapitalization(.characters)
@@ -86,6 +87,7 @@ struct CupHubView: View {
         }
         Section {
           Text("First to seven points, win by two. Standard tennis, with no match powers. Cups have their own trophies and do not affect Coachability standings.")
+          Text("Human matches update ST ranking. AI matches never change ST. Yellow appears from the incoming ball's path after your human opponent makes contact; swipe toward it to receive, and toward white to recover.")
           Text("Play together while the cup is open. Join or reconnect within 60 seconds of your opponent entering the court. Cups close after 24 hours.")
         }.font(.subheadline).foregroundStyle(.secondary)
       }
@@ -108,13 +110,14 @@ struct CupHubView: View {
     }
     .onChange(of: cups.pendingInvite) { _, code in if let code { invite = code; cups.selectedCode = nil } }
     .task(id: account.identity?.userID) {
+      await account.refreshRanking()
       while !Task.isCancelled {
         if court == nil { await cups.refresh(account) }
         do { try await Task.sleep(for: .seconds(3)) } catch { return }
       }
     }
     .refreshable { await cups.refresh(account) }
-    .fullScreenCover(item: $court, onDismiss: { Task { await cups.refresh(account) } }) { context in
+    .fullScreenCover(item: $court, onDismiss: { Task { await cups.refresh(account); await account.refreshRanking() } }) { context in
       CupMatchView(cup: context.cup, match: context.match, identity: context.identity, onCup: cups.update)
     }
     .confirmationDialog("Leave this cup?", isPresented: $leaving, titleVisibility: .visible) {
@@ -148,7 +151,10 @@ struct CupHubView: View {
       Section("The draw · \(cup.participants.count)/4 players") {
         ForEach(cup.participants) { player in
           HStack {
-            Label(player.name, systemImage: "person.fill")
+            VStack(alignment: .leading, spacing: 3) {
+              Label(player.name, systemImage: "person.fill")
+              Text((player.stRating ?? STRating()).label).font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             Text(player.ready ? "Ready" : "Not ready").font(.subheadline)
               .foregroundStyle(player.ready ? TennisTheme.accent : .secondary)
@@ -219,6 +225,10 @@ struct CupHubView: View {
             VStack(alignment: .leading, spacing: 2) {
               Text(player.name).fontWeight(match.winnerID == id ? .bold : .regular)
               if player.isBot { Text("\(cup.level.title) AI · \(player.botStyle.rawValue)").font(.caption).foregroundStyle(.secondary) }
+              else {
+                Text(match.ratingChanges?.first(where: { $0.userID == id })?.summary ?? (player.stRating ?? STRating()).label)
+                  .font(.caption).foregroundStyle(.secondary)
+              }
             }
           }
           Spacer()
@@ -279,7 +289,10 @@ struct CupMatchView: View {
           courtCard {
             Image(systemName: result.winnerID == gamePlayerID ? "trophy.fill" : "tennisball").font(.largeTitle)
             Text(result.winnerID == gamePlayerID ? "You win!" : "Match complete").font(.title2.bold())
-            Text("\(result.score[0])–\(result.score[1])\(result.reason == "disconnect" ? " · Disconnection" : result.reason == "forfeit" ? " · Forfeit" : "")")
+            Text("\(result.score[session.side])–\(result.score[1 - session.side])\(result.reason == "disconnect" ? " · Disconnection" : result.reason == "forfeit" ? " · Forfeit" : "")")
+            if let change = result.ratingChanges?.first(where: { $0.userID == gamePlayerID }) {
+              Text(change.summary).font(.headline)
+            } else if !game.settings.local { Text("AI match · ST unchanged").font(.subheadline) }
             Button("Return to draw") { dismiss() }.buttonStyle(.borderedProminent)
           }
         } else if !session.ready {

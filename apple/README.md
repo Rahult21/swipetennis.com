@@ -10,7 +10,7 @@ For a physical device, choose your Apple development team under Signing & Capabi
 | --- | --- |
 | Cream / forest / sage / tennis-yellow identity, serif headlines | Court home, native tab navigation, matching court graphics |
 | Manual and swipe scoring | Both modes, switchable during a match |
-| Names, optional UTR, default player | Match setup and saved profile |
+| Names and default player | Match setup and saved profile; legacy UTR fields are retained only for archive compatibility |
 | Four/six games, best of three, two sets + match tiebreak | Complete scoring engine with deuce, advantage, serving order, set and match points |
 | First/second serve, ace, faults, winners, errors, shot position | Manual buttons and editable trace confirmation |
 | Trace pauses, service-box checking, rally-end inference | Native drag gesture, 250 ms bounce capture, inferred results reviewed before scoring |
@@ -26,7 +26,9 @@ Completed matches archive automatically. Closing an unfinished match also keeps 
 
 ## Native play
 
-- **Quick Cup:** Court → Quick Cup creates or joins a four-player tournament using an invite link/code. Friends mark themselves ready, then the host starts the draw and fills open slots with labeled AI opponents at the chosen practice level. Two semifinals feed one final. Matches use seven-point, win-by-two tiebreaks without powers. Human opponents play live, each viewing their own baseline from behind. A missing player has 60 seconds to join/reconnect; the bracket and results persist online. Bot-only matches are labeled simulated, and cups stay separate from Coachability standings. Friends need the iPhone/iPad app installed. See [service details and tests](Backend/README.md#quick-cup).
+- **ST ranking:** Every account starts at **ST 4t** on a 1–10 scale. The tentative marker lasts for five completed online human matches. Opponent-weighted wins and losses change the rating; bots, practice, manual scoring, forfeits and disconnects never do. Account and cup screens show ST and human W/L, and completed human brackets show before/after rating changes. ST does not grant stronger shots or faster movement.
+
+- **Quick Cup:** Court → Quick Cup creates or joins a four-player tournament using an invite link/code. Friends mark themselves ready, then the host starts the draw and fills open slots with labeled AI opponents at the chosen practice level. Two semifinals feed one final. Matches use seven-point, win-by-two tiebreaks without powers. Human opponents play live, each viewing their own baseline from behind. Circle guidance is always enabled in cups. Against a human, yellow is projected from the incoming ball after racket contact; private serve aim is hidden from the receiver before contact. White remains the recovery guide. A missing player has 60 seconds to join/reconnect; the bracket and results persist online. Bot-only matches are labeled simulated, and cups stay separate from Coachability standings. Friends need the iPhone/iPad app installed. See [service details and tests](Backend/README.md#quick-cup).
 
 - **Match powers**. Each pair of consecutive point wins against the opponent awards one random power if the slot is empty. Tap the small button at bottom right to commit the power. Overhead Smash sets up a lob when needed. Rally Smash plays an inside-out forehand or a two-handed backhand. On Demand Ace uses the blue target on your next serve. Replay opens just before the winning stroke.
 
@@ -57,7 +59,7 @@ Completed matches archive automatically. Closing an unfinished match also keeps 
 - **Accessibility:** native form controls, labeled buttons, manual scoring alternative to tracing, VoiceOver court actions, Reduce Motion support, system fonts. Live spatial gameplay still requires timing; it is not a fully nonvisual tennis game.
 - **Lifecycle:** pause on interruptions/backgrounding, stop motion and sounds, disable idle sleep only while the practice screen is active. Portrait iPhone and iPad layouts.
 
-Physical-device validation is still needed for haptic feel, tilt calibration, Bluetooth controllers, speaker/headphone balance, and sustained ProMotion performance. Simulator tests cannot establish these hardware qualities. AR, Apple Watch, Game Center/network multiplayer, iCloud sync, widgets, and Live Activities are not implemented. These would be separate product features and, in several cases, require Apple account/capability configuration.
+Physical-device validation is still needed for haptic feel, tilt calibration, Bluetooth controllers, speaker/headphone balance, and sustained ProMotion performance. Simulator tests cannot establish these hardware qualities. AR, Apple Watch, Game Center matchmaking, iCloud sync, widgets, and Live Activities are not implemented. These would be separate product features and, in several cases, require Apple account/capability configuration.
 
 ## Coachability and accounts
 

@@ -192,6 +192,9 @@ extension PracticeEngine {
   }
 
   func serveReceiveTarget(_ side: Int) -> Vec? {
+    // Human rivals get a prediction only once the racket has contacted the ball.
+    // The live BallFlight then provides the same contact guide for both ends.
+    guard !(settings.tournament && settings.local) else { return nil }
     guard phase == .serving, let servePreparation, servePreparation.server != side else { return nil }
     return ServeGeometry.contact(from: players[servePreparation.server].pos,
       landing: servePreparation.target, server: servePreparation.server, number: servePreparation.number)

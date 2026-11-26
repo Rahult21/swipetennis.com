@@ -86,6 +86,8 @@ try {
   sql(accounts.map(a => `INSERT INTO users VALUES('${a.id}','cup-test-${a.id}','${a.name}',${Date.now()});
     INSERT INTO auth_sessions VALUES('${createHash('sha256').update(a.token).digest('hex')}','${a.id}',${Date.now() + 600000});`).join('\n'));
   await api('cups', null, undefined, 401);
+  for (const account of accounts) assert.deepEqual((await api('me', account)).stRating,
+    {points:4,humanMatches:0,wins:0,tentative:true});
   const requestID = randomUUID();
   let cup = await api('cups', accounts[0], {requestID, title: 'Local Cup', level: 'medium', surface: 'hard'});
   assert.equal((await api('cups', accounts[0], {requestID, level: 'medium', surface: 'hard'})).code, cup.code, 'Create retries reuse the cup');
@@ -101,6 +103,11 @@ try {
   for (const match of [...cup.matches]) cup = await play(cup, match);
   assert.equal(cup.matches.length, 3);
   cup = await play(cup, cup.matches[2]); assert.equal(cup.status, 'complete'); assert(cup.championID);
+  assert(cup.matches.every(game => game.ratingChanges.length === 2));
+  const ratings = await Promise.all(accounts.slice(0,4).map(async account => (await api('me',account)).stRating));
+  assert.equal(ratings.reduce((sum,r)=>sum+r.humanMatches,0),6);
+  assert.equal(ratings.reduce((sum,r)=>sum+r.wins,0),3);
+  const beforeBots = (await api('me')).stRating;
   assert((await api('cups')).cups.some(item => item.code === cup.code));
   assert.equal((await api('cups', accounts[4])).cups.length, 0);
   let solo = await api('cups', accounts[0], {requestID: randomUUID(), title: 'Bot Cup', level: 'hard', surface: 'clay'});
@@ -109,10 +116,12 @@ try {
   solo = await play(solo, solo.matches.find(m => m.authorityID === accounts[0].id));
   solo = await play(solo, solo.matches.find(m => m.id === 'final'));
   assert.equal(solo.championID, accounts[0].id);
+  assert.deepEqual((await api('me')).stRating,beforeBots,'Winning an entire bot cup never changes ST or human stats');
+  assert(solo.matches.every(game=>!game.ratingChanges));
   await api('me', accounts[0], undefined, 200, 'DELETE');
   const anonymized = await api(`cups/${cup.code}`, accounts[1]);
   assert.equal(anonymized.participants.find(p => p.id === accounts[0].id).name, 'Deleted player');
-  console.log('PASS: local four-human and mixed cups, invite authorization, readiness, capacity, fixed bot level, live input relay, snapshot ownership, reconnect checkpoints, semifinals/finals, result persistence and account deletion.');
+  console.log('PASS: four-human and bot cups, ST 4t initialization, human-only rating changes and W/L stats, bot exclusion, invite authorization, readiness, capacity, fixed bot level, live input relay, snapshot ownership, reconnect checkpoints, semifinals/finals, result persistence and account deletion.');
 } finally {
   for (const client of sockets) client.ws.terminate();
   for (const account of accounts.slice(1)) await api('me', account, undefined, 200, 'DELETE').catch(() => {});

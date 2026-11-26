@@ -1,4 +1,4 @@
-// Casual four-player cups. These results never contribute to Coachability or ranked ratings.
+// Four-player cups. Only played human matches contribute to ST; never Coachability.
 export const cupError = (status, message) => Object.assign(new Error(message), {status});
 export const levels = ['easy', 'medium', 'hard'];
 export const styles = ['baseline', 'aggressive', 'volley', 'allcourt', 'retriever'];
@@ -12,14 +12,14 @@ export function createCup(code, user, data, now = Date.now()) {
   }
   return {code, title: displayName(data.title || 'Quick Cup'), hostID: user.id, status: 'lobby',
     level: data.level, surface: data.surface, createdAt: now, expiresAt: now + 86400000,
-    participants: [{id: user.id, name: displayName(data.name || user.email_mask), kind: 'human', ready: true}],
-    matches: [], championID: null, version: 1};
+    participants: [{id: user.id, name: displayName(data.name || user.email_mask), kind: 'human', ready: true, stRating: user.stRating}],
+    matches: [], championID: null, version: 1, rankingVersion: 1};
 }
 export function joinCup(cup, user, data) {
   if (cup.participants.some(p => p.id === user.id)) return;
   if (cup.status !== 'lobby') throw cupError(409, 'The draw has started. Ask your friend for a new cup.');
   if (cup.participants.length === 4) throw cupError(409, 'This cup already has four players.');
-  cup.participants.push({id: user.id, name: displayName(data.name || user.email_mask), kind: 'human', ready: false});
+  cup.participants.push({id: user.id, name: displayName(data.name || user.email_mask), kind: 'human', ready: false, stRating: user.stRating});
 }
 function match(id, players) {
   // The first human runs the native simulation. A bot is always on its far side.

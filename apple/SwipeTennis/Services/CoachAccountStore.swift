@@ -8,6 +8,7 @@ struct CoachIdentity: Codable {
   let userID: String
   let emailMask: String
   var appleUserID: String = ""
+  var stRating: STRating?
 }
 struct AppleChallenge: Decodable { let id: String; let nonce: String }
 private struct PendingCoachPoint: Codable { let userID: String; let point: CoachPointRecord }
@@ -110,9 +111,9 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
       }
       let payload = try JSONSerialization.data(withJSONObject: ["identityToken": token, "challengeId": challenge.id])
       // Only Apple's verified subject is used by the server. The raw token is never persisted.
-      struct Login: Decodable { let token: String; let userID: String; let emailMask: String }
+      struct Login: Decodable { let token: String; let userID: String; let emailMask: String; let stRating: STRating? }
       let login: Login = try await request("/auth/apple", method: "POST", body: payload)
-      try saveIdentity(CoachIdentity(token: login.token, userID: login.userID, emailMask: login.emailMask, appleUserID: credential.user))
+      try saveIdentity(CoachIdentity(token: login.token, userID: login.userID, emailMask: login.emailMask, appleUserID: credential.user, stRating: login.stRating))
       await sync()
     } catch {
       if (error as? ASAuthorizationError)?.code != .canceled { self.error = error.localizedDescription }
@@ -127,11 +128,11 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
       if state == .revoked || state == .notFound { try saveIdentity(nil); return }
     } catch { /* Offline practice retains the signed-in account and queues completed points. */ }
     do {
-      struct Profile: Decodable { let userID: String; let emailMask: String }
+      struct Profile: Decodable { let userID: String; let emailMask: String; let stRating: STRating? }
       let profile: Profile = try await request("/me", authenticated: true)
       if self.identity?.token == identity.token && profile.userID == identity.userID {
         try saveIdentity(CoachIdentity(token: identity.token, userID: identity.userID,
-          emailMask: profile.emailMask, appleUserID: identity.appleUserID))
+          emailMask: profile.emailMask, appleUserID: identity.appleUserID, stRating: profile.stRating))
       }
     } catch { /* Retain the offline profile; authenticated 401 responses clear expired sign-ins. */ }
     await sync()
@@ -170,7 +171,18 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
         persistQueue()
       } catch { self.error = "Results saved on this iPhone. \(error.localizedDescription)"; break }
     }
+    await refreshRanking()
     for metric in CoachMetric.allCases { await loadBoard(metric) }
+  }
+  func refreshRanking() async {
+    guard let identity else { return }
+    do {
+      struct Profile: Decodable { let userID: String; let emailMask: String; let stRating: STRating? }
+      let profile: Profile = try await request("/me", authenticated: true)
+      guard self.identity?.token == identity.token, profile.userID == identity.userID else { return }
+      try saveIdentity(CoachIdentity(token: identity.token, userID: identity.userID,
+        emailMask: profile.emailMask, appleUserID: identity.appleUserID, stRating: profile.stRating))
+    } catch { /* Keep the last server rating while offline. */ }
   }
   func loadBoard(_ metric: CoachMetric) async {
     do {

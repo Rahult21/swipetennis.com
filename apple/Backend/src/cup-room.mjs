@@ -1,11 +1,12 @@
 import {cupError, createCup, joinCup, startCup, recordResult, forfeitMatch, publicCup} from './cup-rules.mjs';
+import {eligibleSTMatch, settleSTMatch, ratingFor} from './st-ratings.mjs';
 
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store'}});
 const reconnectWindow = 60000;
 
 // One durable room serializes each cup's roster, bracket and match results. Native
 // peers relay controls through it; the first human in a match owns its simulation.
-// These are casual cups, not server-simulated competitive/ranked matches.
+// Ratings are settled by the service; the court simulation remains peer-authoritative.
 export class CupRoom {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env; this.cup = null;
@@ -21,8 +22,27 @@ export class CupRoom {
     await this.ctx.storage.put('cup', this.cup);
   }
   async announce() {
+    // Persist the finished match before the external transaction, so a room restart
+    // can retry safely even if D1 committed and its response was lost.
     await this.save();
+    await this.settleRatings();
     this.broadcast({type: 'cup', cup: publicCup(this.cup)});
+  }
+  async settleRatings() {
+    let changed = false;
+    for (const game of this.cup.matches.filter(game => !game.stSettled && eligibleSTMatch(this.cup, game))) {
+      try {
+        game.ratingChanges = await settleSTMatch(this.env.DB, this.cup, game);
+        for (const id of game.playerIDs) {
+          this.cup.participants.find(p => p.id === id).stRating = await ratingFor(this.env.DB, id);
+        }
+        game.stSettled = true; changed = true;
+      } catch {
+        // Keep the bracket usable during a transient database outage, then retry.
+        await this.ctx.storage.setAlarm(Date.now() + 30000);
+      }
+    }
+    if (changed) await this.save();
   }
   humans(game) { return game.playerIDs.filter(id => this.cup.participants.find(p => p.id === id)?.kind === 'human'); }
   connected(game) { return new Set(this.sockets(game.id).map(ws => ws.deserializeAttachment().userID)); }
@@ -49,6 +69,7 @@ export class CupRoom {
   async schedule() {
     const deadlines = this.cup.matches.flatMap(m => this.cup.status === 'playing' && m.status === 'live'
       ? Object.values(m.missingSince ?? {}).map(time => time + reconnectWindow) : []);
+    if (this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))) deadlines.push(Date.now() + 30000);
     await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, Math.min(this.cup.expiresAt, ...deadlines)));
   }
   async fetch(request) {
@@ -75,7 +96,10 @@ export class CupRoom {
         }
         const member = this.cup.participants.find(p => p.id === user.id);
         if (!member) throw cupError(403, 'Join this cup with its invite code first.');
-        if (path === '/' && request.method === 'GET') return json(publicCup(this.cup));
+        if (path === '/' && request.method === 'GET') {
+          await this.settleRatings();
+          return json(publicCup(this.cup));
+        }
         if (path === '/ready') {
           if (this.cup.status !== 'lobby') throw cupError(409, 'The draw has already started.');
           member.ready = data.ready === true; await this.announce();
@@ -142,6 +166,7 @@ export class CupRoom {
           game.nextReady ??= [];
           if (!game.nextReady.includes(meta.userID)) game.nextReady.push(meta.userID);
           if (this.humans(game).every(id => game.nextReady.includes(id))) {
+            if (this.humans(game).length === 2) game.ratedPlayStarted = true;
             game.nextReady = []; game.advancePoint = point;
             this.broadcast({type: 'advance', point}, game.id); await this.save();
           }
@@ -180,6 +205,7 @@ export class CupRoom {
   async alarm() {
     return this.ctx.blockConcurrencyWhile(async () => {
       if (!this.cup) return;
+      await this.settleRatings();
       if (Date.now() >= this.cup.expiresAt) {
         if (!['complete', 'cancelled'].includes(this.cup.status)) this.cup.status = 'expired';
         await this.announce();
@@ -188,7 +214,8 @@ export class CupRoom {
         if (Date.now() >= this.cup.expiresAt + 30 * 86400000) {
           await this.env.DB.prepare('DELETE FROM cup_memberships WHERE cup_code=?').bind(this.cup.code).run();
           await this.ctx.storage.deleteAll(); this.cup = null;
-        } else await this.ctx.storage.setAlarm(this.cup.expiresAt + 30 * 86400000);
+        } else await this.ctx.storage.setAlarm(this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))
+          ? Date.now() + 30000 : this.cup.expiresAt + 30 * 86400000);
         return;
       }
       for (const game of [...this.cup.matches].filter(m => m.status === 'live')) {
