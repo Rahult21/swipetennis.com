@@ -4,9 +4,21 @@ import XCTest
 final class QuickCupTests: XCTestCase {
   func testSTRankingStartsTentativeAndDisplaysFractionalProgress() throws {
     XCTAssertEqual(STRating().label, "ST 4t")
-    let rating = try JSONDecoder().decode(STRating.self, from: Data(#"{"points":4.4,"humanMatches":5,"wins":3,"tentative":false}"#.utf8))
+    let rating = try JSONDecoder().decode(STRating.self, from: Data(#"{"points":4.4,"humanMatches":3,"wins":1,"tentative":false}"#.utf8))
     XCTAssertEqual(rating.label, "ST 4.4")
     XCTAssertEqual(rating.humanMatches - rating.wins, 2)
+  }
+  func testThirdHumanMatchEstablishesRatingIncludingOldCachedProfiles() throws {
+    for count in 0...4 {
+      let cached = Data("{\"points\":4,\"humanMatches\":\(count),\"wins\":0,\"tentative\":true}".utf8)
+      let rating = try JSONDecoder().decode(STRating.self, from: cached)
+      XCTAssertEqual(rating.tentative, count < 3)
+      XCTAssertEqual(rating.label, count < 3 ? "ST 4t" : "ST 4")
+    }
+    let third = try JSONDecoder().decode(STRatingChange.self, from: Data(#"{"userID":"me","before":4.1,"after":4.2,"humanMatches":3,"beforeTentative":true,"tentative":false}"#.utf8))
+    XCTAssertEqual(third.summary,"ST 4.1t → ST 4.2")
+    let fourth = STRatingChange(userID:"me",before:4.2,after:4.3,humanMatches:4,tentative:false,beforeTentative:false)
+    XCTAssertEqual(fourth.summary,"ST 4.2 → ST 4.3")
   }
   func testHumanCupGuideAppearsAfterContactForBothPlayersAndTracksIncomingPath() throws {
     for server in 0...1 {

@@ -1,10 +1,12 @@
 import Foundation
 
 struct STRating: Codable, Equatable {
+  static let tentativeMatchCount = 3
   var points: Double = 4
   var humanMatches: Int = 0
   var wins: Int = 0
-  var tentative: Bool = true
+  // Derive this from the count so cached profiles also adopt the three-match rule.
+  var tentative: Bool { humanMatches < Self.tentativeMatchCount }
   var label: String { Self.label(points, tentative: tentative) }
   static func label(_ points: Double, tentative: Bool) -> String {
     let number = points.formatted(.number.precision(.fractionLength(0...2)))
@@ -17,8 +19,10 @@ struct STRatingChange: Codable {
   let after: Double
   let humanMatches: Int
   let tentative: Bool
+  var beforeTentative: Bool?
   var summary: String {
-    "\(STRating.label(before, tentative: humanMatches <= 5)) → \(STRating.label(after, tentative: tentative))"
+    // Old receipts used five matches; new receipts include their historical state.
+    "\(STRating.label(before, tentative: beforeTentative ?? (humanMatches <= 5))) → \(STRating.label(after, tentative: tentative))"
   }
 }
 

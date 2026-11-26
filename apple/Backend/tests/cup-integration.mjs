@@ -47,7 +47,7 @@ function state(score, local, phase = 'point') {
   return {players: [{pos: {x: 4, y: 24}}, {pos: {x: 4, y: 0}}], settings: {tournament: true, local},
     scoring: {format: 'Tiebreak', points: score}, phase};
 }
-async function play(cup, match) {
+async function play(cup, match, loserPoints = 0) {
   const players = match.playerIDs.map(id => accounts.find(a => a.id === id)).filter(Boolean);
   const clients = [];
   for (const account of players) clients.push(await connect(cup, match, account));
@@ -64,7 +64,13 @@ async function play(cup, match) {
   for (const client of clients) client.send({type: 'next', point: 0});
   for (const client of clients) await client.receive('advance');
   for (let score = 1; score <= 7; score++) {
-    host.send({type: 'snapshot', snapshot: state([score, 0], clients.length === 2, score === 7 ? 'finished' : 'point')});
+    if (score === 7) {
+      for (let lost = 1; lost <= loserPoints; lost++) {
+        host.send({type:'snapshot',snapshot:state([6,lost],clients.length === 2)});
+        if (guest) await guest.receive('snapshot',message=>message.snapshot.scoring.points[1] === lost);
+      }
+    }
+    host.send({type: 'snapshot', snapshot: state([score, score === 7 ? loserPoints : 0], clients.length === 2, score === 7 ? 'finished' : 'point')});
     if (guest) await guest.receive('snapshot', message => message.snapshot.scoring.points[0] === score);
     // Every point is checkpointed, including the one used for reconnection.
     if (score === 3 && guest) {
@@ -100,7 +106,9 @@ try {
   for (const account of accounts.slice(1, 4)) await api(`cups/${cup.code}/ready`, account, {ready: true});
   cup = await api(`cups/${cup.code}/start`, accounts[0], {});
   assert.equal(cup.matches.length, 2); assert.equal(cup.participants.filter(p => p.kind === 'bot').length, 0);
-  for (const match of [...cup.matches]) cup = await play(cup, match);
+  for (const match of [...cup.matches]) cup = await play(cup, match, 1);
+  assert(cup.matches.filter(m=>m.id !== 'final').every(m=>
+    m.ratingChanges[0].after === 4.3 && m.ratingChanges[1].after === 3.7));
   assert.equal(cup.matches.length, 3);
   cup = await play(cup, cup.matches[2]); assert.equal(cup.status, 'complete'); assert(cup.championID);
   assert(cup.matches.every(game => game.ratingChanges.length === 2));

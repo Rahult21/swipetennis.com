@@ -150,10 +150,12 @@ struct STRankingSummary: View {
       Text("\(rating.wins) wins · \(rating.humanMatches - rating.wins) losses against human players")
         .font(.subheadline)
       Text(rating.tentative
-        ? "Tentative · \(max(0, 5 - rating.humanMatches)) more completed human matches to establish your ranking."
+        ? "Tentative · \(max(0, STRating.tentativeMatchCount - rating.humanMatches)) more completed human matches to establish your ranking."
         : "Established SwipeTennis ranking")
         .font(.caption).foregroundStyle(.secondary)
       Text("ST ranges from 1 to 10. New players start at 4t. Only completed online matches against humans change ST; bots, practice, manual scoring and forfeits do not.")
+        .font(.caption).foregroundStyle(.secondary)
+      Text("Every point counts. ST compares your share of points won with the expected share against your opponent. A bigger win helps more; a close loss to a stronger player can also raise ST. A narrow win over a weaker player can lower it.")
         .font(.caption).foregroundStyle(.secondary)
     }.padding(.vertical, 4)
   }

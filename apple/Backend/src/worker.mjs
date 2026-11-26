@@ -1,7 +1,7 @@
 import {verifyAppleToken, randomToken, digest} from './apple-auth.mjs';
 import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from './rules.mjs';
 import {validCode} from './cup-rules.mjs';
-import {ratingFor} from './st-ratings.mjs';
+import {ratingFor, tentativeMatches, ratingAlgorithm} from './st-ratings.mjs';
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store','X-Content-Type-Options': 'nosniff'}});
 const fail = (status, message) => Object.assign(new Error(message), {status});
 async function body(request) {
@@ -45,7 +45,8 @@ export default {
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
       if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 3});
-      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 2, players: 4, liveInvites: true, stRankings: true});
+      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 2, players: 4, liveInvites: true,
+        stRankings: true, stTentativeMatches: tentativeMatches, stRatingAlgorithm: ratingAlgorithm});
       if (path === '/cups' || path.startsWith('/cups/')) {
         const account = await user(request, env);
         account.stRating = await ratingFor(env.DB, account.id);
