@@ -72,6 +72,59 @@ final class ShotRiskAndServeTests: XCTestCase {
     }
   }
 
+  func testTimedSplitImprovesOnlyTheNextReturnAndExplainsTheDecidingShot() throws {
+    let near = Vec(x: 1.1, y: 22.5), far = Vec(x: 7.6, y: 1)
+    for timed in [false, true] {
+      var game = PracticeEngine(settings: .init(allCourtTraining: false))
+      game.phase = .live
+      game.players[0].pos = near
+      game.players[1].pos = far
+      game.launch(0, aim: far, kind: .cross)
+      game.flight!.elapsed = game.flight!.duration * (timed ? 0.8 : 0.2)
+      game.beginSplit(0)
+      game.beginSplit(0)
+      func receive(_ game: inout PracticeEngine) {
+        game.launch(1, aim: near, kind: .cross)
+        game.flight!.contact = near
+        game.ball = near
+        game.choose(0, .line)
+        var rolls = [0.08, 0.5]
+        game.returnBall(0, volley: false, random: { rolls.isEmpty ? 0.5 : rolls.removeFirst() })
+      }
+      receive(&game)
+      let shot = try XCTUnwrap(game.players[0].lastReturn)
+      XCTAssertTrue(shot.redirected && shot.shorterSide)
+      XCTAssertEqual(shot.accuracy, timed ? 0.96 : 0.8, accuracy: 0.00001)
+      XCTAssertEqual(game.flight?.fault, timed ? nil : "wide")
+      if timed {
+        XCTAssertTrue(game.pointSplitSummary.contains("80% → 96%"))
+        receive(&game)
+        XCTAssertEqual(game.flight?.fault, "wide", "A split cannot carry over two returns")
+      }
+      game.flight!.elapsed = game.flight!.duration * 0.8
+      game.step(1/60, random: { 0.5 })
+      XCTAssertTrue(game.feedback.reason.contains("landed wide"))
+      XCTAssertTrue(game.feedback.reason.contains("shorter side"))
+      XCTAssertTrue(game.feedback.reason.contains("lower-percentage"))
+      XCTAssertTrue(game.feedback.reason.contains("crosscourt"))
+      XCTAssertTrue(game.pointSplitSummary.contains("No timed split"))
+    }
+  }
+
+  func testRelativePlacementBoostCapsAtOneAndShorterSideUsesActualGeometry() {
+    for (base, expected) in [(7.0/8, 1.0), (4.0/5, 0.96), (2.0/3, 0.8)] {
+      let decision = ReturnDecision(shot: .angle, redirected: false, shorterSide: false,
+        split: true, baseAccuracy: base)
+      XCTAssertEqual(decision.accuracy, expected, accuracy: 0.00001)
+    }
+    let near = Vec(x: 1, y: 23), diagonal = Vec(x: 7, y: 1), line = Vec(x: 1, y: 1)
+    XCTAssertGreaterThan(CourtTactics.courtLength(from: near, toward: diagonal, side: 0),
+      CourtTactics.courtLength(from: near, toward: line, side: 0) + 0.35)
+    let farther = ReturnDecision(shot: .cross, redirected: true, shorterSide: false, split: false, baseAccuracy: 0.8)
+    XCTAssertFalse(farther.lesson.contains("shorter side"))
+    XCTAssertTrue(farther.lesson.contains("lower-percentage"))
+  }
+
   func testOneSecondStartsOnReleaseAndFirstChangeKeepsBothMetersOpen() throws {
     var game = serving()
     XCTAssertFalse(game.servePreparation!.canTune)

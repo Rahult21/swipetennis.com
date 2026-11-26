@@ -126,6 +126,8 @@ extension PracticeEngine {
     let aim = overhead ? Vec(x: Self.width / 2, y: Self.net / 2)
       : Vec(x: players[1].pos.x < Self.width / 2 ? Self.width - 0.45 : 0.45, y: 0.75)
     assessCoachReturn(incoming: incoming, aim: aim, kind: .cross, clean: true, explicit: true)
+    players[0].lastReturn = ReturnDecision(shot: .cross, redirected: false, shorterSide: false,
+      split: players[0].splitForReturn == contactSerial, baseAccuracy: 1)
     attempts[0] += 1
     if overhead { tactics[0].overheads += 1 }
     launch(0, aim: aim, kind: .cross, stroke: overhead ? .overhead : .groundstroke)

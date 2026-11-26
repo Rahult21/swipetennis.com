@@ -114,6 +114,62 @@ final class ApproachAndFootworkTests: XCTestCase {
     }
   }
 
+  func testApproachArrowDependsOnReturnedBounceDepthAndInPlayReturn() {
+    for side in 0...1 {
+      for depth in [4.99,5.0,6.2] {
+        var game = PracticeEngine(settings: .init(local: true))
+        game.phase = .live
+        let sign = side == 0 ? 1.0 : -1.0
+        let y = side == 0 ? PracticeEngine.length-depth : depth
+        game.players[side].pos = Vec(x: 3,y: y+sign*1.1)
+        game.players[side].destination = Vec(x: 3,y: y-sign)
+        game.launch(1-side, aim: Vec(x: 3,y: y), kind: .cross)
+        game.returnBall(side,volley: false,random: { 0.99 })
+        XCTAssertEqual(game.movementGuide(side)?.kind == .approach, depth >= 5)
+        XCTAssertEqual(game.players[side].destination, game.players[side].pos)
+        game.followShot(side)
+        XCTAssertTrue(game.followingApproach[side])
+        game.launch(1-side, aim: Vec(x: 1,y: y), kind: .cross, fault: "long")
+        game.swipeCourt(side,delta: Vec(x: 0,y: -sign*2))
+        XCTAssertEqual(game.players[side].destination, game.players[side].pos)
+        XCTAssertFalse(game.followingApproach[side])
+        XCTAssertNil(game.movementGuide(side))
+        game.launch(side, aim: .zero, kind: .cross, serve: true)
+        XCTAssertFalse(game.canFollowShot(side))
+      }
+    }
+  }
+
+  func testFirstCleanNetVolleyUnlocksDoubleSpeedAndShortMovementSwipes() throws {
+    var game = PracticeEngine(settings: .init(local: true))
+    game.phase = .live
+    game.players[0].pos = Vec(x: 1, y: PracticeEngine.net+2)
+    game.players[0].destination = game.players[0].pos
+    game.launch(1, aim: game.players[0].pos, kind: .cross)
+    game.ball = game.players[0].pos
+    game.flight!.contact = game.players[0].pos
+    XCTAssertFalse(game.quickNetFeet(0))
+    game.returnBall(0, volley: true, random: { 0.5 })
+    XCTAssertTrue(game.quickNetFeet(0))
+    XCTAssertFalse(game.quickNetFeet(1))
+    var gesture = PracticeGesture(side: 0, movementGain: 1.8)
+    _ = gesture.update(at: .zero)
+    guard case .run(let delta)? = gesture.update(at: Vec(x: 0.35,y: 0), ended: true) else {
+      return XCTFail("A short lateral movement must register after a volley")
+    }
+    XCTAssertEqual(delta.x, 0.63, accuracy: 0.001)
+    game = try JSONDecoder().decode(PracticeEngine.self, from: JSONEncoder().encode(game))
+    game.move(0,to: Vec(x: 9.8,y: game.players[0].pos.y))
+    var peak = 0.0
+    for _ in 0..<100 { game.updateFootwork(1/120); peak = max(peak,game.players[0].velocity.length) }
+    XCTAssertGreaterThan(peak, 11.9)
+    XCTAssertLessThanOrEqual(peak, 12.0001)
+    game.end(0,reason: "",tip: "")
+    XCTAssertFalse(game.quickNetFeet(0))
+    game.start()
+    XCTAssertNotEqual(game.players[0].madeNetVolley,true)
+  }
+
   func testGarmentHasNoOpenEdgesAndEveryTriangleSurvivesWideAndBentPoses() {
     let garment = TennisShorts.mesh, triangles = garment.indices
     var uses: [UInt64:Int] = [:], balance: [UInt64:Int] = [:]

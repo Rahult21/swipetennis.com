@@ -207,7 +207,10 @@ import UIKit
       segment(limbs[j+7], hand + (e-hand)*0.12, hand + (e-hand)*0.26, 0.045)
       limbs[j+8].position = hand; limbs[j+8].scale = [0.048, 0.060, 0.042]
       shoes[i].position = foot
-      shoes[i].orientation = simd_slerp(simd_quatf(angle: side == 0 ? 0 : .pi, axis: [0,1,0]), hips.orientation, 0.32)
+      let facing = simd_quatf(angle: side == 0 ? 0 : .pi, axis: [0,1,0])
+      let hipAxis = p[.rightHip] - p[.leftHip]
+      let yaw = simd_quatf(angle: atan2(-hipAxis.z, hipAxis.x), axis: [0,1,0])
+      shoes[i].orientation = simd_slerp(facing, yaw, 0.32) * simd_quatf(angle: -p.heelPitch, axis: [1,0,0])
     }
     stamp.position = [hip.x, 0.008, hip.z]; stamp.scale = [0.96, 1, 0.65]
   }

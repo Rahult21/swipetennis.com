@@ -97,6 +97,9 @@ export type Player = {
   settled: number;
   aim: Vec | null;
   kind: ShotKind;
+  madeNetVolley: boolean;
+  splitForReturn?: number;
+  lastReturn?: { split: boolean; base: number; accuracy: number; lesson: string };
 };
 export type Flight = {
   from: Vec;
@@ -110,6 +113,9 @@ export type Flight = {
   explanation: string;
   loft: number;
   serve: boolean;
+  backhand?: boolean;
+  volley?: boolean;
+  returnedShort?: boolean;
 };
 export type Feedback = {
   title: string;
@@ -134,6 +140,10 @@ export type Practice = {
   history: Feedback[];
   balanced: [number, number];
   attempts: [number, number];
+  winsInRow: number;
+  reactionCooldown: number;
+  racketReaction: boolean;
+  resultElapsed: number;
 };
 export const other = (side: Side): Side => (side === 0 ? 1 : 0);
 export const distance = (a: Vec, b: Vec) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -192,6 +202,7 @@ export function createPractice(settings: Settings): Practice {
     settled: 0,
     aim: null,
     kind: "cross",
+    madeNetVolley: false,
   });
   return {
     settings,
@@ -209,6 +220,10 @@ export function createPractice(settings: Settings): Practice {
     history: [],
     balanced: [0, 0],
     attempts: [0, 0],
+    winsInRow: 0,
+    reactionCooldown: 0,
+    racketReaction: false,
+    resultElapsed: 0,
     feedback: {
       title: "Read. Move. Settle.",
       reason:
@@ -231,9 +246,9 @@ export function presetAim(side: Side, kind: ShotKind, position: Vec): Vec {
   const depth = kind === "angle" ? 8.4 : kind === "lob" ? 2.2 : 1.8;
   return { x, y: side === 0 ? depth : COURT.length - depth };
 }
-export function movePlayer(player: Player, dt: number, maxSpeed: number) {
+export function movePlayer(player: Player, dt: number, maxSpeed: number, acceleration = 11) {
   const d = distance(player.pos, player.destination);
-  const targetSpeed = Math.min(maxSpeed, Math.sqrt(2 * 11 * d));
+  const targetSpeed = Math.min(maxSpeed, Math.sqrt(2 * acceleration * d));
   const desired =
     d > 0.02
       ? {
@@ -242,7 +257,7 @@ export function movePlayer(player: Player, dt: number, maxSpeed: number) {
         }
       : { x: 0, y: 0 };
   const delta = distance(player.velocity, desired);
-  const fraction = delta > 0 ? Math.min(1, (11 * dt) / delta) : 1;
+  const fraction = delta > 0 ? Math.min(1, (acceleration * dt) / delta) : 1;
   player.velocity.x += (desired.x - player.velocity.x) * fraction;
   player.velocity.y += (desired.y - player.velocity.y) * fraction;
   player.pos.x += player.velocity.x * dt;
@@ -299,7 +314,91 @@ function botAim(s: Practice, random: () => number): Vec {
     y: COURT.length - depth,
   };
 }
-function endPoint(s: Practice, winner: Side, feedback: Feedback) {
+export function quickNetFeet(s: Practice, side: Side) {
+  return s.phase === "live" && !s.flight?.fault && (side === 0 || s.settings.mode === "local")
+    && s.players[side].madeNetVolley && Math.abs(s.players[side].pos.y - COURT.net) <= 6.4;
+}
+
+export function splitStep(s: Practice, side: Side, serveLead = 0) {
+  const f = s.flight;
+  if (s.phase !== "live" || !f || f.fault) return;
+  const player = s.players[side];
+  if (serveLead > 0) {
+    if (f.serve && f.hitter !== side && serveLead <= 0.3) player.splitForReturn = s.rally;
+    return;
+  }
+  const ball = flightPosition(f);
+  const farSide = side === 0 ? ball.y < COURT.net : ball.y > COURT.net;
+  if (f.hitter !== side || !farSide || distance(ball, f.landing) > 3) return;
+  player.splitForReturn = s.rally + 1;
+  if ((player.pos.y - player.destination.y) * (side === 0 ? 1 : -1) > 0) {
+    player.destination = { ...player.pos };
+    player.velocity = { x: 0, y: 0 };
+  }
+}
+
+export function pointSplitSummary(s: Practice) {
+  if (s.flight?.hitter === 1 && !s.flight.fault) {
+    return s.players[0].splitForReturn === s.rally
+      ? "Timed split · ball stayed out of reach" : "No timed split before the missed return";
+  }
+  const shot = s.players[0].lastReturn;
+  if (!shot) return "No rally shot to apply a split bonus";
+  const base = Math.round(100 * shot.base), final = Math.round(100 * shot.accuracy);
+  if (!shot.split) return `No timed split on your last shot · ${base}% placement`;
+  return base === final ? `Timed split on your last shot · already at ${final}%`
+    : `Timed split on your last shot · ${base}% → ${final}%`;
+}
+
+function courtLength(contact: Vec, target: Vec, side: Side) {
+  const dx = target.x - contact.x, dy = target.y - contact.y;
+  if (Math.abs(dy) < 0.001) return 0;
+  const baseline = ((side === 0 ? 0 : COURT.length) - contact.y) / dy;
+  const sideline = Math.abs(dx) < 0.001 ? Infinity : ((dx > 0 ? COURT.width : 0) - contact.x) / dx;
+  return Math.hypot(dx, dy) * Math.max(0, Math.min(baseline, sideline));
+}
+
+function returnDecision(s: Practice, side: Side, aim: Vec, contactChance: number) {
+  const incoming = s.flight!, player = s.players[side], pos = player.pos;
+  const origin = incoming.from, kind = player.kind;
+  const dot = (origin.x-pos.x)*(aim.x-pos.x) + (origin.y-pos.y)*(aim.y-pos.y);
+  const cos = dot / Math.max(0.001, distance(origin,pos) * distance(aim,pos));
+  const change = !incoming.serve && Math.abs(origin.x - aim.x) >= 1.5 && cos < Math.cos(8*Math.PI/180);
+  const shorter = change && courtLength(pos,aim,side) + 0.35 < courtLength(pos,origin,side);
+  let base = contactChance;
+  if (!incoming.serve) {
+    const placement = kind === "angle" ? 2/3 : kind === "line" || change ? 4/5 : kind === "cross" ? 7/8 : 1;
+    base = Math.min(base, placement);
+  }
+  const split = player.splitForReturn === s.rally;
+  let lesson = "Give your crosscourt target more room inside the lines.";
+  if (change) {
+    lesson = (shorter ? "Changing direction to the shorter side" : "Changing direction")
+      + " was the lower-percentage play. Rally crosscourt and wait for a short ball.";
+  } else if (kind === "angle") lesson = "The short angle left little room. Aim deeper crosscourt.";
+  else if (kind === "line") lesson = "Down the line leaves less margin. Wait for a short ball to attack.";
+  else if (kind === "lob") lesson = "Aim your lob higher and toward the middle.";
+  return {base, split, accuracy: Math.min(1, base * (split ? 1.2 : 1)), lesson};
+}
+
+export function canApproach(s: Practice, side: Side) {
+  const f = s.flight;
+  return s.phase === "live" && f !== null && f.hitter === side && !f.fault && !f.serve && f.elapsed < 0.8 * f.duration;
+}
+
+export function steerPlayer(s: Practice, side: Side, target: Vec) {
+  const f = s.flight;
+  if (s.phase !== "live" || !f || f.fault) return;
+  const p = s.players[side];
+  const ahead = (p.pos.y - target.y) * (side === 0 ? 1 : -1);
+  if (ahead > 0 && !canApproach(s, side)) {
+    const limit = f.hitter === side ? p.pos.y : interceptPoint(s, side).y;
+    target = { x: target.x, y: side === 0 ? Math.max(target.y, Math.min(limit, p.pos.y)) : Math.min(target.y, Math.max(limit, p.pos.y)) };
+  }
+  p.destination = ownPosition(side, target);
+}
+
+function endPoint(s: Practice, winner: Side, feedback: Feedback, random: () => number) {
   s.score[winner]++;
   s.feedback = feedback;
   s.history = [feedback, ...s.history].slice(0, 8);
@@ -307,6 +406,12 @@ function endPoint(s: Practice, winner: Side, feedback: Feedback) {
     s.score[winner] >= 7 && s.score[winner] - s.score[other(winner)] >= 2
       ? "finished"
       : "point";
+  s.winsInRow = winner === 0 ? s.winsInRow + 1 : 0;
+  s.racketReaction = s.settings.mode === "bot" && s.winsInRow >= 2 && s.reactionCooldown === 0 && random() < 0.5;
+  if (s.racketReaction) s.reactionCooldown = random() < 0.5 ? 2 : 3;
+  if (s.phase === "finished" && s.settings.mode === "bot") s.reactionCooldown = Math.max(0, s.reactionCooldown - 1);
+  s.resultElapsed = 0;
+  for (const p of s.players) { p.destination = { ...p.pos }; p.velocity = { x: 0, y: 0 }; }
 }
 export function playerName(s: Practice, side: Side) {
   return side === 0
@@ -387,10 +492,14 @@ export function startPoint(s: Practice) {
     p.velocity = { x: 0, y: 0 };
     p.settled = 0;
     p.aim = null;
+    p.madeNetVolley = false;
+    p.splitForReturn = undefined;
+    p.lastReturn = undefined;
   });
   s.rally = 0;
   s.approach = false;
   s.phase = "live";
+  s.racketReaction = false;
   s.lastContact = "Opening serve";
   // A repeatable legal serve starts each point so the exercise stays about footwork.
   launch(
@@ -451,6 +560,9 @@ function returnBall(
     chance = balanced
       ? level.botAccuracy - (risk ? level.riskPenalty : 0)
       : Math.min(0.78, chance);
+  } else {
+    p.lastReturn = returnDecision(s, side, aim, chance);
+    chance = p.lastReturn.accuracy;
   }
   const miss = random() >= chance;
   const actor = playerName(s, side);
@@ -473,7 +585,7 @@ function returnBall(
         ? "net"
         : "long";
   const explanation = balanced
-    ? `Balanced contact. This was a timing error within the ${Math.round((1 - chance) * 100)}% miss chance for this shot.`
+    ? `Balanced contact, with a ${Math.round((1 - chance) * 100)}% chance of missing the target.`
     : `${reason} The available shot margin fell to ${Math.round(chance * 100)}%.`;
   s.feedback = {
     title: balanced
@@ -487,18 +599,33 @@ function returnBall(
   };
   const kind = bot && s.settings.profile === "retriever" ? "lob" : p.kind;
   launch(s, side, aim, kind, fault, explanation);
+  const outgoing = s.flight!;
+  outgoing.backhand = (contact.x - p.pos.x) * (side === 0 ? 1 : -1) < 0;
+  outgoing.volley = volley;
+  const depth = side === 0 ? COURT.length - incoming.landing.y : incoming.landing.y;
+  outgoing.returnedShort = !fault && !incoming.serve && !volley && depth >= 5 && depth < COURT.net;
+  if (!bot && !fault && volley && Math.abs(p.pos.y - COURT.net) <= 6.4) p.madeNetVolley = true;
+  for (const [i, player] of s.players.entries()) {
+    if (fault || ((i === 0 || s.settings.mode === "local") && (player.pos.y - player.destination.y) * (i === 0 ? 1 : -1) > 0)) {
+      player.destination = { ...player.pos };
+      player.velocity = { x: 0, y: 0 };
+    }
+  }
 }
 export function stepPractice(
   s: Practice,
   dt: number,
   random: () => number = Math.random,
 ) {
-  if (s.phase !== "live" || !s.flight) return;
+  if (s.phase !== "live" || !s.flight) {
+    if (s.phase === "point" || s.phase === "finished") s.resultElapsed = Math.min(2, s.resultElapsed + Math.max(0, dt));
+    return;
+  }
   dt = Math.min(0.04, Math.max(0, dt));
   s.time += dt;
   const f = s.flight;
   const receiver = other(f.hitter);
-  if (s.settings.mode === "bot" && receiver === 1 && s.time >= s.reactAt) {
+  if (!f.fault && s.settings.mode === "bot" && receiver === 1 && s.time >= s.reactAt) {
     s.players[1].destination = ownPosition(1, interceptPoint(s, 1));
   }
   s.players.forEach((p, i) => {
@@ -507,7 +634,9 @@ export function stepPractice(
         ? PROFILES[s.settings.profile].speed *
           LEVELS[s.settings.difficulty].speed
         : 6;
-    movePlayer(p, dt, maxSpeed);
+    const boost = quickNetFeet(s, i as Side) ? 2 : 1;
+    movePlayer(p, dt, maxSpeed * boost, 11 * boost);
+    if (Math.abs(p.pos.y - COURT.net) > 6.4) p.madeNetVolley = false;
     p.pos = ownPosition(i as Side, p.pos);
     const target = interceptPoint(s, i as Side);
     p.settled =
@@ -517,6 +646,13 @@ export function stepPractice(
         : 0;
   });
   f.elapsed += dt;
+  if (!f.serve && !f.fault && f.elapsed >= f.duration * 0.8 && f.elapsed - dt < f.duration * 0.8
+      && (f.hitter === 0 || s.settings.mode === "local")) {
+    const hitter = s.players[f.hitter];
+    if ((hitter.pos.y - hitter.destination.y) * (f.hitter === 0 ? 1 : -1) > 0) {
+      splitStep(s, f.hitter);
+    }
+  }
   s.ball = flightPosition(f);
   const progress = f.elapsed / f.duration;
   if (f.fault && progress >= 0.8) {
@@ -524,7 +660,10 @@ export function stepPractice(
     const goodRisk = f.red && f.explanation.startsWith("Balanced");
     endPoint(s, receiver, {
       title: `${playerName(s, f.hitter)} missed ${f.fault}.`,
-      reason: f.explanation,
+      reason: opponentMiss ? f.explanation : [
+        f.fault === "net" ? "Your shot hit the net." : `Your shot landed ${f.fault}.`,
+        f.explanation, s.players[0].lastReturn?.lesson,
+      ].filter(Boolean).join(" "),
       tip:
         opponentMiss && f.red
           ? "A good miss to draw out. You made the opponent play a high-risk red-zone shot. Accept the occasional winner there; that risk can pay you back later."
@@ -534,7 +673,7 @@ export function stepPractice(
               ? "The target was in the red zone. When stretched, choose a higher-margin ball through the middle and recover."
               : "Read the direction sooner, move before the bounce, then brake before contact.",
       tone: (opponentMiss && f.red) || goodRisk ? "positive" : "neutral",
-    });
+    }, random);
     return;
   }
   const ballOnReceiverSide =
@@ -561,9 +700,9 @@ export function stepPractice(
       reason: `${playerName(s, receiver)} finished ${gap.toFixed(1)} m from the contact point, beyond the 1.35 m reach. ${s.players[receiver].pos.y < 19 && receiver === 0 && f.loft >= 2 ? "The lob went over your net position." : "The ball arrived before the player could get there."}`,
       tip: riskyWinner
         ? `Good tactical concession for ${playerName(s, receiver).toLowerCase()}. ${playerName(s, f.hitter)} made a red-zone winner. The coverage asked for a high-risk shot; accept this one and keep asking for that precision.`
-        : "Recover toward the angle-bisecting circle, split-step as the opponent hits, and move toward the new landing marker early.",
+        : "Recover to the white circle, tap around the far bounce to split, then move early toward yellow.",
       tone: riskyWinner ? "positive" : "neutral",
-    });
+    }, random);
     return;
   }
   returnBall(s, receiver, false, random);

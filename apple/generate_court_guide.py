@@ -338,14 +338,15 @@ para('Every drop shot is chased. Easy reaches 2/3, Medium 3/4 and Hard 4/5; a re
 para('Ordinary errors vary: net, wide, long or a late chase. You choose when to approach.',24,77,size=12,leading=16)
 c.showPage()
 
-page(7,'See why. Start fresh.','Quick view: winner, score and CP reasons. Repeated actions share one row; Details shows every action.')
+page(7,'Read the point result.','A timed split improves placement on your next shot by 20%, up to 100%.')
 c.setFillColor(FOREST);c.roundRect(24,302,366,220,15,fill=1,stroke=0)
-label('You won the point.',207,489,26,white,'Times-Roman','center')
-label('GAMES  1-0       POINTS  30-15',207,461,10,YELLOW,'Helvetica-Bold','center')
-label('COACHABILITY  +3 CP',207,435,11,YELLOW,'Helvetica-Bold','center')
-for y,points,copy in [(408,'+2','You followed the short ball toward the net.'),(371,'+2','You changed direction and followed your shot.'),(334,'-1','You reached white, but missed the split step.')]:
-    label(points,41,y,14,YELLOW if points=='+2' else HexColor('#FFA68C'),'Helvetica-Bold')
-    para(copy,77,y+11,288,size=12,leading=15,color=white)
+label('Opponent won the point.',42,488,24,white,'Times-Roman')
+label('GAMES  1-0       POINTS  30-30',42,466,10,YELLOW,'Helvetica-Bold')
+para('Your shot landed wide. Changing direction to the shorter side was the lower-percentage play. Rally crosscourt and wait for a short ball.',42,449,326,size=12,leading=16,color=white)
+label('Timed split on your last shot: 80% to 96%',42,380,12,MINT,'Helvetica-Bold')
+c.setStrokeColor(MINT);c.line(42,366,372,366)
+label('COACHABILITY   -1 CP',42,344,10,YELLOW,'Helvetica-Bold')
+label('Missed the white recovery circle.',42,321,12,white)
 label('MATCH POWERS',24,279,12,INK,'Helvetica-Bold')
 para('Win two points in a row against the opponent to earn one random power. The round button at bottom right holds it until use.',24,266,size=12,leading=15)
 for y,title,copy in [(212,'Overhead Smash','Get within 3 m of the net. Tap the power to line up and smash over the opponent.'),

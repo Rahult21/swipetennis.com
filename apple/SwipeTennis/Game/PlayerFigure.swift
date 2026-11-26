@@ -174,8 +174,10 @@ import SpriteKit
     limb(leftSock, [CGPoint(x: leftFoot.x, y: leftFoot.y + 4), leftFoot], width: 4.9)
     limb(rightSock, [CGPoint(x: rightFoot.x, y: rightFoot.y + 4), rightFoot], width: 4.9)
     for (shoe, foot) in [(leftShoe, leftFoot), (rightShoe, rightFoot)] {
+      shoe.position = foot
+      shoe.zRotation = -CGFloat(pose.heelPitch)
       shoe.path = CGPath(
-        roundedRect: CGRect(x: foot.x - 3.5, y: foot.y - 3, width: 8, height: 4.6),
+        roundedRect: CGRect(x: -3.5, y: -3, width: 8, height: 4.6),
         cornerWidth: 1.8, cornerHeight: 1.8, transform: nil)
       shoe.strokeColor = ink.withAlphaComponent(0.6)
       shoe.lineWidth = 0.6
@@ -192,8 +194,8 @@ import SpriteKit
     polygon(
       shirt,
       [
-        shoulderLeft, CGPoint(x: shift - 4, y: shoulderY + 3),
-        CGPoint(x: shift + 4, y: shoulderY + 3), shoulderRight,
+        shoulderLeft, CGPoint(x: shift + (shoulderLeft.x - shift) * 0.42, y: shoulderY + 3),
+        CGPoint(x: shift + (shoulderRight.x - shift) * 0.42, y: shoulderY + 3), shoulderRight,
         hipRight, hipLeft,
       ])
     polygon(

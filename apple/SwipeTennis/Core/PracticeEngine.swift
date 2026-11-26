@@ -153,6 +153,9 @@ struct CourtPlayer: Codable {
   var settled = 0.0
   var aim: Vec?
   var kind: ShotKind = .cross
+  var madeNetVolley: Bool?
+  var splitForReturn: Int?
+  var lastReturn: ReturnDecision?
 }
 struct BallFlight: Codable {
   var from: Vec, landing: Vec, contact: Vec
@@ -173,6 +176,7 @@ struct BallFlight: Codable {
   var stroke: TennisStrokeStyle = .groundstroke
   var trainingApproach = false
   var trainingReply = false
+  var returnedShortBall: Bool?
   var opponentReplyPrepared = false
   var opponentError: OpponentError?
   var missedChaseTarget: Vec?
@@ -276,6 +280,11 @@ struct PracticeEngine: Codable {
     scoring = PracticeScore(format: settings.scoring)
   }
   func name(_ side: Int) -> String { settings.name(side) }
+  func quickNetFeet(_ side: Int) -> Bool {
+    phase == .live && (side == 0 || settings.local) && players[side].madeNetVolley == true
+      && abs(players[side].pos.y - Self.net) <= Self.net - ServeGeometry.serviceLine
+      && flight?.fault == nil
+  }
   static func own(_ side: Int, _ p: Vec) -> Vec {
     Vec(
       x: clamp(p.x, -1.6, 9.83), y: side == 0 ? clamp(p.y, 12.585, 26.27) : clamp(p.y, -2.5, 11.185)
@@ -334,9 +343,12 @@ struct PracticeEngine: Codable {
   }
   // Free steering can still chase an incoming ball or recover laterally after the bounce.
   mutating func steer(_ side: Int, to target: Vec) {
+    guard phase.isPlaying, flight?.fault == nil else { return }
     var destination = target
-    if flight?.hitter == side && !canFollowShot(side) {
-      destination.y = side == 0 ? max(target.y, players[side].pos.y) : min(target.y, players[side].pos.y)
+    if !canFollowShot(side) {
+      let here = players[side].pos.y
+      let meet = contactGuide(side)?.y ?? here
+      destination.y = side == 0 ? max(target.y, min(here, meet)) : min(target.y, max(here, meet))
     }
     move(side, to: destination)
   }
@@ -347,6 +359,9 @@ struct PracticeEngine: Codable {
       players[i].pos = p
       players[i].destination = p
       players[i].velocity = .zero
+      players[i].madeNetVolley = nil
+      players[i].splitForReturn = nil
+      players[i].lastReturn = nil
       players[i].settled = 0
       players[i].aim = nil
       if players[i].kind == .drop || players[i].kind == .slice { players[i].kind = .cross }
@@ -455,12 +470,14 @@ struct PracticeEngine: Codable {
     // The next flight leaves the exact 3D point reached by the incoming ball on this tick.
     let impact = serve ? serviceImpact(at: from, side: side, explosive: queuedPower == .ace)
       : flight.flatMap { $0.hitter != side ? $0.worldBall(at: $0.progress) : nil } ?? from.world(height: 0.93)
+    let returnedShort = !serve && fault == nil && stroke != .volley && stroke != .overhead
+      && flight.map { Self.isShortBall($0, receiving: side) } == true
     pointResolution = nil
     flight = BallFlight(
       from: from, landing: landing, contact: contact, strikeOrigin: impact, duration: duration, hitter: side,
       fault: fault, explanation: explanation, loft: loft, serve: serve, serveNumber: serveNumber,
       serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind, stroke: serve ? .serve : kind == .drop ? .drop : kind == .slice ? .slice : stroke, trainingApproach: trainingApproach,
-      trainingReply: trainingReply)
+      trainingReply: trainingReply, returnedShortBall: returnedShort)
     ball = from
     players[1 - side].settled = 0
     reactAt = time + (trainingApproach ? 0.08 : settings.difficulty.reaction)
@@ -478,6 +495,17 @@ struct PracticeEngine: Codable {
       // An opponent volley can close the approach window before there is a bounce.
       players[receiver].destination = players[receiver].pos
       players[receiver].velocity = .zero
+    }
+    if fault != nil {
+      for index in 0...1 {
+        players[index].destination = players[index].pos
+        players[index].velocity = .zero
+        followingApproach[index] = false
+      }
+    } else if !serve && !bot && advancingToNet(side) {
+      // The run to the incoming ball ends at contact. A fresh swipe starts the approach.
+      players[side].destination = players[side].pos
+      players[side].velocity = .zero
     }
     followingApproach[receiver] = false
     approachAvailable[receiver] = false
@@ -533,15 +561,25 @@ struct PracticeEngine: Codable {
     pointResolution = PointResolution(impact: flight.flatMap(FaultImpact.init), reaction: reaction)
     for side in 0...1 where outBallChaseTarget(side) == nil {
       players[side].destination = players[side].pos
+      players[side].velocity = .zero
+      followingApproach[side] = false
     }
     if flight?.hitter == winner && (flight?.stroke == .volley || flight?.stroke == .overhead) {
       tactics[winner].netWinners += 1
     }
     scoring.award(winner)
+    if !settings.local && scoring.lastAward != .point { momentum.completedOpponentGame() }
     coach.finishPoint(award: scoring.lastAward, winner: winner, format: scoring.format, time: time)
     phase = scoring.winner == nil ? .point : .finished
+    var explanation = reason
+    if winner == 1, let f = flight {
+      if f.hitter == 0, f.fault != nil {
+        if f.serve { explanation += " Use more spin and aim inside the service box." }
+        else if let decision = players[0].lastReturn { explanation += " " + decision.lesson }
+      } else if f.hitter == 1 && f.fault == nil { explanation += " Move toward yellow earlier." }
+    }
     feedback = Coaching(
-      title: "\(name(winner)) won the \(scoring.lastAward.rawValue).", reason: reason,
+      title: "\(name(winner)) won the \(scoring.lastAward.rawValue).", reason: explanation,
       tip: phase == .finished
         ? "Play again to start a new \(scoring.format == .tennis ? "set" : "tiebreak")." : tip)
     history.insert(feedback, at: 0)
@@ -637,7 +675,13 @@ struct PracticeEngine: Codable {
     let controlledFeed = bot && (dropReply || f.kind == .slice || f.trainingApproach
       || netReply == .volley || queuedPower == .overhead)
     let redirect = !f.serve && CourtTactics.redirects(from: f.from, at: p.pos, to: aim)
-    let placementChance = demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect)
+    let decision = ReturnDecision(shot: kind, redirected: redirect,
+      shorterSide: redirect && CourtTactics.courtLength(from: p.pos, toward: aim, side: side) + 0.35
+        < CourtTactics.courtLength(from: p.pos, toward: f.from, side: side),
+      split: !bot && p.splitForReturn == contactSerial,
+      baseAccuracy: demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect))
+    if !bot { players[side].lastReturn = decision }
+    let placementChance = decision.accuracy
     let forcedMiss = bot && f.opponentError != nil && queuedPower != .overhead
     let miss = forcedMiss || (contactChance < 1 && random() >= contactChance)
       || (placementChance < 1 && random() < 1 - placementChance)
@@ -687,8 +731,11 @@ struct PracticeEngine: Codable {
       flight!.loft = 0.85
     }
     if !bot {
+      if volley && !overhead && !miss && abs(p.pos.y - Self.net) <= Self.net - ServeGeometry.serviceLine {
+        players[side].madeNetVolley = true
+      }
       // Offer the path, but only a subsequent player movement command can start the approach.
-      approachAvailable[side] = lineApproach && !miss
+      approachAvailable[side] = flight?.returnedShortBall == true
       followingApproach[side] = false
     }
   }
@@ -715,8 +762,9 @@ struct PracticeEngine: Codable {
       let baseSpeed = i == 1 && !settings.local
         ? (flight?.hitter == 0 && flight?.kind == .drop ? 7.0 : settings.style.speed) * settings.difficulty.speed : 6
       let turning = flight?.receiverWrongFooted == true && flight?.hitter == 1 - i && phase == .live
-      let maxSpeed = baseSpeed * shortBallBoost * (turning ? 0.6 : 1)
-      let acceleration = 11 * shortBallBoost
+      let boost = quickNetFeet(i) ? 2 : shortBallBoost
+      let maxSpeed = baseSpeed * boost * (turning ? 0.6 : 1)
+      let acceleration = 11 * boost
       // A tap can split and queue a run together; the hop must not stall that run.
       let splitting = d <= Self.contactRadius && time >= splitStarted[i] && time < splitStarted[i] + 0.18
       let speed = splitting ? 0 : min(maxSpeed, sqrt(2 * acceleration * d))
@@ -730,6 +778,7 @@ struct PracticeEngine: Codable {
       p.velocity.x += (desired.x - p.velocity.x) * fraction
       p.velocity.y += (desired.y - p.velocity.y) * fraction
       p.pos = Self.own(i, Vec(x: p.pos.x + p.velocity.x * dt, y: p.pos.y + p.velocity.y * dt))
+      if abs(p.pos.y - Self.net) > Self.net - ServeGeometry.serviceLine { p.madeNetVolley = nil }
       p.settled =
         p.pos.distance(to: intercept(i)) <= 0.85 && p.velocity.length < 2.2 ? p.settled + dt : 0
       players[i] = p
@@ -753,7 +802,7 @@ struct PracticeEngine: Codable {
     if flight?.power == nil { prepareOpponentReply(random: random) }
     let current = flight!
     let receiver = 1 - current.hitter
-    if current.power == nil && !settings.local && receiver == 1 && time >= reactAt {
+    if current.power == nil && current.fault == nil && !settings.local && receiver == 1 && time >= reactAt {
       players[1].destination = current.missedChaseTarget ?? Self.own(1, intercept(1))
     }
     updateFootwork(dt)
@@ -791,7 +840,7 @@ struct PracticeEngine: Codable {
           : "\(name(f.hitter) == "You" ? "Your" : name(f.hitter) + "'s") shot \(fault == "net" ? "hit the net" : "landed " + fault).",
         tip: receiver == 0
           ? "Keep moving early and aim into open court."
-          : "Aim farther inside the lines on your next shot.")
+          : "Aim farther inside the lines on your next shot.", random: random)
       return
     }
     if current.opponentError != .unreachable, current.dropReachable != false, let window = BallContactWindow.next(
@@ -810,7 +859,7 @@ struct PracticeEngine: Codable {
         reason: current.dropReachable == false ? "Opponent couldn't lift the drop shot before its second bounce." : "\(name(receiver)) didn't reach the ball in time.",
         tip: receiver == 0
           ? "Tap yellow sooner for the next ball."
-          : "Keep using the open court to move your opponent.")
+          : "Keep using the open court to move your opponent.", random: random)
       return
     }
     returnBall(receiver, volley: false, random: random)

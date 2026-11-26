@@ -54,7 +54,7 @@ final class PointReplayTests: XCTestCase {
         XCTAssertLessThan(simd_distance(impact, incoming.worldBall(at: incoming.progress)), 0.00001)
         if game.contactSerial == 2 {
           XCTAssertFalse(game.followingApproach[0])
-          game.apply(.guidedMove(.approach), side: 0)
+          game.swipeCourt(0, delta: Vec(x: 0, y: -2))
           XCTAssertTrue(game.followingApproach[0])
         }
         if game.contactSerial == 3 { game.apply(.guidedMove(.receive), side: 0) }
@@ -106,6 +106,68 @@ final class PointReplayTests: XCTestCase {
     XCTAssertGreaterThan(loaded[.strings].x, loaded[.rightShoulder].x)
     XCTAssertLessThan(finish[.strings].x, finish[.leftShoulder].x)
     XCTAssertGreaterThan(finish[.strings].y, hit.point.y)
+  }
+
+  func testBothBackhandsCoilThenExtendThroughImpactAndFinishHigh() throws {
+    for side in 0...1 {
+      let sign: Float = side == 0 ? 1 : -1
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      let x = 4.0, depth = side == 0 ? 23.4 : PracticeEngine.length-23.4
+      game.players[side].pos = Vec(x: x, y: depth)
+      game.players[side].destination = game.players[side].pos
+      var motion = CourtPerformance(game: game)
+      game.launch(1-side, aim: Vec(x: x-Double(sign)*0.58, y: depth-Double(sign)*1.1), kind: .cross)
+      motion.update(game: game, dt: tick)
+      for _ in 0..<800 {
+        game.step(tick, random: { 0.99 }); motion.update(game: game, dt: tick)
+        if game.flight?.hitter == side && (game.flight?.elapsed ?? 0) >= 0.23 { break }
+      }
+      let clip = motion.replay
+      let hit = try XCTUnwrap(clip.strikes.first { $0.hitter == side })
+      func pose(_ t: Double) throws -> AthletePose {
+        let frame = try XCTUnwrap(clip.frame(at: hit.time+t))
+        return side == 0 ? frame.near : frame.far
+      }
+      func yaw(_ p: AthletePose, hips: Bool = false) -> Float {
+        let axis = hips ? p[.rightHip]-p[.leftHip] : p[.rightShoulder]-p[.leftShoulder]
+        return atan2(-axis.z*sign, axis.x*sign)
+      }
+      let coil = try pose(-0.21), opening = try pose(-0.115), impact = try pose(0), finish = try pose(0.22)
+      XCTAssertGreaterThan(yaw(coil), 1.15)
+      XCTAssertGreaterThan(yaw(coil)-yaw(coil, hips: true), 0.55)
+      XCTAssertLessThan(yaw(opening, hips: true), yaw(coil, hips: true)-0.17)
+      XCTAssertGreaterThan(yaw(opening), 1.15)
+      XCTAssertLessThan(yaw(finish), -0.65)
+      XCTAssertLessThan(simd_distance(impact[.strings], hit.point), 0.0001)
+      for p in [coil,opening,impact,finish] { XCTAssertEqual(simd_distance(p[.leftHand],p[.grip]), 0.095, accuracy: 0.002) }
+      XCTAssertGreaterThan((finish[.strings].x-finish[.rightShoulder].x)*sign, 0.12)
+      XCTAssertGreaterThan(finish[.strings].y, hit.point.y)
+    }
+  }
+
+  func testPlayersRelaxBeforeResultAndPrepareForNextServe() throws {
+    var game = PracticeEngine(settings: .init())
+    var motion = CourtPerformance(game: game)
+    func snapshot() -> AthletePose { motion.update(game: game, dt: tick); return motion.frame!.near }
+    let idle = snapshot()
+    XCTAssertEqual(idle.heelPitch, 0)
+    game.start()
+    game.servePreparation!.elapsed = 0.4
+    let ready = snapshot()
+    XCTAssertGreaterThan(ready.heelPitch, 0.15)
+    XCTAssertLessThan(ready[.head].y, idle[.head].y-0.11)
+    game.phase = .live
+    game.launch(1, aim: Vec(x: 1, y: 20), kind: .cross)
+    _ = snapshot()
+    game.end(0, reason: "", tip: "")
+    for _ in 0..<96 { game.step(tick); _ = snapshot() }
+    let last = try XCTUnwrap(motion.replay.frames.last)
+    for p in [last.near,last.far] {
+      XCTAssertEqual(p.heelPitch, 0)
+      XCTAssertGreaterThan(p[.head].y, ready[.head].y+0.1)
+      XCTAssertLessThan(p[.strings].y, p[.rightHip].y)
+    }
   }
 
   func testTwoServeFaultsKeepTossesAndLandingsAndSkipIdleTime() throws {

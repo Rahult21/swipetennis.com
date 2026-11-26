@@ -34,14 +34,23 @@ final class PointMomentumTests: XCTestCase {
     XCTAssertEqual(selected.count, 26)
   }
 
-  func testBotFrustrationStartsAtTwoWinsAndResetsOnLoss() {
-    var momentum = PointMomentum()
-    XCTAssertNil(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0 }))
-    XCTAssertEqual(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0 })?.frustration, 1)
-    XCTAssertEqual(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0 })?.frustration, 2)
-    _ = momentum.finishPoint(winner: 1, game: 1, againstOpponent: true, random: { 0 })
-    XCTAssertNil(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0 }))
-    XCTAssertNil(momentum.finishPoint(winner: 0, game: 1, againstOpponent: false, random: { 0 }))
+  func testOpponentReactionRequiresAStreakAndWaitsTwoOrThreeCompletedGames() throws {
+    for wait in [2, 3] {
+      var momentum = PointMomentum()
+      XCTAssertNil(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0 }))
+      XCTAssertNil(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { 0.9 }))
+      var rolls = [0.1, wait == 2 ? 0.1 : 0.9]
+      XCTAssertEqual(momentum.finishPoint(winner: 0, game: 1, againstOpponent: true, random: { rolls.removeFirst() })?.frustration, 1)
+      for game in 1...wait {
+        for _ in 0..<6 { XCTAssertNil(momentum.finishPoint(winner: 0, game: game, againstOpponent: true, random: { 0 })) }
+        momentum.completedOpponentGame()
+        momentum = try JSONDecoder().decode(PointMomentum.self, from: JSONEncoder().encode(momentum))
+      }
+      _ = momentum.finishPoint(winner: 1, game: wait+1, againstOpponent: true, random: { 0 })
+      XCTAssertNil(momentum.finishPoint(winner: 0, game: wait+1, againstOpponent: true, random: { 0 }))
+      XCTAssertNil(momentum.finishPoint(winner: 0, game: wait+1, againstOpponent: false, random: { 0 }))
+      XCTAssertNotNil(momentum.finishPoint(winner: 0, game: wait+1, againstOpponent: true, random: { 0 }))
+    }
   }
 
   func testAffirmationWaitsForItsReadingTimeBeforeResultAtEveryFrameRate() throws {

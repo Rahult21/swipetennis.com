@@ -16,8 +16,8 @@ struct CourtFootwork {
   private var length: Float = 0.4
 
   mutating func advance(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
-    facing: Float, strideBias: CourtPoint3D, dt: Float) {
-    let base = CourtPoint3D(0.245 * facing, 0, 0.055 * facing)
+    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1) {
+    let base = CourtPoint3D((0.175 + 0.070 * readiness) * facing, 0, (0.025 + 0.03 * readiness) * facing)
     guard let last = previous, simd_distance(centre, last) < 1.8 else {
       previous = centre; left = centre - base; right = centre + base
       stepping = false; replanting = false; lateralDirection = 0
@@ -35,7 +35,7 @@ struct CourtFootwork {
       let lead = moving ? velocity / speed * min(remaining, length * 1.15) : .zero
       let goals = (left: centre - base + lead + strideBias, right: centre + base + lead)
       let leftGap = simd_distance(left, goals.left), rightGap = simd_distance(right, goals.right)
-      guard max(leftGap, rightGap) > (moving ? 0.085 : 0.115) else {
+      guard max(leftGap, rightGap) > (moving ? 0.085 : 0.04 + 0.075 * readiness) else {
         if !moving { lateralDirection = 0 }
         return
       }

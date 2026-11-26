@@ -555,6 +555,8 @@ struct PointResultCard: View {
           }
           Text(game.feedback.reason).font(.caption).foregroundStyle(.white.opacity(0.85))
             .fixedSize(horizontal: false, vertical: true)
+          Text(game.pointSplitSummary).font(.caption.weight(.semibold)).foregroundStyle(.mint)
+            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("pointSplitBonus")
         }
         Spacer(minLength: 0)
         Button(action: onContinue) { Image(systemName: "xmark").frame(width: 44, height: 44) }

@@ -3,16 +3,16 @@ import XCTest
 @testable import TennisCore
 
 final class AllCourtTests: XCTestCase {
-  private func approach(style: BotStyle = .baseline, x: Double = 2) -> PracticeEngine {
+  private func approach(style: BotStyle = .baseline, x: Double = 2, bounceY: Double = 22.3) -> PracticeEngine {
     var engine = PracticeEngine(settings: PracticeSettings(style: style))
     engine.phase = .live
-    engine.players[0].pos = Vec(x: x, y: 23.4)
+    engine.players[0].pos = Vec(x: x, y: bounceY + 1.1)
     engine.players[0].destination = engine.players[0].pos
     engine.players[1].pos = Vec(x: PracticeEngine.width - x, y: style == .volley ? 8 : -0.8)
     engine.players[1].destination = engine.players[1].pos
     engine.flight = BallFlight(
       from: engine.players[1].pos,
-      landing: Vec(x: x, y: 22.3), contact: engine.players[0].pos,
+      landing: Vec(x: x, y: bounceY), contact: engine.players[0].pos,
       duration: 2, hitter: 1, fault: nil, explanation: "", loft: 1)
     engine.choose(0, .line)
     engine.returnBall(0, volley: false, random: { 0.999 })
@@ -28,8 +28,8 @@ final class AllCourtTests: XCTestCase {
         XCTAssertEqual(engine.flight!.landing.x, x, accuracy: 0.000001)
         XCTAssertFalse(engine.attacking[0])
         XCTAssertFalse(engine.followingApproach[0])
-        XCTAssertTrue(engine.approachAvailable[0])
-        engine.apply(.guidedMove(.approach), side: 0)
+        XCTAssertFalse(engine.approachAvailable[0])
+        engine.swipeCourt(0, delta: Vec(x: 0, y: -2))
         XCTAssertTrue(engine.attacking[0] && engine.followingApproach[0])
         XCTAssertLessThan(engine.players[0].destination.y, 18.285)
         for _ in 0..<900 where engine.contactSerial < 2 && engine.phase == .live {
@@ -133,9 +133,9 @@ final class AllCourtTests: XCTestCase {
   }
 
   func testBillboardGivesTheNextActionForThePatternAndOutBall() {
-    var engine = approach()
+    var engine = approach(bounceY: 18.77)
     XCTAssertEqual(engine.instruction.title, "Swipe in along the yellow line")
-    engine.apply(.guidedMove(.approach), side: 0)
+    engine.swipeCourt(0, delta: Vec(x: 0, y: -2))
     XCTAssertEqual(engine.instruction.title, "Follow your shot to the net")
     engine.beginSplit(0)
     XCTAssertEqual(engine.instruction.title, "Split step. Read the reply.")

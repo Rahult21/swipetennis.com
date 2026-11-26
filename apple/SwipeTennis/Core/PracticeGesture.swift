@@ -19,6 +19,7 @@ struct PracticeGesture {
   var movementEpoch: Int?
   var shotEpoch: Int?
   var allowsDrop = false
+  var movementGain = 1.0
   private var start: Vec?
   private var travelled = 0.0
   private var screenStart: Vec?
@@ -55,8 +56,8 @@ struct PracticeGesture {
       return delta.length >= 16 ? .shotSwipe(delta) : nil
     }
     guard ended else { return nil }
-    if travelled < 0.55 { return .courtTap(point) }
-    let delta = Vec(x: point.x - start.x, y: point.y - start.y)
+    if travelled * movementGain < 0.55 { return .courtTap(point) }
+    let delta = Vec(x: (point.x - start.x) * movementGain, y: (point.y - start.y) * movementGain)
     return delta.length >= 0.55 ? .run(delta) : nil
   }
 }
@@ -119,8 +120,7 @@ extension PracticeEngine {
     if dismissAffirmation() { return }
     guard acceptsCourtMovement else { return }
     if let target = outBallChaseTarget(side) {
-      // The faint target and ball are both tappable; other taps run to that spot.
-      move(side, to: point.distance(to: target) <= 1.15 || point.distance(to: ball) <= 1.15 ? target : point)
+      if point.distance(to: target) <= 1.15 || point.distance(to: ball) <= 1.15 { move(side, to: target) }
       return
     }
     guard phase.isPlaying else { return }
@@ -139,7 +139,14 @@ extension PracticeEngine {
   }
 
   mutating func swipeCourt(_ side: Int, delta: Vec) {
-    guard acceptsCourtMovement, delta.length >= 0.55,
+    // You can still deliberately chase an out ball away from the net.
+    if let target = outBallChaseTarget(side), delta.length >= 0.55,
+      (target.y - players[side].pos.y) * (side == 0 ? 1 : -1) >= 0,
+      delta.x * (target.x - players[side].pos.x) + delta.y * (target.y - players[side].pos.y) >= 0.65 * delta.length * target.distance(to: players[side].pos) {
+      move(side, to: target)
+      return
+    }
+    guard phase.isPlaying, flight?.fault == nil, delta.length >= 0.55,
       phase != .serving || servePreparation?.server != side else { return }
     let forward = delta.y * (side == 0 ? -1 : 1)
     if flight?.hitter == side && forward >= 0.55 && abs(delta.x) <= forward * 0.75 {

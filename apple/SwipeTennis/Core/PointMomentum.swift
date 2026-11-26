@@ -68,13 +68,21 @@ struct PointMomentum: Codable {
   private var affirmationGame: Int?
   private var lastAffirmationIndex: Int?
   private var lastSmileIndex: Int?
+  // Optional for saved matches from before the opponent's cooldown was introduced.
+  var gamesUntilReaction: Int?
+
+  mutating func completedOpponentGame() {
+    if let remaining = gamesUntilReaction { gamesUntilReaction = max(0, remaining - 1) }
+  }
 
   mutating func finishPoint(winner: Int, game: Int, againstOpponent: Bool,
     random: () -> Double) -> PointReaction? {
     if winner == 0 {
       winsInRow += 1; lossesInRow = 0
-      return againstOpponent && winsInRow >= 2
-        ? PointReaction(frustration: min(3, winsInRow - 1)) : nil
+      guard againstOpponent, winsInRow >= 2, (gamesUntilReaction ?? 0) == 0,
+        random() < 0.5 else { return nil }
+      gamesUntilReaction = random() < 0.5 ? 2 : 3
+      return PointReaction(frustration: 1)
     }
     lossesInRow += 1; winsInRow = 0
     guard lossesInRow >= 2, affirmationGame != game else { return nil }

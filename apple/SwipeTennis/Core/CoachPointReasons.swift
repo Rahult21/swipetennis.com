@@ -1,5 +1,45 @@
 import Foundation
 
+struct ReturnDecision: Codable {
+  let shot: ShotKind
+  let redirected: Bool
+  let shorterSide: Bool
+  let split: Bool
+  let baseAccuracy: Double
+  var accuracy: Double { min(1, baseAccuracy * (split ? 1.2 : 1)) }
+
+  var splitSummary: String {
+    let base = Int((baseAccuracy * 100).rounded()), final = Int((accuracy * 100).rounded())
+    if split && final == base { return "Timed split on your last shot · already at \(final)%" }
+    return split ? "Timed split on your last shot · \(base)% → \(final)%"
+      : "No timed split on your last shot · \(base)% placement"
+  }
+  var lesson: String {
+    if redirected {
+      let change = shorterSide ? "Changing direction to the shorter side was the lower-percentage play." : "Changing direction was the lower-percentage play."
+      return change + " Rally crosscourt and wait for a short ball."
+    }
+    switch shot {
+    case .angle: return "The short angle left little room. Aim deeper crosscourt."
+    case .line: return "Down the line leaves less margin. Wait for a short ball to attack."
+    case .drop: return "The drop shot missed its target. Give it more net clearance."
+    case .lob: return "Aim your lob higher and toward the middle."
+    default: return "Give your crosscourt target more room inside the lines."
+    }
+  }
+}
+
+extension PracticeEngine {
+  var pointSplitSummary: String {
+    if let flight, flight.hitter == 1, flight.fault == nil, coach.records.last?.winner == 1 {
+      return players[0].splitForReturn == contactSerial
+        ? "Timed split · ball stayed out of reach" : "No timed split before the missed return"
+    }
+    if let last = players[0].lastReturn { return last.splitSummary }
+    return "No rally shot to apply a split bonus"
+  }
+}
+
 extension CoachEvent {
   var compactReason: String {
     if let detail {

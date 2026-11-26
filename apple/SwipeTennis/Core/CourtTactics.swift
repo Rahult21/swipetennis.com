@@ -11,6 +11,15 @@ struct TacticalStats: Codable {
 }
 
 enum CourtTactics {
+  // Compare the available length along the intended shot and the path back toward the incoming hitter.
+  static func courtLength(from p: Vec, toward q: Vec, side: Int) -> Double {
+    let dx = q.x - p.x, dy = q.y - p.y
+    guard abs(dy) > 0.001 else { return 0 }
+    let baseline = side == 0 ? 0 : PracticeEngine.length
+    let end = (baseline - p.y) / dy
+    let sideline = abs(dx) < 0.001 ? Double.infinity : ((dx > 0 ? PracticeEngine.width : 0) - p.x) / dx
+    return hypot(dx, dy) * max(0, min(end, sideline))
+  }
   static func redirects(from origin: Vec, at contact: Vec, to target: Vec) -> Bool {
     let back = Vec(x: origin.x - contact.x, y: origin.y - contact.y)
     let shot = Vec(x: target.x - contact.x, y: target.y - contact.y)
@@ -88,6 +97,8 @@ extension PracticeEngine {
     guard phase.isPlaying,
       phase != .serving || servePreparation?.server != side else { return }
     let atBounce = inSplitWindow(side)
+    let serveSplit = phase == .serving && (opponentContactDue(side).map { $0 <= 0.3 } ?? false)
+    if atBounce || serveSplit { players[side].splitForReturn = contactSerial + 1 }
     let planting = atBounce && advancingToNet(side)
     if planting {
       players[side].destination = players[side].pos
@@ -106,7 +117,6 @@ extension PracticeEngine {
       if atBounce { splitTimed[side] = true }
       return
     }
-    let serveSplit = phase == .serving && (opponentContactDue(side).map { $0 <= 0.3 } ?? false)
     splitTimed[side] = atBounce || serveSplit
     splitStarted[side] = time
     tactics[side].splitSteps += 1

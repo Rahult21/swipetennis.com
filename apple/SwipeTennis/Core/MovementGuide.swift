@@ -48,7 +48,7 @@ extension PracticeEngine {
         ? MovementGuide(kind: .receive, from: from, to: to) : nil
     }
     if followingApproach[side] { return nil }
-    if canFollowShot(side) && (approachAvailable[side] || attacking[side] || (side == 0 && !coach.approaches.isEmpty)) {
+    if canFollowShot(side) && flight.returnedShortBall == true && approachAvailable[side] {
       let to = CourtTactics.netCoverage(side: side, opponentContact: flight.contact)
       return from.distance(to: to) > 0.5
         ? MovementGuide(kind: .approach, from: from, to: to) : nil
@@ -59,7 +59,7 @@ extension PracticeEngine {
   }
 
   func canFollowShot(_ side: Int) -> Bool {
-    guard phase == .live, let flight, flight.hitter == side, flight.fault == nil,
+    guard phase == .live, let flight, flight.hitter == side, !flight.serve, flight.fault == nil,
       flight.progress < 0.8, side == 0 || settings.local else { return false }
     // A successful approach split closes this exchange, even just before the bounce.
     return !(splitTimed[side] && splitStarted[side] >= time - flight.elapsed && attacking[side])

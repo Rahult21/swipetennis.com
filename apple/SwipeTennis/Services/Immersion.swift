@@ -96,6 +96,17 @@ import UIKit
     if !bounce { playHit(x: x, gain: gain) }
   }
 
+  func opponentExclamation() {
+    guard soundEnabled, volume > 0 else { return }
+    activateAudio()
+    let cue = AVSpeechUtterance(string: "C’mon!")
+    cue.voice = AVSpeechSynthesisVoice(language: "en-US")
+    cue.rate = 0.53
+    cue.pitchMultiplier = 0.89
+    cue.volume = volume * 0.72
+    speech.speak(cue)
+  }
+
   func point(_ text: String) {
     if hapticsEnabled { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     if UserDefaults.standard.bool(forKey: "voice") {

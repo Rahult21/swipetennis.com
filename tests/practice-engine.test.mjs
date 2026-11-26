@@ -8,6 +8,8 @@ import {
   movePlayer,
   redZone,
   recoverySpot,
+  pointSplitSummary,
+  splitStep,
   PROFILES,
 } from "../src/practice-engine.ts";
 
@@ -97,7 +99,7 @@ test("an execution error travels to its endpoint and explains the cause", () => 
   for (let i = 0; i < 200 && s.phase === "live"; i++) stepPractice(s, 0.02);
   assert.equal(s.phase, "point");
   assert.match(s.feedback.title, /missed long/);
-  assert.match(s.feedback.reason, /timing error/);
+  assert.match(s.feedback.reason, /Your shot landed long.*chance of missing the target/);
 });
 
 test("red zones include lines and short-angle corners while deep central targets have margin", () => {
@@ -166,5 +168,133 @@ test("bot red-zone winners receive tactical reassurance and red-zone misses earn
       s.feedback.tip,
       fault ? /high-risk red-zone shot/ : /high-risk shot/,
     );
+  }
+});
+
+test("approach requires an in-play return and its arrow uses the incoming five-metre bounce", async () => {
+  const {canApproach, steerPlayer} = await import("../src/practice-engine.ts");
+  for (const depth of [4.99, 5.0, 6.1]) {
+    const game = createPractice(settings);
+    startPoint(game);
+    assert.equal(canApproach(game, game.server), false);
+    const f = game.flight, p = game.players[0];
+    f.serve = false;
+    f.landing = {x: 5,y: 23.77-depth};
+    f.contact = {x: 5,y: f.landing.y+1.1};
+    p.pos = { ...f.contact }; p.destination = { ...p.pos }; p.settled = 0.3;
+    f.elapsed = f.duration-0.001;
+    stepPractice(game, 1/60, () => 0.01);
+    assert.equal(canApproach(game,0), true);
+    assert.equal(game.flight.returnedShort, depth >= 5);
+    game.flight.fault = "long";
+    const before = {...p.destination};
+    steerPlayer(game,0,{x: 3, y: 14});
+    assert.deepEqual(p.destination,before);
+    assert.equal(canApproach(game,0),false);
+  }
+});
+
+test("clean first volley enables quick human feet only in the forecourt", async () => {
+  const {quickNetFeet} = await import("../src/practice-engine.ts");
+  const game = createPractice(settings);
+  startPoint(game);
+  const f = game.flight, p = game.players[0];
+  f.serve = false; f.from = {x: 4,y: 0}; f.landing = {x: 4,y: 22}; f.fault = null;
+  f.elapsed = 0.55*f.duration;
+  p.pos = {x: 4,y: 15.2}; p.destination = {...p.pos};
+  assert.equal(quickNetFeet(game,0),false);
+  stepPractice(game,1/60,() => 0.01);
+  assert.equal(quickNetFeet(game,0),true);
+  assert.equal(quickNetFeet(game,1),false);
+  p.pos.y = 21;
+  stepPractice(game,1/60,() => 0.01);
+  assert.equal(p.madeNetVolley,false);
+});
+
+test("the bot racket cue respects consecutive points and a completed-game cooldown", () => {
+  const game = createPractice(settings);
+  function win(roll) {
+    startPoint(game);
+    game.flight.hitter = 1;
+    game.flight.fault = "long"; game.flight.elapsed = game.flight.duration*0.8;
+    stepPractice(game,1/60,roll);
+  }
+  win(() => 0);
+  assert.equal(game.racketReaction,false);
+  win(() => 0.9);
+  assert.equal(game.racketReaction,false);
+  const rolls = [0.2,0.9];
+  win(() => rolls.shift());
+  assert.equal(game.racketReaction,true);
+  assert.equal(game.reactionCooldown,3);
+  while (game.phase !== "finished") {
+    win(() => 0);
+    assert.equal(game.racketReaction,false);
+  }
+  assert.equal(game.reactionCooldown,2);
+});
+
+test("a split around the far bounce improves the next placement and the result explains the actual miss", () => {
+  for (const timed of [true, false]) {
+    const game = createPractice(settings);
+    startPoint(game);
+    const player = game.players[0], flight = game.flight;
+    flight.serve = false;
+    flight.hitter = 0;
+    flight.from = {x: 1, y: 22};
+    flight.landing = {x: 7.6, y: 1};
+    flight.elapsed = flight.duration * (timed ? 0.8 : 0.2);
+    splitStep(game, 0);
+    splitStep(game, 0);
+    function receive() {
+      const f = game.flight;
+      game.rally++;
+      f.hitter = 1;
+      f.serve = false;
+      f.fault = null;
+      f.from = {x: 7.6, y: 1};
+      f.contact = {x: 1.1, y: 22.5};
+      f.landing = {x: 1.1, y: 21.4};
+      f.elapsed = f.duration - 0.001;
+      player.pos = {...f.contact};
+      player.destination = {...f.contact};
+      player.settled = 0.3;
+      player.kind = "line";
+      stepPractice(game, 1/60, () => 0.90);
+    }
+    receive();
+    assert.equal(player.lastReturn.accuracy, timed ? 0.96 : 0.8);
+    if (timed) {
+      assert.equal(game.flight.fault, null);
+      assert.match(pointSplitSummary(game), /80% → 96%/);
+      receive();
+    }
+    assert.ok(game.flight.fault);
+    game.flight.elapsed = 0.8 * game.flight.duration;
+    stepPractice(game, 1/60, () => 0.4);
+    assert.match(game.feedback.reason, /Your shot landed.*shorter side.*lower-percentage.*crosscourt/);
+    assert.match(pointSplitSummary(game), /No timed split/);
+  }
+});
+
+test("a timed split can cap placement at 100% but cannot reach a missing ball", () => {
+  for (const reached of [true, false]) {
+    const game = createPractice(settings);
+    startPoint(game);
+    splitStep(game, 0, 0.25);
+    if (reached) {
+      game.players[0].pos = {...game.flight.contact};
+      game.players[0].destination = {...game.flight.contact};
+      game.players[0].settled = 0.3;
+    }
+    game.flight.elapsed = game.flight.duration - 0.001;
+    stepPractice(game, 1/60, () => 0.999);
+    if (reached) {
+      assert.equal(game.players[0].lastReturn.accuracy, 1);
+      assert.match(pointSplitSummary(game), /Timed split.*100%/);
+    } else {
+      assert.equal(game.phase, "point");
+      assert.match(pointSplitSummary(game), /Timed split · ball stayed out of reach/);
+    }
   }
 });

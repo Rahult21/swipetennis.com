@@ -13,13 +13,18 @@ import {
   createPractice,
   interceptPoint,
   other,
-  ownPosition,
+  canApproach,
+  quickNetFeet,
+  splitStep,
+  pointSplitSummary,
+  steerPlayer,
   playerName,
   presetAim,
   recoverySpot,
   redZone,
   startPoint,
   stepPractice,
+  type Flight,
   type Difficulty,
   type Profile,
   type Settings,
@@ -27,6 +32,7 @@ import {
   type Side,
   type Vec,
 } from "./practice-engine";
+import { PracticeAthlete } from "./PracticeAthlete";
 import "./practice.css";
 
 const shotNames: Record<ShotKind, string> = {
@@ -56,19 +62,42 @@ const shotKeys: Record<string, [Side, ShotKind]> = {
   "[": [1, "lob"],
 };
 
+const cooldownKey = "swipetennis.opponentReactionGames";
+
+function newPractice(settings: Settings, fallback = 0) {
+  const game = createPractice(settings);
+  game.reactionCooldown = fallback;
+  try {
+    const stored = localStorage.getItem(cooldownKey);
+    if (stored !== null && /^[0-3]$/.test(stored)) game.reactionCooldown = Number(stored);
+  } catch { /* A private session can keep the cooldown in memory. */ }
+  return game;
+}
+
 export default function PracticeCourt({ visible }: { visible: boolean }) {
   const [settings, setSettings] = useState<Settings>({
     mode: "bot",
     profile: "baseline",
     difficulty: "easy",
   });
-  const state = useRef(createPractice(settings));
+  const [initial] = useState(() => newPractice(settings));
+  const state = useRef(initial);
+  const serveLead = useRef(0);
+  const [reduceMotion, setReduceMotion] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const changed = () => setReduceMotion(media.matches);
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
+  const [courtSound, setCourtSound] = useState(true);
+  const soundEnabled = useRef(true);
   const [, render] = useState(0);
   const [paused, setPaused] = useState(false);
   const court = useRef<SVGSVGElement>(null);
   const keys = useRef(new Set<string>());
   const pointers = useRef(
-    new Map<number, { side: Side; destination: Vec; aiming: boolean }>(),
+    new Map<number, { side: Side; destination: Vec; start: Vec; flight: Flight | null; aiming: boolean; dragged: boolean }>(),
   );
   const current = state.current;
   const active = current.phase === "live";
@@ -90,6 +119,11 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
       if (!paused) {
         accumulated += elapsed;
         while (accumulated >= 1 / 60) {
+          if (serveLead.current > 0) {
+            serveLead.current = Math.max(0, serveLead.current - 1/60);
+            accumulated -= 1/60;
+            continue;
+          }
           for (const side of [0, 1] as Side[]) {
             if (side === 1 && state.current.settings.mode === "bot") continue;
             let dx = 0;
@@ -104,12 +138,21 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
             }
             const p = state.current.players[side];
             if (dx || dy)
-              p.destination = ownPosition(side, {
-                x: p.pos.x + dx * 2,
-                y: p.pos.y + dy * 2,
+              steerPlayer(state.current, side, {
+                x: p.pos.x + dx * (quickNetFeet(state.current, side) ? 3.6 : 2),
+                y: p.pos.y + dy * (quickNetFeet(state.current, side) ? 3.6 : 2),
               });
           }
-          stepPractice(state.current, 1 / 60);
+          const game = state.current, before = game.phase;
+          stepPractice(game, 1 / 60);
+          if (before === "live" && game.phase !== "live" && game.settings.mode === "bot") {
+            try { localStorage.setItem(cooldownKey, String(game.reactionCooldown)); } catch { /* session only */ }
+            if (game.racketReaction && soundEnabled.current && "speechSynthesis" in window) {
+              const cue = new SpeechSynthesisUtterance("C’mon!");
+              cue.lang = "en-US"; cue.volume = 0.22; cue.rate = 1.12; cue.pitch = 0.89;
+              window.speechSynthesis.speak(cue);
+            }
+          }
           accumulated -= 1 / 60;
         }
         if (now - paint > 30 && state.current.phase !== "ready") {
@@ -139,7 +182,8 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
 
   function configure(next: Settings) {
     setSettings(next);
-    state.current = createPractice(next);
+    state.current = newPractice(next, state.current.reactionCooldown);
+    serveLead.current = 0;
     update();
   }
   function chooseShot(side: Side, kind: ShotKind) {
@@ -155,6 +199,15 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
     )
       return;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    if (key === " " && active && !paused && !(event.target instanceof HTMLButtonElement)) {
+      event.preventDefault();
+      if (down && !event.repeat) {
+        const f = state.current.flight!;
+        const side = settings.mode === "bot" ? 0 : serveLead.current > 0 ? other(f.hitter) : f.hitter;
+        splitStep(state.current, side, serveLead.current);
+      }
+      return;
+    }
     if (!(key in movement) && !(key in shotKeys)) return;
     event.preventDefault();
     if (!down) {
@@ -192,13 +245,13 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
     pointers.current.set(event.pointerId, {
       side,
       destination: { ...state.current.players[side].destination },
-      aiming: false,
+      start: point, flight: state.current.flight, aiming: false, dragged: false,
     });
     applyPointer(side, point);
   }
   function applyPointer(side: Side, point: Vec) {
     const own = side === 0 ? point.y > COURT.net : point.y < COURT.net;
-    if (own) state.current.players[side].destination = ownPosition(side, point);
+    if (own) steerPlayer(state.current, side, point);
     else {
       state.current.players[side].aim = aimPosition(side, point);
       state.current.players[side].kind = "cross";
@@ -207,8 +260,9 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
   }
   function pointerMove(event: PointerEvent<SVGSVGElement>) {
     const pointer = pointers.current.get(event.pointerId);
-    if (pointer && !paused) {
+    if (pointer && !paused && pointer.flight === state.current.flight) {
       const point = coordinate(event);
+      if (Math.hypot(point.x - pointer.start.x, point.y - pointer.start.y) > 0.35) pointer.dragged = true;
       const acrossNet =
         pointer.side === 0 ? point.y < COURT.net : point.y > COURT.net;
       if (acrossNet && !pointer.aiming) {
@@ -221,17 +275,27 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
           point,
         );
         state.current.players[pointer.side].kind = "cross";
+      } else if (quickNetFeet(state.current, pointer.side)) {
+        steerPlayer(state.current, pointer.side, {
+          x: pointer.start.x + 1.8*(point.x-pointer.start.x),
+          y: pointer.start.y + 1.8*(point.y-pointer.start.y),
+        });
       } else applyPointer(pointer.side, point);
     }
   }
   function pointerUp(event: PointerEvent<SVGSVGElement>) {
     const pointer = pointers.current.get(event.pointerId);
-    if (pointer && !paused) pointerMove(event);
+    if (pointer && !paused && pointer.flight === state.current.flight) {
+      pointerMove(event);
+      if (!pointer.dragged) splitStep(state.current, pointer.side, serveLead.current);
+    }
     pointers.current.delete(event.pointerId);
   }
   function nextPoint() {
     keys.current.clear();
     startPoint(state.current);
+    serveLead.current = 0.74;
+    if ("speechSynthesis" in window) window.speechSynthesis.getVoices();
     setPaused(false);
     update();
     court.current?.focus({ preventScroll: true });
@@ -242,7 +306,8 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
       !window.confirm("End this practice and choose a new opponent?")
     )
       return;
-    state.current = createPractice(settings);
+    state.current = newPractice(settings, state.current.reactionCooldown);
+    serveLead.current = 0;
     setPaused(false);
     keys.current.clear();
     update();
@@ -358,7 +423,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
           <p className="practice-note">
             {settings.mode === "local"
               ? "Two players share this screen. Player 1 uses WASD and Z/X/C/V. Player 2 uses arrow keys and I/O/P/[. On touchscreens, each player starts their gesture on their own half."
-              : "Tap your half to move. Tap the far half to aim, or swipe across the net. You can also move with WASD and select shots with Z/X/C/V."}
+              : "Tap your half to move. Tap the far half to aim, or swipe across the net. Tap as your shot bounces across the net to split and improve your next shot’s accuracy by 20%. On a keyboard, use WASD to move, Z/X/C/V to aim, and Space to split."}
           </p>
         </section>
       )}
@@ -437,13 +502,6 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
               )}
               {active && current.flight && (
                 <>
-                  <path
-                    d={`M${current.flight.from.x} ${current.flight.from.y}L${current.flight.landing.x} ${current.flight.landing.y}`}
-                    stroke="#e6eea544"
-                    strokeWidth=".045"
-                    strokeDasharray=".2 .2"
-                    fill="none"
-                  />
                   <circle
                     cx={current.flight.landing.x}
                     cy={current.flight.landing.y}
@@ -471,16 +529,24 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
                   )}
                 </>
               )}
+              {current.flight?.returnedShort && canApproach(current, current.flight.hitter) &&
+                (current.flight.hitter === 0 || settings.mode === "local") && (() => {
+                  const side = current.flight.hitter, from = current.players[side].pos;
+                  const to = {x: Math.min(6.2,Math.max(2,current.flight.landing.x)), y: COURT.net+(side === 0 ? 2.8 : -2.8)};
+                  return <path d={`M${from.x} ${from.y}L${to.x} ${to.y}m-.18 ${side === 0 ? .33 : -.33}l.18 ${side === 0 ? -.33 : .33}l.18 ${side === 0 ? .33 : -.33}`}
+                    stroke="#f5cf69" strokeWidth=".075" strokeDasharray=".16 .07" fill="none"/>;
+                })()}
               {current.players.map((p, index) => (
                 <g key={index}>
-                  {active && (
+                  {active && !current.flight?.fault && (
+
                     <>
-                      <path
+                      {(p.pos.y-p.destination.y)*(index === 0 ? 1 : -1) <= 0 && <path
                         d={`M${p.pos.x} ${p.pos.y}L${p.destination.x} ${p.destination.y}`}
                         stroke={index ? "#edc69266" : "#a5dbe366"}
                         strokeDasharray=".13 .13"
                         strokeWidth=".04"
-                      />
+                      />}
                       <circle
                         cx={p.destination.x}
                         cy={p.destination.y}
@@ -502,37 +568,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
                       />
                     </g>
                   )}
-                  <ellipse
-                    cx={p.pos.x}
-                    cy={p.pos.y + 0.15}
-                    rx=".45"
-                    ry=".27"
-                    fill="#0c282d66"
-                  />
-                  <circle
-                    cx={p.pos.x}
-                    cy={p.pos.y}
-                    r=".38"
-                    fill={index ? "#e3b77c" : "#a8d9e4"}
-                    stroke="#f5f3df"
-                    strokeWidth=".07"
-                  />
-                  <text
-                    x={p.pos.x}
-                    y={p.pos.y + 0.12}
-                    className="player-number"
-                  >
-                    {index + 1}
-                  </text>
-                  <ellipse
-                    cx={p.pos.x + 0.53}
-                    cy={p.pos.y + (index ? 0.1 : -0.1)}
-                    rx=".13"
-                    ry=".25"
-                    fill="none"
-                    stroke="#f5f3df"
-                    strokeWidth=".045"
-                  />
+                  <PracticeAthlete game={current} side={index as Side} serveLead={serveLead.current} reduceMotion={reduceMotion}/>
                 </g>
               ))}
               <circle
@@ -550,7 +586,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
                 strokeWidth=".025"
               />
             </svg>
-            {(current.phase !== "live" || paused) && (
+            {(paused || current.phase === "ready" || (!active && current.resultElapsed >= (current.racketReaction ? 0.86 : 0.36))) && (
               <div className="court-overlay">
                 <span>
                   {paused
@@ -566,7 +602,8 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
                     current.phase === "finished") && (
                     <div className="point-explanation">
                       <p>{current.feedback.reason}</p>
-                      <p>{current.feedback.tip}</p>
+                      <p>{pointSplitSummary(current)}</p>
+                      {(current.flight?.hitter !== 0 || !current.flight.fault) && <p>{current.feedback.tip}</p>}
                     </div>
                   )}
                 <button
@@ -609,6 +646,11 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
             >
               {paused ? "Resume" : "Pause"}
             </button>
+            <button aria-pressed={courtSound} onClick={() => {
+              soundEnabled.current = !courtSound;
+              setCourtSound(!courtSound);
+              if (courtSound && "speechSynthesis" in window) window.speechSynthesis.cancel();
+            }}>Court sound {courtSound ? "on" : "off"}</button>
             <button onClick={restart} disabled={current.phase === "ready"}>
               Change opponent / restart
             </button>

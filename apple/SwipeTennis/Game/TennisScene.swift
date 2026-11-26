@@ -8,6 +8,7 @@ import SwiftUI
   @Published var coachMiss: CoachMiss?
   let scene: TennisScene
   private var inventoryKey: String?
+  private var reactionKey: String?
   init(engine: PracticeEngine) {
     snapshot = engine
     scene = TennisScene(settings: engine.settings)
@@ -15,6 +16,10 @@ import SwiftUI
     scene.restorePresentation()
     scene.publish = { [weak self] engine in
       guard let self else { return }
+      if let key = reactionKey, let remaining = engine.momentum.gamesUntilReaction,
+        UserDefaults.standard.integer(forKey: key) != remaining {
+        UserDefaults.standard.set(remaining, forKey: key)
+      }
       if snapshot.inventory != engine.inventory, let key = inventoryKey,
         let data = try? JSONEncoder().encode(engine.inventory) {
         UserDefaults.standard.set(data, forKey: key)
@@ -27,6 +32,11 @@ import SwiftUI
     guard inventoryKey == nil, !scene.engine.settings.local, let owner else { return }
     let key = "matchPowers." + owner
     inventoryKey = key
+    let cooldownKey = "opponentReactionGames." + owner
+    reactionKey = cooldownKey
+    if let stored = UserDefaults.standard.object(forKey: cooldownKey) as? Int {
+      scene.engine.momentum.gamesUntilReaction = stored
+    }
     if scene.engine.phase == .ready, let data = UserDefaults.standard.data(forKey: key),
       let saved = try? JSONDecoder().decode(PowerInventory.self, from: data) {
       scene.engine.inventory = saved
@@ -37,6 +47,7 @@ import SwiftUI
     if next.phase == .finished {
       next = PracticeEngine(settings: next.settings)
       next.inventory = scene.engine.inventory
+      next.momentum.gamesUntilReaction = scene.engine.momentum.gamesUntilReaction
     }
     guard next.phase == .ready || next.phase == .point else { return }
     next.start()
@@ -67,8 +78,10 @@ import SwiftUI
   }
   func restart() {
     let inventory = scene.engine.inventory
+    let cooldown = scene.engine.momentum.gamesUntilReaction
     scene.engine = PracticeEngine(settings: snapshot.settings)
     scene.engine.inventory = inventory
+    scene.engine.momentum.gamesUntilReaction = cooldown
     scene.resetRallyPresentation()
     snapshot = scene.engine
     paused = false
@@ -396,6 +409,7 @@ import SwiftUI
     swipeCoach.update(guide: showGuides ? engine.movementGuide(0) : nil, delta: dt)
     if engine.bounceSerial != oldBounce { Immersion.shared.hit(bounce: true, x: engine.ball.x) }
     if oldPhase.isPlaying && !engine.phase.isPlaying {
+      if (engine.pointResolution?.reaction?.frustration ?? 0) > 0 { Immersion.shared.opponentExclamation() }
       if engine.flight?.power == .ace { Immersion.shared.cheer() }
       Immersion.shared.finishRally()
     }
@@ -414,14 +428,16 @@ import SwiftUI
     let controllers = GCController.controllers()
     for side in 0...(engine.settings.local ? 1 : 0) {
       if engine.phase == .serving && engine.scoring.server == side { continue }
+      let gain = engine.quickNetFeet(side) ? 1.8 : 1.0
+      let reach = 1.8 * gain
       if controllers.indices.contains(side), let pad = controllers[side].extendedGamepad {
         let x = Double(pad.leftThumbstick.xAxis.value)
         let y = -Double(pad.leftThumbstick.yAxis.value)
-        if abs(x) + abs(y) > 0.15 {
+        if (abs(x) + abs(y)) * gain > 0.15 {
           engine.steer(
             side,
             to:
-              Vec(x: engine.players[side].pos.x + x * 1.8, y: engine.players[side].pos.y + y * 1.8))
+              Vec(x: engine.players[side].pos.x + x * reach, y: engine.players[side].pos.y + y * reach))
         }
         let pressed = [
           pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed,
@@ -430,10 +446,10 @@ import SwiftUI
         for i in 0..<4 where pressed[i] && engine.canChooseShot(side) { engine.choose(side, ShotKind.allCases[i]) }
       } else if side == 0 && !engine.settings.local && UserDefaults.standard.bool(forKey: "tilt") {
         let t = Immersion.shared.tilt
-        if t.length > 0.12 {
+        if t.length * gain > 0.12 {
           engine.steer(
             0,
-            to: Vec(x: engine.players[0].pos.x + t.x * 1.8, y: engine.players[0].pos.y + t.y * 1.8))
+            to: Vec(x: engine.players[0].pos.x + t.x * reach, y: engine.players[0].pos.y + t.y * reach))
         }
       }
       if let keyboard = GCKeyboard.coalesced?.keyboardInput {
@@ -448,7 +464,7 @@ import SwiftUI
             side,
             to:
               Vec(
-                x: engine.players[side].pos.x + dx * 1.8, y: engine.players[side].pos.y + dy * 1.8))
+                x: engine.players[side].pos.x + dx * reach, y: engine.players[side].pos.y + dy * reach))
           keyboardMoving[side] = true
         } else if keyboardMoving[side] {
           engine.players[side].destination = engine.players[side].pos
@@ -498,7 +514,7 @@ import SwiftUI
     if courtReaction.parent == nil { dynamic.addChild(courtReaction) }
     let reaction = engine.isResolvingPoint ? engine.pointResolution?.reaction : nil
     courtReaction.draw(reaction, courtCenter: project(Vec(x: PracticeEngine.width / 2, y: 18)),
-      opponentPosition: project(engine.players[1].pos), width: size.width,
+      width: size.width,
       courtHeight: project(Vec(x: 0, y: PracticeEngine.net)).y - project(Vec(x: 0, y: PracticeEngine.length)).y - 20,
       elapsed: engine.pointResolution?.elapsed ?? 0, reduceMotion: reduceMotion)
     missedOpportunityRing.position = project(engine.players[0].pos)
@@ -618,11 +634,14 @@ import SwiftUI
       && engine.phase == .live && engine.attacking[0] && engine.flight?.fault == nil
     openCourt.isHidden = !active
     openLabel.isHidden = !active
-    let following = active && engine.followingApproach[0] && engine.flight?.hitter == 0
+    let following = active && engine.followingApproach[0] && engine.canFollowShot(0) && engine.flight?.returnedShortBall == true
     let guide = engine.movementGuide(0) ?? (following
       ? MovementGuide(kind: .approach, from: engine.players[0].pos, to: engine.players[0].destination)
       : nil)
-    approachPath.isHidden = !enabled || guide == nil
+    let forwardLine = guide.map { $0.to.y < $0.from.y - 0.15 } ?? false
+    // Keep the contact and recovery circles visible. Reserve a netward arrow in matches for a short ball.
+    let showLine = !forwardLine || engine.demo != nil || guide?.kind == .approach || engine.showsGoldenContact(0)
+    approachPath.isHidden = !enabled || guide == nil || !showLine
     followLabel.isHidden = !enabled || guide?.kind != .approach
     if active {
       let aim = CourtTactics.openCourt(side: 0, opponent: engine.players[1].pos, overhead: false)
@@ -795,6 +814,7 @@ import SwiftUI
   }
   func dismissAffirmation() {
     guard !suspended, engine.dismissAffirmation() else { return }
+    performance.update(game: engine, dt: 0, reduceMotion: reduceMotion)
     affirmationTouches.removeAll()
     touchGestures.removeAll()
     serveTouches.removeAll()
@@ -837,7 +857,8 @@ import SwiftUI
       }
       let intent: CourtTouchIntent = engine.canChooseShot(side) && (onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
-        shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side))
+        shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
+        movementGain: engine.quickNetFeet(side) ? 1.8 : 1)
       applyTouch(touch)
     }
   }

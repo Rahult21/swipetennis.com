@@ -14,7 +14,6 @@ import AppKit
   private let attribution = SKLabelNode(fontNamed: "AvenirNext-Medium")
   private let tapHint = SKLabelNode(fontNamed: "AvenirNext-Medium")
   private let flourish = SKShapeNode()
-  private let opponent = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
   private var lastAffirmation: TennisAffirmation?
   private var lastSmile: String?
   private var lastSize = CGSize.zero
@@ -51,20 +50,12 @@ import AppKit
     flourish.strokeColor = attribution.fontColor!
     flourish.lineWidth = 1.3
     lettering.addChild(flourish)
-    opponent.horizontalAlignmentMode = .center
-    opponent.verticalAlignmentMode = .center
-    opponent.fontSize = 10
-    opponent.fontColor = .init(red: 1, green: 0.76, blue: 0.57, alpha: 1)
-    opponent.text = "FRUSTRATED"
-    addChild(opponent)
   }
   required init?(coder: NSCoder) { fatalError("Use init()") }
 
-  func draw(_ reaction: PointReaction?, courtCenter: CGPoint, opponentPosition: CGPoint,
+  func draw(_ reaction: PointReaction?, courtCenter: CGPoint,
     width: CGFloat, courtHeight: CGFloat, elapsed: Double, reduceMotion: Bool) {
     lettering.isHidden = reaction?.affirmation == nil
-    opponent.isHidden = (reaction?.frustration ?? 0) == 0
-    opponent.position = CGPoint(x: opponentPosition.x, y: opponentPosition.y + 55)
     guard let reaction, let affirmation = reaction.affirmation else { return }
     let layout = CGSize(width: min(460, max(220, width - 44)), height: max(120, courtHeight))
     if lastAffirmation != affirmation || lastSmile != reaction.smile || lastSize != layout {
