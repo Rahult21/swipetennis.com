@@ -19,6 +19,8 @@ import {
   splitStep,
   pointSplitSummary,
   steerPlayer,
+  swipeTowardGuide,
+  tapInPlace,
   playerName,
   presetAim,
   recoverySpot,
@@ -98,7 +100,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
   const court = useRef<SVGSVGElement>(null);
   const keys = useRef(new Set<string>());
   const pointers = useRef(
-    new Map<number, { side: Side; destination: Vec; start: Vec; flight: Flight | null; aiming: boolean; dragged: boolean }>(),
+    new Map<number, { side: Side; destination: Vec; start: Vec; screenStart: Vec; flight: Flight | null; aiming: boolean; dragged: boolean; committed: boolean }>(),
   );
   const current = state.current;
   const active = current.phase === "live";
@@ -246,9 +248,9 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
     pointers.current.set(event.pointerId, {
       side,
       destination: { ...state.current.players[side].destination },
-      start: point, flight: state.current.flight, aiming: false, dragged: false,
+      start: point, screenStart: {x: event.clientX, y: event.clientY},
+      flight: state.current.flight, aiming: false, dragged: false, committed: false,
     });
-    applyPointer(side, point);
   }
   function applyPointer(side: Side, point: Vec) {
     const own = side === 0 ? point.y > COURT.net : point.y < COURT.net;
@@ -262,8 +264,16 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
   function pointerMove(event: PointerEvent<SVGSVGElement>) {
     const pointer = pointers.current.get(event.pointerId);
     if (pointer && !paused && pointer.flight === state.current.flight) {
+      if (pointer.committed) return;
       const point = coordinate(event);
-      if (Math.hypot(point.x - pointer.start.x, point.y - pointer.start.y) > 0.35) pointer.dragged = true;
+      if (Math.hypot(event.clientX - pointer.screenStart.x, event.clientY - pointer.screenStart.y) < 8) return;
+      pointer.dragged = true;
+      if (!pointer.aiming && swipeTowardGuide(state.current, pointer.side,
+        {x: point.x - pointer.start.x, y: point.y - pointer.start.y})) {
+        pointer.committed = true;
+        update();
+        return;
+      }
       const acrossNet =
         pointer.side === 0 ? point.y < COURT.net : point.y > COURT.net;
       if (acrossNet && !pointer.aiming) {
@@ -288,7 +298,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
     const pointer = pointers.current.get(event.pointerId);
     if (pointer && !paused && pointer.flight === state.current.flight) {
       pointerMove(event);
-      if (!pointer.dragged) splitStep(state.current, pointer.side, serveLead.current);
+      if (!pointer.dragged) tapInPlace(state.current, pointer.side, serveLead.current);
     }
     pointers.current.delete(event.pointerId);
   }
@@ -416,7 +426,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
           <p className="practice-note">
             {settings.mode === "local"
               ? "Two players share this screen. Player 1 uses WASD and Z/X/C/V. Player 2 uses arrow keys and I/O/P/[. On touchscreens, each player starts their gesture on their own half."
-              : "Tap your half to move. Tap the far half to aim, or swipe across the net. Tap as your shot bounces across the net to split and improve your next shot’s accuracy by 20%. On a keyboard, use WASD to move, Z/X/C/V to aim, and Space to split."}
+              : "Swipe a little toward yellow to receive or white to recover. Your player keeps running after you lift your finger. Swipe across the net to aim. Tap in position to split, volley, or smash; contact is automatic when the ball reaches you. On a keyboard, use WASD to move, Z/X/C/V to aim, and Space to split."}
           </p>
         </section>
       )}
@@ -447,7 +457,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
               className="practice-court"
               viewBox="-2.2 -3.2 12.63 30.17"
               role="img"
-              aria-label="Interactive practice court. Tap your half to move, swipe across the net to aim. Keyboard players use the movement and shot controls below."
+              aria-label="Interactive practice court. Swipe toward yellow to receive or white to recover. Tap to split; swipe across the net to aim."
               tabIndex={0}
               onPointerDown={pointerDown}
               onPointerMove={pointerMove}
@@ -672,7 +682,7 @@ export default function PracticeCourt({ visible }: { visible: boolean }) {
                   <legend>
                     {settings.mode === "local"
                       ? `Player ${side + 1} · ${side === 0 ? "WASD" : "arrow keys"} to move`
-                      : "WASD to move · tap or drag on your half"}
+                      : "WASD to move · short swipe toward yellow or white"}
                   </legend>
                   <div>
                     {(Object.keys(shotNames) as ShotKind[]).map(

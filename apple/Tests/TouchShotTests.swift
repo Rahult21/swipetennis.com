@@ -31,7 +31,7 @@ final class TouchShotTests: XCTestCase {
     let epoch = engine.shotGestureEpoch(0)
     engine.selectTouchShot(.drop, side: 0, epoch: epoch)
     XCTAssertNotEqual(engine.players[0].kind, .drop)
-    engine.tapCourt(0, at: try XCTUnwrap(engine.contactGuide(0)))
+    engine.apply(.guidedMove(.receive), side: 0)
     let destination = engine.players[0].destination
     XCTAssertTrue(engine.canDrawDrop(0))
     engine.apply(try XCTUnwrap(circle()), side: 0, shotEpoch: epoch)

@@ -10,10 +10,38 @@ import {
   recoverySpot,
   pointSplitSummary,
   splitStep,
+  swipeTowardGuide,
+  interceptPoint,
+  tapInPlace,
   PROFILES,
 } from "../src/practice-engine.ts";
 
 const settings = { mode: "bot", profile: "baseline", difficulty: "easy" };
+
+test("short guide swipes run fully to yellow and white without changing the shot", () => {
+  for (const receiving of [true, false]) {
+    const s = createPractice(settings);
+    startPoint(s);
+    s.flight.hitter = receiving ? 1 : 0;
+    const target = receiving ? interceptPoint(s, 0) : recoverySpot(0, s.flight.contact);
+    s.players[0].pos = {x: 7.5, y: 24.6};
+    s.players[0].kind = "lob";
+    const delta = {x: (target.x - 7.5) * 0.01, y: (target.y - 24.6) * 0.01};
+    assert.equal(swipeTowardGuide(s, 0, {x: -delta.x, y: -delta.y}), false);
+    assert.equal(swipeTowardGuide(s, 0, delta), true);
+    assert.deepEqual(s.players[0].destination, target);
+    assert.equal(s.players[0].kind, "lob");
+  }
+});
+
+test("court taps preserve the queued destination instead of starting a run", () => {
+  const s = createPractice(settings);
+  startPoint(s);
+  const destination = {...s.players[0].destination};
+  tapInPlace(s, 0);
+  assert.deepEqual(s.players[0].destination, destination);
+  assert.equal(s.players[0].kind, "cross");
+});
 function readyReturn(difficulty, randomValue) {
   const s = createPractice({ ...settings, difficulty });
   startPoint(s);

@@ -74,6 +74,14 @@ def hand(x,y,scale=1,tap=False):
     c.restoreState()
 
 
+def movement_swipe(start, target, scale=.48):
+    dx,dy=target[0]-start[0],target[1]-start[1]
+    distance=max(1,(dx*dx+dy*dy)**.5)
+    travel=min(28,distance)
+    arrow(*start,start[0]+dx/distance*travel,start[1]+dy/distance*travel,white,2)
+    hand(*start,scale)
+
+
 def athlete(x,y,scale=1,opponent=False,pose='ready'):
     c.saveState();c.translate(x,y);c.scale(scale,scale)
     kit=HexColor('#F3A05C') if opponent else HexColor('#A4DAEA')
@@ -143,7 +151,7 @@ def action_card(top,title,description,kind):
         me=p(.68,.02);target=p(.13,.05)
         athlete(*me,.56);athlete(*other,.44,True);ring(*target,YELLOW,13)
         arrow(me[0]-9,me[1]+5,target[0]+13,target[1]+5,YELLOW,1.4,True)
-        if kind=='tapYellow':hand(*target,.7,True)
+        if kind=='tapYellow':movement_swipe((me[0],me[1]+5),target,.7)
         else:
             start=p(.53,.33);end=p(.2,.33);arrow(*start,*end,white,2.8);hand(*start,.65)
     elif kind in ['approach','recover']:
@@ -154,7 +162,7 @@ def action_card(top,title,description,kind):
             touch=p(.15,.1);arrow(*touch,touch[0]+5,touch[1]+40,white,2.8);hand(*touch,.65)
             ball(*p(.45,.72))
         else:
-            ring(*target,white,13);hand(*target,.7,True)
+            ring(*target,white,13);movement_swipe(start,target,.7)
             arrow(start[0]+4,start[1],target[0],target[1]+9,white,1.4,True)
     elif kind in ['volley','overhead']:
         me=p(.32,.38 if kind=='volley' else .25);athlete(*me,.56,pose='jump' if kind=='overhead' else 'ready')
@@ -162,7 +170,7 @@ def action_card(top,title,description,kind):
         hand(me[0]-7,me[1]-4,.65,True)
         ball(me[0]+11,me[1]+(43 if kind=='overhead' else 20))
         arrow(other[0]-6,other[1]-6,me[0]+13,me[1]+26,YELLOW,1.4,True)
-        label('AUTOMATIC CONTACT',dx+dw-10,dy+dh-15,7.5,white,'Helvetica-Bold','right')
+        label('TAP IN POSITION',dx+dw-10,dy+dh-15,7.5,white,'Helvetica-Bold','right')
     elif kind in ['bounce','split']:
         # A large player and fingertip explain a tap better than another tiny full court.
         c.setFillColor(FOREST);c.roundRect(dx,dy,dw,dh,12,fill=1,stroke=0)
@@ -219,35 +227,35 @@ def tile(x,top,title,copy,kind):
         hand(me[0]+10,me[1]+16,.48,True);ball(me[0]-3,me[1]+37,2.5)
         athlete(*q(.73,.1),.43,pose='jump')
     elif kind=='yellow':
-        goal=q(.8,.1);ring(*goal,YELLOW,10);hand(*goal,.48,True)
+        goal=q(.8,.1);ring(*goal,YELLOW,10);movement_swipe((me[0],me[1]+5),goal)
         arrow(me[0]+7,me[1]+4,goal[0]-12,goal[1]+4,YELLOW,1.2,True)
     elif kind=='move':
         origin=q(.57,.33);end=q(.92,.33);arrow(*origin,*end,white,2);hand(*origin,.46)
     elif kind=='recover':
-        goal=q(.5,0);ring(*goal,white,10);hand(*goal,.48,True)
+        goal=q(.5,0);ring(*goal,white,10);movement_swipe(q(.2,.36),goal)
     elif kind=='split':
         hand(*q(.75,.4),.5,True);ring(*me,MINT,11)
         ball(*q(.57,.76),3);ring(*q(.57,.76),MINT,7)
         label('FAR BOUNCE',x+145,top-40,6.5,white,'Helvetica-Bold','right')
     para(copy,x+10,top-102,w-20,size=10.2,leading=12)
 
-page(1,'Tap. Move. Serve.','YOUR MOVES 1/3  -  Use the court itself. Blue aims a serve; yellow or gold receives; white recovers.')
+page(1,'Swipe. Move. Serve.','YOUR MOVES 1/3  -  Use the court itself. Blue aims a serve; yellow or gold receives; white recovers.')
 items=[('Aim your serve','Place BLUE. Within 1 second, touch a gauge behind you: Speed on the left, Spin on the right.','aim'),
  ('Start the serve','Tap or slide to low, medium or high. Tap your side to serve. The gauges disappear.','serve'),
- ('Reach the ball','Tap YELLOW or GOLD once. The run continues without holding.','yellow'),
+ ('Reach the ball','Short swipe toward YELLOW or GOLD. Your player keeps running.','yellow'),
  ('Run in any direction','Swipe EMPTY court toward where you want to run.','move'),
- ('Recover after a shot','Tap WHITE. Reach the circle before the next split step.','recover'),
+ ('Recover after a shot','Short swipe toward WHITE. Reach it, then tap to split.','recover'),
  ('Bounce / split step','Reach white. Tap anywhere as your shot bounces on the far court.','split')]
 for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,title,copy,kind)
 para('First serve starts fast and flat. Second starts slow with high spin. More spin adds margin and gives the receiver time.',24,64,size=10,leading=12)
 c.showPage()
 
-page(2,'Choose the next shot.','YOUR MOVES 2/3  -  Tap yellow, then finish your shot swipe before contact.')
+page(2,'Choose the next shot.','YOUR MOVES 2/3  -  Swipe toward yellow, then finish your shot swipe before contact.')
 items=[('Up: down the line','Start ON your moving player; swipe toward the net.','line'),
  ('Diagonal: crosscourt','Start ON your player; swipe forward toward the opposite side.','cross'),
  ('Sideways: short angle','Start ON your player; swipe left or right.','angle'),
  ('Down: center lob','Start ON your player; swipe straight away from the net.','lob'),
- ('Quick circle: drop','After tapping yellow, draw a small closed circle on your half.','drop'),
+ ('Quick circle: drop','After swiping toward yellow, draw a small closed circle on your half.','drop'),
  ('Post diagonal: slice','Start at either NET POST. End at the opposite corner of YOUR baseline.','slice')]
 for i,(title,copy,kind) in enumerate(items):tile(24+(i%2)*188,514-(i//2)*150,title,copy,kind)
 para('On clean rally contact, crosscourt lands 7 in 8, line or a change of direction 4 in 5, and short angle 2 in 3. Hit behind a moving opponent to slow their next chase.',24,64,size=10,leading=12)
@@ -255,25 +263,25 @@ c.showPage()
 
 page(3,'Combine. Then react.','YOUR MOVES 3/3  -  Hit first. Start a fresh swipe and finish it before the far bounce.')
 for row,(top,title,stages) in enumerate([
- (513,'Attack: meet it, hit it, follow it',[('1 TAP GOLD','receive'),('2 SHOT + HIT','hit'),('3 SWIPE IN','approach')]),
- (291,'Baseline: recover, split, receive',[('1 TAP WHITE','recover'),('2 TIMED TAP','split'),('3 TAP YELLOW','receive')])]):
+ (513,'Attack: meet it, hit it, follow it',[('1 SWIPE TO GOLD','receive'),('2 SHOT + HIT','hit'),('3 SWIPE IN','approach')]),
+ (291,'Baseline: recover, split, receive',[('1 SWIPE TO WHITE','recover'),('2 TIMED TAP','split'),('3 SWIPE TO YELLOW','receive')])]):
     label(title,24,top,17,INK,'Times-Roman')
     for i,(caption,kind) in enumerate(stages):
         x=24+i*125;q=court(x,top-127,116,111);me=q(.4,.05)
         athlete(*me,.48)
         label(caption,x+58,top-31,7.5,white,'Helvetica-Bold','center')
         if kind=='receive':
-            goal=q(.65,.22);ring(*goal,GOLD if row==0 else YELLOW,9);hand(*goal,.48,True)
+            goal=q(.65,.22);ring(*goal,GOLD if row==0 else YELLOW,9);movement_swipe(me,goal)
         elif kind=='hit':
             origin=(me[0]+3,me[1]+16);arrow(*origin,origin[0],origin[1]+26,white,2);hand(*origin,.45)
             ball(*q(.75,.75),2.5)
         elif kind=='approach':
             origin=q(.7,.1);end=q(.7,.42);arrow(*origin,*end,white,2);hand(*origin,.48)
             arrow(me[0],me[1]+3,*q(.4,.4),GOLD,1.3,True)
-        elif kind=='recover':ring(*q(.5,0),white,10);hand(*q(.5,0),.48,True)
+        elif kind=='recover':ring(*q(.5,0),white,10);movement_swipe(q(.2,.35),q(.5,0))
         else:hand(*q(.8,.22),.48,True);ring(*me,MINT,11);ball(*q(.43,.76),3);ring(*q(.43,.76),MINT,8)
-    text=('After you hit, swipe forward before the far bounce. Your player plants at the bounce, or stops if the opponent volleys first. Then move to yellow for a <b>volley</b> or under a lob for an <b>overhead</b>.' if row==0 else
-      'Reach white, then tap anywhere as your shot bounces across the net. You have 3 m of ball travel on either side of the bounce. Look for a mint pulse, then tap yellow.')
+    text=('After contact, swipe forward before the far bounce. Swipe toward yellow to meet the reply. Once in position, <b>tap for a volley or overhead smash</b>. Taps never start a run.' if row==0 else
+      'Reach white, then tap anywhere as your shot bounces across the net. You have 3 m of ball travel on either side of the bounce. Look for a mint pulse, then swipe toward yellow.')
     para(text,24,top-140,size=12.3,leading=16)
 para('<b>First serve:</b> UP returns at the server. <b>Second serve:</b> reach yellow inside the baseline and hit on the rise.',24,94,size=12,leading=16)
 para('Local play: use your own half. Forward always means toward the net.',24,52,size=10,leading=12)
@@ -290,11 +298,11 @@ c.line(right+13,bottom,right+21,bottom);c.line(right+13,short,right+21,short)
 label('5 m',right+23,(bottom+short)/2,9,white,'Helvetica-Bold')
 me=q(.7,0);goal=q(.3,.3);athlete(*me,.7)
 c.setLineWidth(4);ring(*goal,GOLD,15);ring(*goal,GOLD,18)
-hand(*goal,.7,True);arrow(me[0]-13,me[1]+8,goal[0]+15,goal[1]-3,GOLD,1.8,True)
+movement_swipe((me[0]-16,me[1]+12),goal,.7);arrow(me[0]-13,me[1]+8,goal[0]+15,goal[1]-3,GOLD,1.8,True)
 arrow(goal[0],goal[1]+11,*q(.75,.9),GOLD,1.5,True)
 label('YOUR BASELINE',207,bottom-16,8,white,'Helvetica-Bold','center')
 for i,(title,copy) in enumerate([
- ('REACH','Tap gold early. You run 1.5x faster while receiving a short ball.'),
+ ('REACH','Swipe toward gold early. You run 1.5x faster while receiving a short ball.'),
  ('CHOOSE','Select a shot while moving; arrive for a clean hit.'),
  ('FOLLOW','After contact, swipe forward to follow the ball in for +2 CP.')]):
     y=229-i*55;label(str(i+1),28,y-4,21,INK,'Times-Roman');label(title,59,y,10,INK,'Helvetica-Bold')
@@ -305,7 +313,7 @@ c.showPage()
 page(5,'Earn Coachability Points.','Each followed opportunity earns +2. Each missed opportunity costs -1. Several rules can score on one point.')
 rules=[('Short ball: follow it in','A bounce 5 m inside baseline turns the ring gold. Hit, then swipe forward.'),
  ('Behind baseline: center lob','Reach yellow; choose the straight-down lob through center.'),
- ('First serve: back at server','Tap yellow, then swipe up from your player before contact.'),
+ ('First serve: back at server','Swipe toward yellow, then swipe up from your player before contact.'),
  ('Second serve: take it early','Reach yellow inside the baseline; hit after the bounce, on the rise.'),
  ('Serve wide, then crosscourt','Drag blue wide. On the return, choose a diagonal crosscourt drive.'),
  ('Change direction, follow in','After redirecting the ball, make a new forward swipe after contact.'),
@@ -367,12 +375,12 @@ label('85 cm',left+strip/2,top+13,8,YELLOW,'Helvetica-Bold','center')
 label('85 cm',right-strip/2,top+13,8,YELLOW,'Helvetica-Bold','center')
 athlete(*q(.5,.06),.63);athlete(*q(.5,.94),.5,True)
 out=q(1.09,.16)
-ring(*out,Color(1,1,0,.3),13);hand(*out,.55,True)
+ring(*out,Color(1,1,0,.3),13);movement_swipe(q(.6,.11),out,.55)
 label('FAINT OUT-BALL TARGET',207,308,8.5,white,'Helvetica-Bold','center')
 label('SIDELINE SHADING',24,268,11,INK,'Helvetica-Bold')
 para('The faint yellow-orange strips run <b>85 cm inside each singles sideline</b>. They remind you to aim with margin. They are coaching overlays, not regulation lines, and appear on every surface.',24,253,size=12.5,leading=17)
 label('OUT BALL: YOU CAN STILL CHASE',24,164,11,INK,'Helvetica-Bold')
-para('A <b>faint yellow circle</b> remains on wide or long balls. Tap it to keep running, including just after the bounce. Red marks the out bounce for 0.3 seconds; the point result follows.',24,149,size=12.5,leading=17)
+para('A <b>faint yellow circle</b> remains on wide or long balls. Swipe toward it to keep running, including just after the bounce. Red marks the out bounce for 0.3 seconds; the point result follows.',24,149,size=12.5,leading=17)
 para('Settings > Contact & recovery guides controls these overlays. Chasing an out ball does not change the point or CP score.',24,64,size=10.5,leading=13)
 c.showPage();c.save()
 shutil.copyfile(OUT, ROOT/'SwipeTennis/CourtGuide.pdf')

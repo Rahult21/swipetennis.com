@@ -14,7 +14,7 @@ extension CoachRule {
     case .shortBallApproach: return "Short ball: hit, then swipe in."
     case .deepCenterLob: return "Deep ball: swipe down to lob."
     case .firstServeBody: return "First serve: swipe up at server."
-    case .secondServeRise: return "Second serve: tap yellow early."
+    case .secondServeRise: return "Second serve: swipe toward yellow early."
     case .wideServeCross: return "Serve wide, then swipe crosscourt."
     case .changeDirectionApproach: return "New direction: hit, then swipe in."
     case .recoveryAndSplit: return "Reach white, then tap to split."

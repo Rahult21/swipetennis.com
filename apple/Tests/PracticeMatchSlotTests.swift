@@ -30,7 +30,7 @@ final class PracticeMatchSlotTests: XCTestCase {
     game.phase = .live
     game.launch(1, aim: Vec(x: 2.8, y: 22), kind: .cross)
     game.inventory.held = .rally
-    game.tapCourt(0, at: try XCTUnwrap(game.contactGuide(0)))
+    game.apply(.guidedMove(.receive), side: 0)
     game.usePower()
     for _ in 0..<7 { game.step(1 / 120, random: { 0.5 }) }
     XCTAssertNotNil(game.assist)

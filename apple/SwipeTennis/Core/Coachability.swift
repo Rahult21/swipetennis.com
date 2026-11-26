@@ -23,7 +23,7 @@ enum CoachRule: Int, Codable, CaseIterable, Identifiable {
     case .firstServeBody:
       return "Return a first serve right back at the server: reach yellow and swipe up from your player before contact."
     case .secondServeRise:
-      return "Tap yellow early on a second serve. Return from inside the baseline and meet the ball on the rise."
+      return "Swipe toward yellow early on a second serve. Return from inside the baseline and meet the ball on the rise."
     case .wideServeCross:
       return "Place your first serve wide, then hit the opponent’s return crosscourt with a diagonal shot swipe."
     case .changeDirectionApproach:

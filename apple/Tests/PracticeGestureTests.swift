@@ -3,6 +3,100 @@ import XCTest
 @testable import TennisCore
 
 final class PracticeGestureTests: XCTestCase {
+  func testEightPointSwipeStartsFullGuideRunBeforeReleaseAndOnlyOnce() throws {
+    for side in 0...1 {
+      for kind in [MovementGuideKind.receive, .recover] {
+        var engine = PracticeEngine(settings: .init(local: true))
+        engine.phase = .live
+        engine.players[side].pos = Vec(x: 7, y: side == 0 ? 22 : 2)
+        engine.players[side].destination = engine.players[side].pos
+        engine.launch(kind == .receive ? 1 - side : side,
+          aim: Vec(x: 2, y: kind == .receive ? (side == 0 ? 22 : 2) : (side == 0 ? 2 : 22)), kind: .cross)
+        let guide = try XCTUnwrap(engine.swipeMovementGuide(side))
+        let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
+        let delta = Vec(x: path.x / path.length * 0.18, y: path.y / path.length * 0.18)
+        let origin = Vec(x: 3, y: 20)
+        let end = Vec(x: origin.x + delta.x, y: origin.y + delta.y)
+        var gesture = PracticeGesture(side: side, movementEpoch: engine.contactSerial, targetGuide: guide)
+        XCTAssertNil(gesture.update(at: origin, screenPoint: .zero))
+        XCTAssertNil(gesture.update(at: end, screenPoint: Vec(x: 3, y: 0)))
+        let action = try XCTUnwrap(gesture.update(at: end, screenPoint: Vec(x: 8, y: 0)))
+        XCTAssertEqual(action, .guidedMove(kind))
+        engine.apply(action, side: side, movementEpoch: gesture.movementEpoch)
+        XCTAssertEqual(engine.players[side].destination, PracticeEngine.own(side, guide.to))
+        XCTAssertEqual(engine.tactics[side].splitSteps, 0)
+        XCTAssertNil(gesture.update(at: end, screenPoint: Vec(x: 30, y: 0)))
+        XCTAssertNil(gesture.update(at: end, screenPoint: Vec(x: 30, y: 0), ended: true))
+      }
+    }
+  }
+
+  func testGuideTapAndOppositeSwipeDoNotStartAGuidedRun() {
+    let guide = MovementGuide(kind: .receive, from: .zero, to: Vec(x: 4, y: 0))
+    var tap = PracticeGesture(side: 0, targetGuide: guide)
+    _ = tap.update(at: .zero, screenPoint: .zero)
+    XCTAssertNil(tap.update(at: Vec(x: 0.1, y: 0), screenPoint: Vec(x: 3, y: 0)))
+    XCTAssertEqual(tap.update(at: .zero, screenPoint: .zero, ended: true), .courtTap(.zero))
+    var wrong = PracticeGesture(side: 0, targetGuide: guide)
+    _ = wrong.update(at: .zero, screenPoint: .zero)
+    XCTAssertNil(wrong.update(at: Vec(x: -0.2, y: 0), screenPoint: Vec(x: -12, y: 0)))
+  }
+
+  func testTappingYellowOrWhiteNeverChangesDestination() {
+    for side in 0...1 {
+      var engine = PracticeEngine(settings: .init(local: true))
+      engine.phase = .live
+      engine.launch(1 - side, aim: Vec(x: 1, y: side == 0 ? 22 : 2), kind: .cross)
+      let stopped = engine.players[side].destination
+      engine.tapCourt(side, at: engine.contactGuide(side)!)
+      XCTAssertEqual(engine.players[side].destination, stopped)
+      engine.launch(side, aim: Vec(x: 2, y: side == 0 ? 2 : 22), kind: .cross)
+      engine.tapCourt(side, at: engine.recoveryGuide(side)!)
+      XCTAssertEqual(engine.players[side].destination, engine.players[side].pos)
+    }
+  }
+
+  func testStartingRunOnPlayerLeavesFreshSwipeAvailableForShot() throws {
+    var engine = PracticeEngine(settings: .init())
+    engine.startRally()
+    let guide = try XCTUnwrap(engine.swipeMovementGuide(0, onPlayer: true))
+    engine.apply(.guidedMove(guide.kind), side: 0, movementEpoch: engine.contactSerial)
+    XCTAssertNil(engine.swipeMovementGuide(0, onPlayer: true))
+    XCTAssertTrue(engine.canDrawDrop(0))
+    let destination = engine.players[0].destination
+    engine.apply(.shotSwipe(Vec(x: 0, y: -40)), side: 0, shotEpoch: engine.shotGestureEpoch(0))
+    XCTAssertEqual(engine.players[0].kind, .line)
+    XCTAssertEqual(engine.players[0].destination, destination)
+    engine.launch(0, aim: Vec(x: 2, y: 2), kind: .line)
+    let afterContact = engine.players[0].destination
+    engine.apply(.guidedMove(.receive), side: 0, movementEpoch: 0)
+    XCTAssertEqual(engine.players[0].destination, afterContact)
+  }
+
+  func testVolleyAndOverheadLessonsUseTapWithoutMovingPlayer() throws {
+    for lesson in [DemoLesson.approachVolley, .overhead] {
+      var engine = PracticeEngine(settings: .init())
+      engine.beginShotDemo(lesson, attempt: 0, demonstration: false)
+      var tapped = false
+      for _ in 0..<2400 where engine.demo?.result == nil {
+        if engine.canTapNetShot(0) && !tapped {
+          let destination = engine.players[0].destination
+          let splits = engine.tactics[0].splitSteps
+          engine.tapCourt(0, at: engine.players[0].pos)
+          XCTAssertEqual(engine.players[0].destination, destination)
+          XCTAssertEqual(engine.tactics[0].splitSteps, splits)
+          XCTAssertEqual(engine.demo?.chosenShot, .line)
+          engine.demo?.scriptShot = true
+          tapped = true
+        }
+        engine.performDemoScript()
+        engine.step(1 / 120)
+      }
+      XCTAssertTrue(tapped, lesson.rawValue)
+      XCTAssertTrue(try XCTUnwrap(engine.demo?.result).success, lesson.rawValue)
+    }
+  }
+
   func testCourtSwipesOnlyEmitMovementOnReleaseAtAnySpeed() {
     for side in 0...1 {
       for delta in [Vec(x: 0, y: -3), Vec(x: 3, y: 0), Vec(x: -2, y: 2)] {
@@ -87,21 +181,21 @@ final class PracticeGestureTests: XCTestCase {
     XCTAssertFalse(engine.flight!.trainingApproach)
   }
 
-  func testYellowAndWhiteTapsSnapExactlyAndAlsoSplitStep() {
+  func testYellowAndWhiteSwipesSnapExactlyWithoutAutomaticSplit() {
     var engine = PracticeEngine(settings: .init())
     engine.startRally()
     let yellow = engine.contactGuide(0)!
-    engine.tapCourt(0, at: Vec(x: yellow.x + 0.4, y: yellow.y))
+    engine.swipeCourt(0, delta: Vec(x: yellow.x - engine.players[0].pos.x, y: yellow.y - engine.players[0].pos.y))
     XCTAssertEqual(engine.players[0].destination, PracticeEngine.own(0, yellow))
-    XCTAssertEqual(engine.tactics[0].splitSteps, 1)
+    XCTAssertEqual(engine.tactics[0].splitSteps, 0)
     engine.time += 0.3
     engine.launch(0, aim: Vec(x: 2, y: 2), kind: .line)
     engine.followShot(0)
     let white = engine.recoveryGuide(0)!
-    engine.tapCourt(0, at: Vec(x: white.x - 0.3, y: white.y))
+    engine.apply(.guidedMove(.recover), side: 0)
     XCTAssertEqual(engine.players[0].destination, white)
     XCTAssertFalse(engine.attacking[0])
-    XCTAssertEqual(engine.tactics[0].splitSteps, 2)
+    XCTAssertEqual(engine.tactics[0].splitSteps, 0)
   }
 
   func testTapsBounceWithCooldownAndNeverChangeMovementOrAim() {

@@ -15,7 +15,7 @@ struct CourtGuideView: View {
             .accessibilityIdentifier("illustratedCourtGuide")
         } else {
           ContentUnavailableView("Guide unavailable", systemImage: "doc.richtext",
-            description: Text("Tap yellow to receive and white to recover. Swipe from your player to choose a shot."))
+            description: Text("Swipe toward yellow to receive and white to recover. Tap in position for a split step, volley, or overhead."))
         }
       }.navigationTitle("How to play").navigationBarTitleDisplayMode(.inline)
         .toolbar {

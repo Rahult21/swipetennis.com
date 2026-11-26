@@ -745,9 +745,7 @@ import SwiftUI
     let distance = max(1, hypot(to.x - from.x, to.y - from.y))
     // Demonstrate a short directional swipe, not a drag across the whole display.
     let travel = min(distance, 72)
-    let point = guide.kind == .recover
-      ? CGPoint(x: to.x, y: to.y + (reduceMotion ? 0 : sin(cycle * .pi) * 7))
-      : CGPoint(
+    let point = CGPoint(
         x: from.x + (to.x - from.x) / distance * travel * progress,
         y: from.y + (to.y - from.y) / distance * travel * progress)
     swipeHand.position = point
@@ -778,8 +776,12 @@ import SwiftUI
       }
     } else if demo.stage == .rallyRecovery, let white = demo.recoveryTarget {
       guard demo.recoveredAt == nil || (demo.lesson == .recoverySplit && demo.bounceWindowOpen && !demo.splitAfterRecovery) else { return }
-      from = project(white)
-      tap = true
+      if demo.recoveredAt == nil {
+        to = project(white)
+        let distance = max(1, hypot(to.x - from.x, to.y - from.y))
+        to = CGPoint(x: from.x + (to.x - from.x) / distance * min(48, distance),
+          y: from.y + (to.y - from.y) / distance * min(48, distance))
+      } else { from = project(white); tap = true }
     } else if demo.stage == .approachFlight {
       guard !demo.approached, engine.canFollowShot(0) else { return }
       from = CGPoint(x: player.x + 44, y: player.y - 5)
@@ -790,8 +792,13 @@ import SwiftUI
       let movingToYellow = yellow.map { engine.players[0].destination.distance(to: $0) <= 0.3 } ?? false
       if demo.lesson.isFootwork && movingToYellow { return }
       if !movingToYellow, let yellow {
-        from = project(yellow)
-        tap = true
+        to = project(yellow)
+        let distance = max(1, hypot(to.x - from.x, to.y - from.y))
+        to = CGPoint(x: from.x + (to.x - from.x) / distance * min(48, distance),
+          y: from.y + (to.y - from.y) / distance * min(48, distance))
+      } else if demo.lesson == .overhead || demo.stage == .volleyReceive {
+        guard engine.canTapNetShot(0) else { return }
+        from = CGPoint(x: player.x, y: player.y + 25); tap = true
       } else {
         let opposite: CGFloat = engine.players[0].pos.x < PracticeEngine.width / 2 ? 1 : -1
         from = CGPoint(x: player.x, y: player.y + 25)
@@ -904,7 +911,8 @@ import SwiftUI
       let intent: CourtTouchIntent = engine.canChooseShot(side) && (onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
-        movementGain: engine.quickNetFeet(side) ? 1.8 : 1)
+        movementGain: engine.quickNetFeet(side) ? 1.8 : 1,
+        targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot))
       applyTouch(touch)
     }
   }

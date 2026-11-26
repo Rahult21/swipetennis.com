@@ -14,14 +14,14 @@ final class PointResolutionTests: XCTestCase {
     for _ in 0..<1000 where engine.phase == .live { engine.step(dt) }
   }
 
-  func testOutTargetStaysTappableThroughBounceWithoutChangingScoreOrAddingSwing() throws {
+  func testOutTargetAcceptsSwipesThroughBounceWithoutChangingScoreOrAddingSwing() throws {
     for side in 0...1 {
       for kind in ["wide", "long"] {
         var engine = fault(kind, hitter: 1-side)
         let target = try XCTUnwrap(engine.contactGuide(side))
         XCTAssertEqual(target, engine.outBallChaseTarget(side))
         XCTAssertNil(engine.movementGuide(side)) // No yellow chase line for an out ball.
-        engine.tapCourt(side, at: target)
+        engine.apply(.guidedMove(.receive), side: side)
         XCTAssertEqual(engine.players[side].destination, target)
         reachImpact(&engine)
         XCTAssertTrue(engine.acceptsCourtMovement)
@@ -31,7 +31,7 @@ final class PointResolutionTests: XCTestCase {
         engine.players[side].pos = Vec(x: 4, y: side == 0 ? 22 : 1.77)
         engine.players[side].velocity = .zero
         let from = engine.players[side].pos
-        for _ in 0..<24 { engine.tapCourt(side, at: target); engine.step(1/120) }
+        for _ in 0..<24 { engine.apply(.guidedMove(.receive), side: side); engine.step(1/120) }
         XCTAssertLessThan(engine.players[side].pos.distance(to: target), from.distance(to: target))
         XCTAssertEqual(engine.scoring.points, score)
         XCTAssertEqual(engine.coach.events, events)

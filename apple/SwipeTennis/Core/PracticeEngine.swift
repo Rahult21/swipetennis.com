@@ -258,7 +258,7 @@ struct PracticeEngine: Codable {
   var feedback = Coaching(
     title: "Read. Move. Settle.",
     reason: "Move to the contact ring early, then brake before the ball arrives.",
-    tip: "Tap your half to move. Swipe toward the other half to aim. Swings are assisted.")
+    tip: "Swipe toward yellow to receive and white to recover. Tap in position to split, volley, or smash.")
   var history: [Coaching] = []
   var contactSerial = 0
   var bounceSerial = 0
@@ -930,7 +930,7 @@ struct PracticeEngine: Codable {
         f.hitter,
         reason: current.dropReachable == false ? "Opponent couldn't lift the drop shot before its second bounce." : "\(name(receiver)) didn't reach the ball in time.",
         tip: receiver == 0
-          ? "Tap yellow sooner for the next ball."
+          ? "Swipe toward yellow sooner for the next ball."
           : "Keep using the open court to move your opponent.", random: random)
       return
     }

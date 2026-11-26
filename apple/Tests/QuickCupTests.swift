@@ -2,6 +2,21 @@ import XCTest
 @testable import TennisCore
 
 final class QuickCupTests: XCTestCase {
+  func testShortSwipeCommandRoundTripsAndMovesOnlyTheAssignedHuman() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      game.launch(1 - side, aim: Vec(x: 1, y: side == 0 ? 22 : 2), kind: .cross)
+      let target = try XCTUnwrap(game.contactGuide(side))
+      let opponent = game.players[1 - side].destination
+      let input = CupInput(.guidedMove(.receive), shotEpoch: game.shotGestureEpoch(side), movementEpoch: game.contactSerial)
+      let received = try JSONDecoder().decode(CupInput.self, from: JSONEncoder().encode(input))
+      received.apply(to: &game, side: side)
+      XCTAssertEqual(game.players[side].destination, target)
+      XCTAssertEqual(game.players[1 - side].destination, opponent)
+      XCTAssertEqual(game.tactics[side].splitSteps, 0)
+    }
+  }
   func testInviteLinksAcceptOnlyOurHostAndUnambiguousCodes() {
     XCTAssertEqual(QuickCup.inviteCode(from: " abcdefgh "), "ABCDEFGH")
     XCTAssertEqual(QuickCup.inviteCode(from: "https://swipetennis.com/cup/ABCDEFGH"), "ABCDEFGH")

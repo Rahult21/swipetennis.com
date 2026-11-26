@@ -44,18 +44,18 @@ enum DemoLesson: String, Codable, CaseIterable, Identifiable {
   }
   var instruction: String {
     switch self {
-    case .rallyRecovery: return "Tap yellow to receive. After the automatic hit, tap white and reach it. Repeat for \(ShotDemoRun.exchangesPerAttempt) exchanges. No shot swipe needed."
-    case .recoverySplit: return "Tap yellow to receive, then white to recover. At white, tap again as your shot bounces across the net (within 3 m). Repeat \(ShotDemoRun.exchangesPerAttempt) times."
-    case .crosscourt: return "Tap yellow. While moving, swipe diagonally from your player toward the opposite side."
-    case .downLine: return "Tap yellow. While moving, swipe straight toward the net from your player."
-    case .shortAngle: return "Tap yellow, then swipe sideways from your player toward the opposite sideline."
-    case .centerLob: return "Tap yellow behind the baseline. Swipe straight back from your player to lob through center."
-    case .dropShot: return "Tap yellow first. Draw a quick, closed circle before the ball arrives."
-    case .slice: return "Tap yellow. Swipe from either net post to the diagonally opposite end of your baseline."
-    case .approachVolley: return "Tap gold and swipe up from your player. After the hit, swipe forward again before the far bounce."
-    case .overhead: return "Tap yellow to get under the lob. Swipe up from your player before the ball arrives."
-    case .firstReturn: return "Tap yellow early. Swipe up from your player to return straight back at the server."
-    case .secondReturn: return "Tap yellow inside the baseline. Swipe diagonally from your player and meet the second serve early."
+    case .rallyRecovery: return "Swipe toward yellow to receive. After the automatic hit, swipe toward white and reach it. Repeat for \(ShotDemoRun.exchangesPerAttempt) exchanges. No shot swipe needed."
+    case .recoverySplit: return "Swipe toward yellow to receive, then toward white to recover. At white, tap again as your shot bounces across the net (within 3 m). Repeat \(ShotDemoRun.exchangesPerAttempt) times."
+    case .crosscourt: return "Swipe toward yellow. While moving, swipe diagonally from your player toward the opposite side."
+    case .downLine: return "Swipe toward yellow. While moving, swipe straight toward the net from your player."
+    case .shortAngle: return "Swipe toward yellow, then swipe sideways from your player toward the opposite sideline."
+    case .centerLob: return "Swipe toward yellow behind the baseline. Swipe straight back from your player to lob through center."
+    case .dropShot: return "Swipe toward yellow first. Draw a quick, closed circle before the ball arrives."
+    case .slice: return "Swipe toward yellow. Swipe from either net post to the diagonally opposite end of your baseline."
+    case .approachVolley: return "Swipe toward gold, then swipe up from your moving player. After the hit, swipe forward to approach. Tap in position for the volley."
+    case .overhead: return "Swipe a little toward yellow to get under the lob. Once there, tap to prepare the overhead smash."
+    case .firstReturn: return "Swipe toward yellow early. Swipe up from your player to return straight back at the server."
+    case .secondReturn: return "Swipe toward yellow inside the baseline. Swipe diagonally from your player and meet the second serve early."
     default: return "Drag blue into the mint target, then tap your half of the court to serve."
     }
   }
@@ -212,17 +212,17 @@ struct ShotDemoRun {
   var splitAfterRecovery = false
   var instruction: String {
     if stage == .rallyRecovery {
-      if recoveredAt == nil { return "Return sent. Tap WHITE now and reach the recovery circle." }
+      if recoveredAt == nil { return "Return sent. Swipe toward WHITE now and reach the recovery circle." }
       if lesson == .recoverySplit && !splitAfterRecovery {
         return bounceWindowOpen ? "Tap NOW to split. Your shot is within 3 m of its bounce." : "At white, watch the far court. Tap as your shot bounces."
       }
-      return "Ready at white. Watch your opponent, then tap the next yellow circle."
+      return "Ready at white. Watch your opponent, then swipe toward the next yellow circle."
     }
     if lesson.isFootwork && stage == .receive {
-      return "Tap YELLOW and reach it before the ball. Your player returns automatically; then go back to white."
+      return "Swipe toward YELLOW and reach it before the ball. Your player returns automatically; then go back to white."
     }
     if stage == .approachFlight { return "Your shot is away. Swipe forward before it bounces to follow it in." }
-    if stage == .volleyReceive { return "Tap yellow to meet the reply. Swipe up from your player for a volley before the bounce." }
+    if stage == .volleyReceive { return "Swipe toward yellow if you need to move. Once in position, tap for a volley before the bounce." }
     if stage == .finishFlight { return "Watch your shot land." }
     return lesson.instruction
   }
@@ -330,14 +330,14 @@ extension PracticeEngine {
         // opponent must also physically reach the ball before sending the next feed.
         guard current.progress >= 0.9 else { return }
         guard demo?.recoveredAt != nil else {
-          finishShotDemo(success: false, message: "After each return, tap white and reach it before the opponent hits."); return
+          finishShotDemo(success: false, message: "After each return, swipe toward white and reach it before the opponent hits."); return
         }
         guard run.lesson != .recoverySplit || demo?.splitAfterRecovery == true else {
           finishShotDemo(success: false, message: "At white, tap again as your shot bounces on the far court (within 3 m)."); return
         }
         guard let window = BallContactWindow.next(flight: current, player: players[1].pos, side: 1, after: previous.progress),
           current.progress + 0.000001 >= window.entry else {
-          if current.progress >= 1 { finishShotDemo(success: false, message: "Keep the rally simple: tap yellow, let the return happen, then tap white.") }
+          if current.progress >= 1 { finishShotDemo(success: false, message: "Keep the rally simple: swipe toward yellow, let the return happen, then swipe toward white.") }
           return
         }
         demo?.completedExchanges += 1
@@ -389,7 +389,7 @@ extension PracticeEngine {
       }
       if run.lesson == .overhead && !window.overhead { failure = "Get under yellow earlier and meet the lob above your head." }
       if run.stage == .volleyReceive && (!window.volley || window.overhead) { failure = "Move closer to the net and meet the reply before it bounces." }
-      if run.lesson == .secondReturn && players[0].pos.y >= Self.length { failure = "Tap yellow early and meet the second serve INSIDE the baseline." }
+      if run.lesson == .secondReturn && players[0].pos.y >= Self.length { failure = "Swipe toward yellow early and meet the second serve INSIDE the baseline." }
       let hittingX = players[0].pos.x
       returnBall(0, volley: window.volley, overhead: window.overhead, random: { 0.5 })
       if let outgoing = flight {
@@ -417,8 +417,8 @@ extension PracticeEngine {
       demo?.scriptShot = false
     } else if current.progress >= 1 {
       finishShotDemo(success: false, message: run.lesson.isFootwork
-        ? "Tap yellow sooner and reach it before the ball arrives."
-        : "Tap yellow sooner, then choose your shot while your player runs.")
+        ? "Swipe toward yellow sooner and reach it before the ball arrives."
+        : "Swipe toward yellow sooner, then choose your shot while your player runs.")
     }
   }
 
@@ -448,7 +448,7 @@ extension PracticeEngine {
     }
     if run.stage == .rallyRecovery {
       if run.stageTime >= 0.3 && !run.scriptTap, let white = run.recoveryTarget {
-        tapCourt(0, at: white)
+        swipeCourt(0, delta: Vec(x: white.x - players[0].pos.x, y: white.y - players[0].pos.y))
         demo?.scriptTap = true
       }
       if run.lesson == .recoverySplit, let reached = run.recoveredAt,
@@ -459,8 +459,15 @@ extension PracticeEngine {
     }
     guard run.stage == .receive || run.stage == .volleyReceive else { return }
     if run.stageTime >= 0.3 && !run.scriptTap, let yellow = contactGuide(0) {
-      tapCourt(0, at: yellow)
+      swipeCourt(0, delta: Vec(x: yellow.x - players[0].pos.x, y: yellow.y - players[0].pos.y))
       demo?.scriptTap = true
+    }
+    if run.lesson == .overhead || run.stage == .volleyReceive {
+      if !run.scriptShot && canTapNetShot(0) {
+        tapCourt(0, at: players[0].pos)
+        demo?.scriptShot = true
+      }
+      return
     }
     // At faster volley pace the old fixed delay could demonstrate a late swing.
     let shotCueTime = phase == .serving ? 1.25 : min(1.25, (flight?.duration ?? 3.8) * 0.24)

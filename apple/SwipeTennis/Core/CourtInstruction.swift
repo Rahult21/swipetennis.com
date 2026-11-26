@@ -11,7 +11,7 @@ extension PracticeEngine {
     if phase == .ready {
       return CourtInstruction(
         title: "Build the point. Finish at net.",
-        detail: "Tap yellow to receive, then swipe to choose your shot before contact.", symbol: "figure.tennis")
+        detail: "Make a short swipe toward yellow, then a fresh swipe from your moving player to choose a shot.", symbol: "figure.tennis")
     }
     if isResolvingPoint {
       if let impact = pointResolution?.impact {
@@ -33,7 +33,7 @@ extension PracticeEngine {
       return CourtInstruction(title: humanServing ? "Drag blue. Tap to serve." : "Read the opponent's serve",
         detail: humanServing
           ? "Place blue, then touch a gauge within one second. Speed is on your left and spin on your right. Tap your side to serve."
-          : "The blue bounce target is moving into place. Tap yellow or swipe toward it to prepare your return.",
+          : "The blue bounce target is moving into place. Make a short swipe toward yellow to prepare your return.",
         symbol: "scope")
     }
     if settings.local {
@@ -88,7 +88,7 @@ extension PracticeEngine {
       {
         return CourtInstruction(
           title: "Get under the lob",
-          detail: "Swipe toward yellow to get under it. Finish into OPEN space.", symbol: "arrow.up.to.line"
+          detail: "Swipe toward yellow to get under it, then tap in position to smash into open space.", symbol: "arrow.up.to.line"
         )
       }
       return CourtInstruction(
@@ -99,19 +99,19 @@ extension PracticeEngine {
     if attacking[0] && flight.hitter == 1 {
       return CourtInstruction(
         title: "Racket up. Volley forward.",
-        detail: "Swipe toward yellow before the bounce. Aim into OPEN space.", symbol: "figure.tennis")
+        detail: "Swipe toward yellow if you need to move, then tap in position to volley into open space.", symbol: "hand.tap")
     }
     if flight.hitter == 0 {
       return CourtInstruction(
         title: "Recover to white",
-        detail: "Tap the white circle to return to the baseline.",
+        detail: "Make a short swipe toward white. Your player runs all the way to the circle.",
         symbol: "arrow.uturn.backward")
     }
     if movementGuide(0)?.kind == .receive {
       return CourtInstruction(
         title: "Move to yellow first",
         detail: settings.allCourtTraining
-          ? "Swipe toward yellow, or tap it. Swipe from your player to aim."
+          ? "Swipe toward yellow. Once running, use a fresh swipe from your player to aim."
           : "Arrive early. Choose your shot before the ball reaches you.", symbol: "figure.run")
     }
     if players[0].aim != nil {

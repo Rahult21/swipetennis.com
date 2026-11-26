@@ -53,9 +53,9 @@ final class RecoveryCoachTests: XCTestCase {
     }
   }
 
-  func testTappingWhiteDoesNotCountUntilThePlayerArrives() {
+  func testSwipingToWhiteDoesNotCountUntilThePlayerArrives() {
     var engine = outgoing()
-    engine.tapCourt(0, at: engine.recoveryGuide(0)!)
+    engine.apply(.guidedMove(.recover), side: 0)
     XCTAssertFalse(engine.coach.recovery!.reachedWhite)
     for _ in 0..<150 { engine.updateFootwork(1 / 120); engine.updateCoachRecovery() }
     XCTAssertTrue(engine.coach.recovery!.reachedWhite)

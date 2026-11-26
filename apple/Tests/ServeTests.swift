@@ -148,7 +148,7 @@ final class ServeTests: XCTestCase {
     engine.start(random: { 0 })
     advance(&engine, 2)
     let yellow = engine.contactGuide(0)!
-    engine.tapCourt(0, at: yellow)
+    engine.apply(.guidedMove(.receive), side: 0)
     engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0)
     XCTAssertEqual(engine.players[0].destination, yellow)
     XCTAssertEqual(engine.players[0].kind, .line)

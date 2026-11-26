@@ -75,7 +75,7 @@ struct PracticeSetupView: View {
       } header: { Text("Match") } footer: { Text(settings.scoring.detail) }
       Section {
         Button { showGuide = true } label: { Label("How to play", systemImage: "hand.draw") }
-      } footer: { Text("Tap yellow to receive, white to recover. Swipe from your player to choose a shot.") }
+      } footer: { Text("Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot.") }
     }.navigationTitle("Play & practice")
       .safeAreaInset(edge: .bottom) {
         Button { takeCourt(using: settings) } label: {

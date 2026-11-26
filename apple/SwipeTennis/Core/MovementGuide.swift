@@ -96,11 +96,11 @@ extension PracticeEngine {
     case .shotSwipe(let delta): selectShotSwipe(delta, side: side)
     case .guidedMove(let kind):
       // Resolve against the live target: the ball may have moved since the swipe began.
-      guard let guide = movementGuide(side), guide.kind == kind else { return }
+      guard movementEpoch == nil || movementEpoch == contactSerial else { return }
       switch kind {
-      case .receive: move(side, to: guide.to)
+      case .receive: receiveAtGuide(side)
       case .approach: followShot(side)
-      case .recover: recover(side)
+      case .recover: if recoveryGuide(side) != nil { recover(side) }
       }
     }
   }

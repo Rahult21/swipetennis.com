@@ -36,11 +36,10 @@ final class ShortBallFootworkTests: XCTestCase {
     }
   }
 
-  func testEarlyTapReachesShortBallAndMakesActualReturnAcrossFrameRates() throws {
+  func testEarlySwipeReachesShortBallAndMakesActualReturnAcrossFrameRates() throws {
     for dt in [1.0/30, 1.0/60, 1.0/120] {
       var engine = incoming(depth: 7)
-      let target = try XCTUnwrap(engine.contactGuide(0))
-      engine.tapCourt(0, at: target)
+      engine.apply(.guidedMove(.receive), side: 0)
       for _ in 0..<400 where engine.phase == .live && engine.flight?.hitter == 1 { engine.step(dt, random: { 0.5 }) }
       XCTAssertEqual(engine.flight?.hitter, 0, "Failed to reach at \(dt)")
       XCTAssertNil(engine.flight?.fault)

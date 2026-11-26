@@ -460,6 +460,30 @@ export function steerPlayer(s: Practice, side: Side, target: Vec) {
   p.destination = ownPosition(side, target);
 }
 
+/** A short directional swipe commits the full run; stroke selection stays intact. */
+export function swipeTowardGuide(s: Practice, side: Side, delta: Vec): boolean {
+  const f = s.flight;
+  if (s.phase !== "live" || !f || f.fault) return false;
+  const p = s.players[side];
+  const target = f.hitter === side ? recoverySpot(side, f.contact) : interceptPoint(s, side);
+  const path = {x: target.x - p.pos.x, y: target.y - p.pos.y};
+  const length = Math.hypot(delta.x, delta.y), gap = Math.hypot(path.x, path.y);
+  if (length < 0.001 || gap < 0.15 || (delta.x * path.x + delta.y * path.y) / (length * gap) < 0.65) return false;
+  p.destination = ownPosition(side, target);
+  return true;
+}
+
+export function tapInPlace(s: Practice, side: Side, serveLead = 0) {
+  const f = s.flight, p = s.players[side];
+  if (s.phase !== "live" || !f) return;
+  const air = airContact(s, side, f.elapsed / f.duration);
+  if (air?.reachable && distance(p.pos, p.destination) <= 0.65) {
+    p.kind = "line";
+    p.aim = {x: s.players[other(side)].pos.x < COURT.width / 2 ? COURT.width - 1.4 : 1.4,
+      y: side === 0 ? 1.8 : COURT.length - 1.8};
+  } else splitStep(s, side, serveLead);
+}
+
 function endPoint(s: Practice, winner: Side, feedback: Feedback, random: () => number) {
   s.score[winner]++;
   s.feedback = feedback;

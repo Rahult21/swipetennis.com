@@ -11,12 +11,13 @@ final class CourtOnlyControlsTests: XCTestCase {
     }
   }
 
-  func testRepeatedYellowTapsDoNotDelayTheRunForEitherHuman() {
+  func testRepeatedSplitTapsDoNotDelayAnAlreadyCommandedRunForEitherHuman() {
     for side in 0...1 {
       var engine = PracticeEngine(settings: .init(local: true))
       engine.phase = .live
       engine.launch(1 - side, aim: Vec(x: 1.8, y: side == 0 ? 22.5 : 1.27), kind: .cross)
       let target = engine.contactGuide(side)!
+      engine.receiveAtGuide(side)
       var untapped = engine
       untapped.move(side, to: target)
       for _ in 0..<400 where engine.flight?.hitter != side && engine.phase == .live {

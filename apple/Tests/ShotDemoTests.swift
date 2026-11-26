@@ -39,7 +39,7 @@ final class ShotDemoTests: XCTestCase {
       if lesson.placement != nil {
         for _ in 0..<100 { inactive.step(1/120) }
         inactive.requestServe(0)
-      } else if let yellow = inactive.contactGuide(0) { inactive.tapCourt(0, at: yellow) }
+      } else if inactive.contactGuide(0) != nil { inactive.apply(.guidedMove(.receive), side: 0) }
       finish(&inactive)
       XCTAssertFalse(try XCTUnwrap(inactive.demo?.result).success, "Automatic \(lesson) must not pass")
     }
@@ -85,7 +85,7 @@ final class ShotDemoTests: XCTestCase {
     for lesson in [DemoLesson.crosscourt, .centerLob, .approachVolley] {
       var engine = PracticeEngine(settings: .init())
       engine.beginShotDemo(lesson, attempt: 0, demonstration: false)
-      engine.tapCourt(0, at: try XCTUnwrap(engine.contactGuide(0)))
+      engine.apply(.guidedMove(.receive), side: 0)
       for _ in 0..<150 { engine.step(1/120) }
       // Crosscourt deliberately stays on the same side, the lob aims away from center,
       // and the approach selects the correct shot but never commands a second swipe.
@@ -97,7 +97,7 @@ final class ShotDemoTests: XCTestCase {
     }
     var wrongShot = PracticeEngine(settings: .init())
     wrongShot.beginShotDemo(.crosscourt, attempt: 0, demonstration: false)
-    wrongShot.tapCourt(0, at: try XCTUnwrap(wrongShot.contactGuide(0)))
+    wrongShot.apply(.guidedMove(.receive), side: 0)
     wrongShot.selectShotSwipe(Vec(x: 0, y: -50), side: 0)
     finish(&wrongShot)
     XCTAssertFalse(try XCTUnwrap(wrongShot.demo?.result).success)
@@ -169,9 +169,9 @@ final class ShotDemoTests: XCTestCase {
         let run = try XCTUnwrap(engine.demo)
         if run.stage == .receive { engine.performDemoScript() }
         if run.stage == .rallyRecovery, !run.scriptTap {
-          engine.tapCourt(0, at: try XCTUnwrap(run.recoveryTarget))
+          engine.apply(.guidedMove(.recover), side: 0)
           engine.demo?.scriptTap = true
-          XCTAssertFalse(engine.demo!.splitAfterRecovery, "Tapping white while still at yellow cannot count")
+          XCTAssertFalse(engine.demo!.splitAfterRecovery, "Swiping toward white cannot count as a split")
         }
         if splitAfterArrival, run.recoveredAt != nil, engine.inSplitWindow(0),
           !run.splitAfterRecovery {

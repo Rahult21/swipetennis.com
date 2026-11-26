@@ -251,6 +251,6 @@ extension PracticeEngine {
     pointResolution = nil
     ball = players[server].pos
     feedback = Coaching(title: "Second serve", reason: "The first serve was a fault. No point was awarded.",
-      tip: "Receiver: tap yellow inside the baseline and meet the ball on the rise.")
+      tip: "Receiver: swipe toward yellow inside the baseline and meet the ball on the rise.")
   }
 }

@@ -12,7 +12,8 @@ enum PracticeGestureAction: Equatable {
 
 enum CourtTouchIntent { case movement, shot, slice }
 
-/// Intent is fixed at touch-down: on the receiving player selects a shot; elsewhere moves.
+/// A short swipe toward an uncommanded guide starts a run. A fresh swipe on a
+/// player already heading there selects a shot; one touch never does both.
 struct PracticeGesture {
   let side: Int
   var intent: CourtTouchIntent = .movement
@@ -20,6 +21,8 @@ struct PracticeGesture {
   var shotEpoch: Int?
   var allowsDrop = false
   var movementGain = 1.0
+  var targetGuide: MovementGuide?
+  private var movementCommitted = false
   private var start: Vec?
   private var travelled = 0.0
   private var screenStart: Vec?
@@ -30,12 +33,23 @@ struct PracticeGesture {
   mutating func update(at point: Vec, screenPoint: Vec? = nil, ended: Bool = false, timestamp: Double? = nil)
     -> PracticeGestureAction?
   {
+    guard !movementCommitted else { return nil }
     if start == nil { start = point }
     guard let start else { return nil }
     travelled = max(travelled, start.distance(to: point))
     let screen = screenPoint ?? point
     if screenStart == nil { screenStart = screen }
     if startedAt == nil { startedAt = timestamp }
+    if intent != .slice, let guide = targetGuide {
+      let delta = Vec(x: point.x - start.x, y: point.y - start.y)
+      let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
+      let enough = screenPoint == nil ? delta.length >= 0.2 : screen.distance(to: screenStart!) >= 8
+      let alignment = (delta.x * path.x + delta.y * path.y) / max(0.000001, delta.length * path.length)
+      if enough && alignment >= 0.65 {
+        movementCommitted = true
+        return .guidedMove(guide.kind)
+      }
+    }
     if circlePoints.last.map({ $0.distance(to: screen) >= 2 }) ?? true, circlePoints.count < 160 {
       circlePoints.append(screen)
     }
@@ -121,26 +135,66 @@ extension PracticeEngine {
     if dismissAffirmation() { return }
     guard side != 0 || queuedPower == nil else { return }
     guard acceptsCourtMovement else { return }
-    if let target = outBallChaseTarget(side) {
-      if point.distance(to: target) <= 1.15 || point.distance(to: ball) <= 1.15 { move(side, to: target) }
-      return
-    }
+    if outBallChaseTarget(side) != nil { return }
     guard phase.isPlaying else { return }
     if phase == .serving && servePreparation?.server == side {
       requestServe(side)
       return
     }
-    if let yellow = contactGuide(side), point.distance(to: yellow) <= 1.15 {
-      move(side, to: yellow)
-      dropGestureEpoch[side] = shotGestureEpoch(side)
-    } else if let white = recoveryGuide(side), point.distance(to: white) <= 1.15 {
-      recover(side)
+    if canTapNetShot(side) {
+      choose(side, .line)
+      players[side].aim = CourtTactics.openCourt(side: side, opponent: players[1 - side].pos,
+        overhead: contactWindow(side)?.overhead == true)
+      return
     }
-    // Target taps keep their movement command and also prepare for the next ball.
+    // A tap never starts or redirects a run, even when it lands on a guide.
     beginSplit(side)
   }
 
+  func canTapNetShot(_ side: Int) -> Bool {
+    guard canChooseShot(side), flight?.serve == false, let yellow = contactGuide(side),
+      players[side].pos.distance(to: yellow) <= Self.contactRadius,
+      players[side].pos.distance(to: players[side].destination) <= Self.contactRadius else { return false }
+    return contactWindow(side)?.volley == true
+  }
+
+  mutating func receiveAtGuide(_ side: Int) {
+    guard let yellow = contactGuide(side) else { return }
+    if players[side].pos.distance(to: yellow) > Self.contactRadius
+      || players[side].destination.distance(to: yellow) > Self.contactRadius {
+      move(side, to: yellow)
+    }
+    dropGestureEpoch[side] = shotGestureEpoch(side)
+  }
+
+  func swipeMovementGuide(_ side: Int, onPlayer: Bool = false) -> MovementGuide? {
+    let kind: MovementGuideKind, target: Vec
+    if let yellow = contactGuide(side) { kind = .receive; target = yellow }
+    else if let white = recoveryGuide(side) { kind = .recover; target = white }
+    else { return nil }
+    let player = players[side]
+    if onPlayer && player.destination.distance(to: target) <= Self.contactRadius { return nil }
+    guard player.pos.distance(to: target) > 0.15 else { return nil }
+    return MovementGuide(kind: kind, from: player.pos, to: target)
+  }
+
   mutating func swipeCourt(_ side: Int, delta: Vec) {
+    // A deliberate forward court swipe keeps the existing approach command.
+    // Short swipes captured against white use guidedMove(.recover) directly.
+    let forward = delta.y * (side == 0 ? -1 : 1)
+    if phase.isPlaying, flight?.hitter == side, flight?.fault == nil,
+      forward >= 0.55, abs(delta.x) <= forward * 0.75 {
+      followShot(side)
+      return
+    }
+    if let guide = swipeMovementGuide(side), delta.length >= 0.2 {
+      let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
+      let alignment = (delta.x * path.x + delta.y * path.y) / max(0.000001, delta.length * path.length)
+      if alignment >= 0.65 {
+        if guide.kind == .receive { receiveAtGuide(side) } else { recover(side) }
+        return
+      }
+    }
     // You can still deliberately chase an out ball away from the net.
     if let target = outBallChaseTarget(side), delta.length >= 0.55,
       (target.y - players[side].pos.y) * (side == 0 ? 1 : -1) >= 0,
@@ -150,7 +204,6 @@ extension PracticeEngine {
     }
     guard phase.isPlaying, flight?.fault == nil, delta.length >= 0.55,
       phase != .serving || servePreparation?.server != side else { return }
-    let forward = delta.y * (side == 0 ? -1 : 1)
     if flight?.hitter == side && forward >= 0.55 && abs(delta.x) <= forward * 0.75 {
       followShot(side)
       return
@@ -160,7 +213,7 @@ extension PracticeEngine {
       let guide = MovementGuide(kind: .receive, from: players[side].pos, to: target)
       let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
       let alignment = (delta.x * path.x + delta.y * path.y) / max(0.001, delta.length * path.length)
-      if alignment >= 0.65 { move(side, to: guide.to); return }
+      if alignment >= 0.65 { receiveAtGuide(side); return }
     }
     // Off-player swipes can run to an incoming yellow target. Open-court forward
     // movement is reserved for the separate outgoing approach window.

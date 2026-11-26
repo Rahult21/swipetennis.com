@@ -295,7 +295,7 @@ struct CupMatchView: View {
           courtCard {
             Text(game.phase == .ready ? "Ready for the \(title.lowercased())?" : game.feedback.title).font(.title3.bold())
             if game.phase != .ready { Text(game.feedback.reason).font(.subheadline) }
-            Text(game.phase == .ready ? "Tap yellow to receive, white to recover. Swipe from your player to choose a shot." : game.scoreSummary)
+            Text(game.phase == .ready ? "Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot." : game.scoreSummary)
               .font(.subheadline).foregroundStyle(.secondary)
             Button(session.waitingForNext ? "Waiting for opponent…" : game.phase == .ready ? "I'm ready to play" : "Next point") { session.next() }
               .buttonStyle(.borderedProminent).disabled(session.waitingForNext || game.phase == .finished)

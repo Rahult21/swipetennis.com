@@ -88,7 +88,7 @@ struct CourtBillboard: View {
   private var artwork: (mark: GestureMark, color: Color, ring: Bool) {
     switch game.coachCue {
     case .move(let direction, _): return (.swipe(direction.x, direction.y), .yellow, true)
-    case .tapTarget: return (.tap, .white, true)
+    case .tapShot: return (.tap, .yellow, true)
     case .shot(let kind, let lateral): return (.shot(kind, lateral: lateral), TennisTheme.lime, false)
     case .split(let timed): return (.split, timed ? .mint : .white, false)
     case .ready: return (.ready, TennisTheme.lime, false)

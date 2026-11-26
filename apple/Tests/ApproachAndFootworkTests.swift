@@ -33,7 +33,7 @@ final class ApproachAndFootworkTests: XCTestCase {
       game.apply(.run(forward), side: side, movementEpoch: outgoing)
       XCTAssertEqual(game.players[side].destination, stopped)
       let target = try XCTUnwrap(game.contactGuide(side))
-      game.tapCourt(side, at: target)
+      game.apply(.guidedMove(.receive), side: side)
       XCTAssertEqual(game.players[side].destination, PracticeEngine.own(side,target))
     }
   }

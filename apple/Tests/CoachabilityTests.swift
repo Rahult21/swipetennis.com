@@ -75,7 +75,7 @@ final class CoachabilityTests: XCTestCase {
     engine.players[0].pos = Vec(x: 4.1, y: 24.5)
     engine.players[0].destination = engine.players[0].pos
     guard case .move(_, .receive) = engine.coachCue else { return XCTFail("First show how to reach yellow") }
-    engine.tapCourt(0, at: engine.contactGuide(0)!)
+    engine.apply(.guidedMove(.receive), side: 0)
     XCTAssertEqual(engine.coachCue, .shot(.lob, 0))
     engine.selectShotSwipe(Vec(x: 0, y: 40), side: 0)
     XCTAssertEqual(engine.coachCue, .ready)
@@ -132,8 +132,7 @@ final class CoachabilityTests: XCTestCase {
       var engine = PracticeEngine(settings: .init(difficulty: difficulty))
       engine.start(random: { 0.5 })
       engine.prepareSecondServe()
-      let yellow = engine.contactGuide(0)!
-      engine.tapCourt(0, at: yellow)
+      engine.apply(.guidedMove(.receive), side: 0)
       XCTAssertTrue(engine.coach.events.isEmpty) // A command alone is not an arrival.
       for _ in 0..<1200 where engine.flight?.hitter != 0 && engine.phase.isPlaying {
         engine.step(1 / 120, random: { 0.5 })
@@ -159,10 +158,10 @@ final class CoachabilityTests: XCTestCase {
     XCTAssertEqual(engine.coach.events.filter { $0.rule == .secondServeRise }.map(\.points), [2])
   }
 
-  func testSecondServeTapWithoutReachingYellowDoesNotEarnOnRise() {
+  func testSecondServeSwipeWithoutReachingYellowDoesNotEarnOnRise() {
     var engine = incoming(at: Vec(x: 3, y: 22.67), serve: 2)
     engine.players[0].pos = Vec(x: 7, y: 24.5)
-    engine.tapCourt(0, at: engine.contactGuide(0)!)
+    engine.apply(.guidedMove(.receive), side: 0)
     engine.end(1, reason: "Late to the serve", tip: "")
     XCTAssertEqual(engine.coach.events.filter { $0.rule == .secondServeRise }.map(\.points), [-1])
   }
