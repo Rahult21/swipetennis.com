@@ -1,5 +1,8 @@
 # Native iOS releases
 
-For each commit that changes the SwipeTennis iOS app under `apple/`, run the relevant checks, push the commit to GitHub `main`, and install the signed build from that commit on the user's paired iPhone over Wi-Fi. Verify the remote commit and the device installation. Launch the app to confirm it opens when the phone is unlocked.
+For each commit that changes the SwipeTennis iOS app under `apple/`, run the relevant checks and push the commit to GitHub `main`. Install the signed build from that commit over Wi-Fi on both paired physical devices:
 
-If the phone is unavailable, push the commit and report that the iPhone installation is pending. If the installation succeeds while the phone is locked, report installation and launch status separately.
+- iPhone16pro-RT (iPhone 16 Pro)
+- Ruchi 17 Pro Max (iPhone 17 Pro Max)
+
+Verify the remote commit and the installed build on each device. Launch the app on each unlocked phone. If one phone is unavailable, finish the release on the other and report which installation is pending. If a phone is locked, report its installation and launch status separately.
