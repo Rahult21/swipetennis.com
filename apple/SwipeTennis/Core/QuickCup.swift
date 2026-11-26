@@ -39,6 +39,7 @@ struct CupPlayer: Codable, Identifiable {
   let kind: String
   let ready: Bool
   var level: CupLevel?
+  var botST: Double?
   var style: String?
   var stRating: STRating?
   var isBot: Bool { kind == "bot" }
@@ -60,13 +61,19 @@ struct CupMatch: Codable, Identifiable {
   let score: [Int]
   let winnerID: String?
   let reason: String?
+  var rematchRequestedBy: String?
   var ratingChanges: [STRatingChange]?
-  var title: String { id == "final" ? "Final" : id == "semi-1" ? "Semifinal 1" : "Semifinal 2" }
+  var title: String { id == "final" ? "Final" : id.hasPrefix("quarter-") ? "Quarterfinal " + id.suffix(1) : "Semifinal " + id.suffix(1) }
   var complete: Bool { status == "complete" }
 }
 struct QuickCup: Codable, Identifiable {
   let code: String
   let title: String
+  var size: Int?
+  var division: String?
+  var adaptive: Bool?
+  var eventWeek: Double?
+  var capacity: Int { size ?? 4 }
   let hostID: String
   let status: String
   let level: CupLevel
@@ -89,9 +96,10 @@ struct QuickCup: Codable, Identifiable {
   }
   func engine(for match: CupMatch) -> PracticeEngine {
     let near = player(match.playerIDs.first), far = player(match.playerIDs.last)
-    var settings = PracticeSettings(local: far?.isBot == false, difficulty: level.difficulty,
+    var settings = PracticeSettings(local: far?.isBot == false, difficulty: (far?.level ?? level).difficulty,
       style: far?.botStyle ?? .baseline, surface: surfaceValue, allCourtTraining: false,
       scoring: .tiebreak, playerName: near?.name ?? "Player", opponentName: far?.name ?? "Opponent")
+    settings.botST = far?.botST
     settings.tournament = true
     return PracticeEngine(settings: settings)
   }

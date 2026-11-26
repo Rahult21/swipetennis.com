@@ -4,6 +4,7 @@ struct ReplayReview: Identifiable {
   let id = UUID()
   let clip: PointReplay
   let surface: CourtSurface
+  var side: Int = 0
 }
 
 struct PointReplayView: View {
@@ -17,6 +18,7 @@ struct PointReplayView: View {
   @State private var resumeAfterScrub = false
   @State private var playbackID = 0
   @State private var ready = false
+  @State private var highlight: Image?
 
   init(review: ReplayReview) {
     self.review = review
@@ -44,7 +46,7 @@ struct PointReplayView: View {
       VStack(spacing: 0) {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
           let time = cursor
-          ReplayCourt(replay: review.clip, surface: review.surface, angle: angle, seconds: time,
+          ReplayCourt(replay: review.clip, surface: review.surface, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
             playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion) {
               ready = true
               if !reduceMotion && phase == .active { play() }
@@ -96,9 +98,56 @@ struct PointReplayView: View {
         }.disabled(!ready).padding(.horizontal, 16).padding(.vertical, 10).background(.bar)
       }
       .navigationTitle("Point replay").navigationBarTitleDisplayMode(.inline)
-      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+      .toolbar {
+        ToolbarItem(placement:.topBarLeading) {
+          if let highlight {
+            ShareLink(item:highlight,preview:SharePreview("SwipeTennis point",image:highlight)) {
+              Label("Share highlight",systemImage:"square.and.arrow.up")
+            }
+          }
+        }
+        ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+    .task {
+      let renderer = ImageRenderer(content: RallyHighlight(review:review))
+      renderer.scale = 2
+      if let graphic = renderer.uiImage { highlight = Image(uiImage:graphic) }
     }
     .onDisappear { pause() }
     .onChange(of: phase) { _, phase in if phase != .active { pause() } }
+  }
+}
+
+private struct RallyHighlight: View {
+  let review: ReplayReview
+  var body: some View {
+    VStack(alignment:.leading,spacing:12) {
+      Text("SwipeTennis").font(.headline)
+      Text("Point replay").font(.largeTitle.bold())
+      Canvas { context,size in
+        func position(_ ball: CourtPoint3D) -> CGPoint {
+          let x = CGFloat(ball.x) / PracticeEngine.width
+          let y = CGFloat(ball.z) / PracticeEngine.length
+          return CGPoint(x:12 + (review.side == 0 ? x : 1-x)*(size.width-24),
+                         y:18 + (review.side == 0 ? y : 1-y)*(size.height-36))
+        }
+        let court = CGRect(origin:.zero,size:size).insetBy(dx:12,dy:18)
+        context.stroke(Path(court),with:.color(.white),lineWidth:2)
+        var net = Path(); net.move(to:CGPoint(x:0,y:court.midY)); net.addLine(to:CGPoint(x:size.width,y:court.midY))
+        context.stroke(net,with:.color(.white.opacity(0.7)),style:StrokeStyle(lineWidth:2,dash:[4,4]))
+        var path = Path()
+        let frames = review.clip.frames, strideSize = max(1, frames.count/500)
+        for index in stride(from:0,to:frames.count,by:strideSize) {
+          let p = position(frames[index].ball)
+          if index == 0 { path.move(to:p) } else { path.addLine(to:p) }
+        }
+        context.stroke(path,with:.color(.yellow),lineWidth:2)
+        for hit in review.clip.strikes {
+          let p = position(hit.point)
+          context.fill(Path(ellipseIn:CGRect(x:p.x-4,y:p.y-4,width:8,height:8)),with:.color(.white))
+        }
+      }.frame(height:350)
+      Text("\(review.clip.strikes.count) contacts · \(review.surface.rawValue) court").font(.subheadline)
+    }.padding(24).frame(width:300).background(Color(red:0.06,green:0.29,blue:0.22)).foregroundStyle(.white)
   }
 }

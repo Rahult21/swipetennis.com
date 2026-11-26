@@ -2,6 +2,21 @@ import XCTest
 @testable import TennisCore
 
 final class QuickCupTests: XCTestCase {
+  func testCalibratedBotAndDailyPressureScoresSurviveRoundTrip() throws {
+    var settings = PracticeSettings(scoring:.tiebreak)
+    settings.botST = 4
+    let atFour = settings.botReaction
+    settings.botST = 8
+    XCTAssertLessThan(settings.botReaction,atFour)
+    for (day,score) in [[5,6],[6,5],[6,6]].enumerated() {
+      settings.pressureDay = day
+      let restored = try JSONDecoder().decode(PracticeSettings.self,from:JSONEncoder().encode(settings))
+      let game = PracticeEngine(settings:restored)
+      XCTAssertEqual(game.scoring.points,score)
+      XCTAssertEqual(game.scoring.server,TieBreak.server(first:1,played:score.reduce(0,+)))
+      XCTAssertEqual(restored.botST,8)
+    }
+  }
   func testSTRankingStartsTentativeAndDisplaysFractionalProgress() throws {
     XCTAssertEqual(STRating().label, "ST 4t")
     let rating = try JSONDecoder().decode(STRating.self, from: Data(#"{"points":4.4,"humanMatches":3,"wins":1,"tentative":false}"#.utf8))

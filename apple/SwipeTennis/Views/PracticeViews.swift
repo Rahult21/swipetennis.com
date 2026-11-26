@@ -8,12 +8,12 @@ struct PracticeSetupView: View {
   @State private var settings = PracticeSettings()
   @EnvironmentObject private var slot: PracticeMatchSlot
   @State private var presentedMatch: SavedPracticeMatch?
-  private var savedMatch: SavedPracticeMatch? { slot.match(for: account.identity?.userID) }
-  @State private var signingIn = false
+  private var savedMatch: SavedPracticeMatch? { slot.match(for: account.identity?.userID ?? DemoProgressArchive.guest) }
+
   @State private var showGuide = false
   var body: some View {
     Form {
-      if let savedMatch, demos.progress.unlocksCourt {
+      if let savedMatch {
         Section {
           Button { presentedMatch = savedMatch } label: {
             Label {
@@ -29,8 +29,16 @@ struct PracticeSetupView: View {
       }
       if !demos.progress.unlocksCourt {
         Section {
+          Button("Quick play") {
+            let quick = PracticeSettings(allCourtTraining:false,scoring:.tiebreak,
+              playerName:ApplePlayerName.display(account.identity?.emailMask))
+            presentedMatch = SavedPracticeMatch(owner:account.identity?.userID ?? DemoProgressArchive.guest,
+              engine:PracticeEngine(settings:quick))
+          }.accessibilityIdentifier("quickGuestPlay")
+        } footer: { Text("Play a seven-point tiebreak right away. Starting replaces the saved match on this device.") }
+        Section {
           Label("Master the first five skills", systemImage: "lock.fill").font(.headline)
-          Text("\(demos.progress.requiredMasteredCount)/5 complete. Finish the required guided-demo skills to unlock Take the court.")
+          Text("\(demos.progress.requiredMasteredCount)/5 complete. Complete the academy foundations to unlock custom match setup.")
             .font(.subheadline).foregroundStyle(.secondary)
           NavigationLink { ShotDemoHub() } label: {
             Label("Continue guided demo", systemImage: "figure.tennis")
@@ -97,16 +105,7 @@ struct PracticeSetupView: View {
         PracticeGameView(match: match)
       }
       .sheet(isPresented: $showGuide) { CourtGuideView() }
-      .sheet(isPresented: $signingIn, onDismiss: {
-        demos.activate(userID: account.identity?.userID)
-        if demos.progress.unlocksCourt { openNewMatch() }
-      }) {
-        NavigationStack {
-          CoachAccountScreen()
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { signingIn = false } } }
-            .onChange(of: account.isSignedIn) { _, signedIn in if signedIn { signingIn = false } }
-        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-      }
+
   }
   private func resumeScore(_ engine: PracticeEngine) -> String {
     let score = engine.scoring
@@ -114,7 +113,7 @@ struct PracticeSetupView: View {
     return "Games \(score.games[0])–\(score.games[1]) · Points \(score.pointLabel(0))–\(score.pointLabel(1))"
   }
   private func openNewMatch() {
-    guard let owner = account.identity?.userID else { return }
+    let owner = account.identity?.userID ?? DemoProgressArchive.guest
     presentedMatch = SavedPracticeMatch(owner: owner, engine: PracticeEngine(settings: settings))
   }
   private func takeCourt(using selected: PracticeSettings) {
@@ -124,7 +123,7 @@ struct PracticeSetupView: View {
     settings.playerName = ApplePlayerName.display(account.identity?.emailMask)
     store.data.practice = settings
     store.save()
-    if account.isSignedIn { openNewMatch() } else { signingIn = true }
+    openNewMatch()
   }
 }
 struct PracticeGameView: View {
@@ -292,8 +291,13 @@ struct PracticeGameView: View {
       .onChange(of: reduceMotion) { _, value in session.scene.reduceMotion = value }
       .onChange(of: game.coach.records.last?.id) { _, id in
         if id != nil {
-          if !game.settings.local, let point = game.coach.records.last { account.enqueue([point], owner: owner) }
+          if game.settings.pressureDay == nil, !game.settings.local, let point = game.coach.records.last { account.enqueue([point], owner: owner) }
           checkpoint()
+        }
+      }
+      .onChange(of: game.scoring.winner) { _, winner in
+        if let day = game.settings.pressureDay, let winner {
+          DailyRival.record(day:day, won:winner == 0, owner:owner)
         }
       }
       .onChange(of: game.inventory) { _, _ in checkpoint() }
@@ -346,7 +350,7 @@ struct PracticeGameView: View {
   private func leave(saving: Bool) {
     let engine = session.scene.engine
     do {
-      if saving { try slot.save(engine, owner: owner) }
+      if saving && engine.settings.pressureDay == nil { try slot.save(engine, owner: owner) }
       else { try slot.discard(engine.coach.sessionID, owner: owner) }
       dismiss()
     } catch { showSaveError(error) }
@@ -426,7 +430,7 @@ struct PracticeSessionSheet: View {
   @State private var confirmRestart = false
   @State private var showGuide = false
   var game: PracticeEngine { session.snapshot }
-  private var canSave: Bool { game.phase != .ready && game.phase != .finished }
+  private var canSave: Bool { game.settings.pressureDay == nil && game.phase != .ready && game.phase != .finished }
   private var title: String {
     confirmingExit ? "Leaving the court" : game.phase == .ready ? "Ready to play" : "Match paused"
   }
@@ -631,5 +635,52 @@ struct CoachPointBreakdown: View {
         }.padding(.vertical, 3).accessibilityElement(children: .combine)
       }.accessibilityIdentifier("pointCoachReasons")
     }
+  }
+}
+
+private enum DailyRival {
+  static let names = ["Casey", "Morgan", "Jules"]
+  static let styles: [BotStyle] = [.volley,.retriever,.aggressive]
+  static func index(_ day: Int) -> Int { (day + day / 3) % names.count }
+  static func results(_ owner: String) -> [String:Bool] {
+    UserDefaults.standard.dictionary(forKey:"pressure.results."+owner) as? [String:Bool] ?? [:]
+  }
+  static func record(day: Int, won: Bool, owner: String) {
+    var saved = results(owner)
+    guard saved[String(day)] == nil else { return }
+    saved[String(day)] = won
+    UserDefaults.standard.set(saved,forKey:"pressure.results."+owner)
+  }
+}
+struct DailyPressureSection: View {
+  @EnvironmentObject private var account: CoachAccountStore
+  @State private var match: SavedPracticeMatch?
+  @State private var results: [String:Bool] = [:]
+  private var owner: String { account.identity?.userID ?? DemoProgressArchive.guest }
+  var body: some View {
+    TimelineView(.periodic(from:.now,by:60)) { time in
+      let day = Int(time.date.timeIntervalSince1970 / 86400)
+      let rival = DailyRival.index(day)
+      let name = DailyRival.names[rival]
+      let past = results.compactMap { key, won -> (Int,Bool)? in
+        guard let date = Int(key), date < day, DailyRival.index(date) == rival else { return nil }
+        return (date,won)
+      }.sorted { $0.0 > $1.0 }
+      Section("Daily pressure challenge") {
+        let start = ["5–6","6–5","6–6"][day % 3]
+        Button {
+          var settings = PracticeSettings(style:DailyRival.styles[rival],scoring:.tiebreak,opponentName:name)
+          settings.pressureDay = day
+          match = SavedPracticeMatch(owner:owner,engine:PracticeEngine(settings:settings))
+        } label: {
+          Label(results[String(day)] == nil ? "Play \(name) from \(start)" : "Play \(name) again from \(start)",systemImage:"tennisball.fill")
+        }
+        if let today = results[String(day)] { Text(today ? "Today’s challenge won" : "Today’s challenge lost") }
+        if let last = past.first {
+          Text(last.1 ? "\(name) returns for a rematch after your last win. You won \(past.filter { $0.1 }.count) of your \(past.count) past meetings." : "\(name) won your last meeting. Read the \(DailyRival.styles[rival].rawValue.lowercased()) pattern and turn the result around.").font(.caption)
+        } else { Text("First meeting with \(name). \(DailyRival.styles[rival].detail)").font(.caption) }
+      }
+    }.task(id:owner) { results = DailyRival.results(owner) }
+      .fullScreenCover(item:$match,onDismiss:{ results = DailyRival.results(owner) }) { PracticeGameView(match:$0) }
   }
 }

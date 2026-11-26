@@ -62,6 +62,7 @@ struct HomeView: View {
         }.padding(.vertical, 4)
           .listRowBackground(Color.clear)
       }
+      DailyPressureSection()
       Section {
         NavigationLink { PracticeSetupView() } label: {
           Label {
@@ -78,7 +79,7 @@ struct HomeView: View {
           Label {
             VStack(alignment: .leading, spacing: 4) {
               Text("Quick Cup").font(.headline)
-              Text("Friends, four players, one trophy").font(.subheadline).foregroundStyle(.secondary)
+              Text("Play with friends or find an ST opponent").font(.subheadline).foregroundStyle(.secondary)
             }
           } icon: { Image(systemName: "trophy.fill").foregroundStyle(TennisTheme.accent) }
           .padding(.vertical, 5)

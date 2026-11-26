@@ -19,7 +19,7 @@ function sql(statement) {
   execFileSync(wrapper, ['d1', 'execute', 'swipetennisdb', '--local', '--file', path], {stdio: 'pipe', env: {...process.env, WRANGLER_SEND_METRICS: 'false'}});
 }
 async function api(path, account = accounts[0], body, status = 200, method = body === undefined ? 'GET' : 'POST') {
-  const response = await fetch(new URL(path, origin), {method, headers: {'Content-Type': 'application/json', ...(account ? {Authorization: `Bearer ${account.token}`} : {})},
+  const response = await fetch(new URL(path, origin), {method, headers: {'Content-Type': 'application/json', 'X-Cup-Version':'3', ...(account ? {Authorization: `Bearer ${account.token}`} : {})},
     body: body === undefined ? undefined : JSON.stringify(body)});
   const result = await response.json(); assert.equal(response.status, status, JSON.stringify(result)); return result;
 }
@@ -61,15 +61,25 @@ async function play(cup, match, loserPoints = 0) {
     guest.send({type: 'input', side: 0, input: {kind: 'tap', point: {x: 4, y: 0}}});
     const input = await host.receive('input'); assert.equal(input.side, 1); assert.equal(input.input.kind, 'tap');
   }
-  for (const client of clients) client.send({type: 'next', point: 0});
-  for (const client of clients) await client.receive('advance');
+  async function advance(point) {
+    for (const client of clients) client.send({type:'next',point});
+    for (const client of clients) await client.receive('advance',message=>message.point===point);
+  }
+  if (guest) {
+    host.send({type:'next',point:0});
+    host.send({type:'snapshot',snapshot:state([1,0],true)});
+    assert.match((await host.receive('error')).message,/advance/);
+  }
+  let total = 0;
   for (let score = 1; score <= 7; score++) {
     if (score === 7) {
       for (let lost = 1; lost <= loserPoints; lost++) {
+        await advance(total++);
         host.send({type:'snapshot',snapshot:state([6,lost],clients.length === 2)});
         if (guest) await guest.receive('snapshot',message=>message.snapshot.scoring.points[1] === lost);
       }
     }
+    await advance(total++);
     host.send({type: 'snapshot', snapshot: state([score, score === 7 ? loserPoints : 0], clients.length === 2, score === 7 ? 'finished' : 'point')});
     if (guest) await guest.receive('snapshot', message => message.snapshot.scoring.points[0] === score);
     // Every point is checkpointed, including the one used for reconnection.
@@ -126,10 +136,41 @@ try {
   assert.equal(solo.championID, accounts[0].id);
   assert.deepEqual((await api('me')).stRating,beforeBots,'Winning an entire bot cup never changes ST or human stats');
   assert(solo.matches.every(game=>!game.ratingChanges));
+  const history = await api('career',accounts[0]);
+  assert(history.trophies.some(t=>t.code===solo.code));
+  assert(history.rivals.length > 0 && history.trend.length > 0);
+  await api('club',accounts[0],{action:'create',name:'Net Rush'});
+  const club = (await api('career',accounts[0])).club;
+  await api('club',accounts[1],{action:'join',code:club.code});
+  assert.equal((await api('career',accounts[1])).ladder.length,2);
+  await api('club',accounts[1],{action:'leave'});
+  assert.equal((await api('career',accounts[1])).club,null);
+  const weekly = await api('cups/find',accounts[0],{mode:'weekly'});
+  assert.equal(weekly.size,8);
+  let open = await api(`cups/${weekly.code}/start`, accounts[0], {});
+  assert(open.participants.filter(p=>p.kind==='bot').every(p=>Math.abs(p.botST-beforeBots.points)<0.36));
+  for (const round of ['quarter-','semi-','final']) {
+    const game = open.matches.find(m=>m.id.startsWith(round) && m.playerIDs.includes(accounts[0].id));
+    open = await play(open,game);
+  }
+  assert.equal(open.matches.length,7);
+  assert.equal(open.championID,accounts[0].id);
+  const firstPlayer = accounts[4];
+  const duel = await api('cups/find',firstPlayer,{mode:'duel'});
+  const peer = accounts.find(a => a.id === cup.championID);
+  const paired = await api('cups/find',peer,{mode:'duel'});
+  assert.equal(paired.code,duel.code);
+  const played = await play(paired,paired.matches[0]);
+  const rematch = {code:played.code, match:'final'};
+  const repeat = await api('cups/rematch',peer,rematch);
+  assert.equal((await api(`cups/${played.code}`,firstPlayer)).matches[0].rematchRequestedBy,peer.id);
+  await api(`cups/${repeat.code}/join`,accounts.find(a=>a.id!==peer.id && a.id!==firstPlayer.id),{},403);
+  const accepted = await api('cups/rematch',firstPlayer,rematch);
+  assert.equal(accepted.code,repeat.code); assert.equal(accepted.status,'playing');
   await api('me', accounts[0], undefined, 200, 'DELETE');
   const anonymized = await api(`cups/${cup.code}`, accounts[1]);
   assert.equal(anonymized.participants.find(p => p.id === accounts[0].id).name, 'Deleted player');
-  console.log('PASS: four-human and bot cups, ST 4t initialization, human-only rating changes and W/L stats, bot exclusion, invite authorization, readiness, capacity, fixed bot level, live input relay, snapshot ownership, reconnect checkpoints, semifinals/finals, result persistence and account deletion.');
+  console.log('PASS: ST matchmaking and rematches, weekly eight-player cup, permanent trophies, rivals, clubs and ladder, score consent, four-human and bot cups, ST 4t initialization, human-only rating changes and W/L stats, bot exclusion, invite authorization, readiness, capacity, fixed bot level, live input relay, snapshot ownership, reconnect checkpoints, semifinals/finals, result persistence and account deletion.');
 } finally {
   for (const client of sockets) client.ws.terminate();
   for (const account of accounts.slice(1)) await api('me', account, undefined, 200, 'DELETE').catch(() => {});

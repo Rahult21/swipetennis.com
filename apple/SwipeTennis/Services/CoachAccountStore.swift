@@ -71,6 +71,7 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
     }
     var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = 20
     request.httpBody = body
+    request.setValue("3", forHTTPHeaderField: "X-Cup-Version")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     if authenticated, let identity { request.setValue("Bearer \(identity.token)", forHTTPHeaderField: "Authorization") }
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -202,6 +203,10 @@ private struct PendingCoachPoint: Codable { let userID: String; let point: Coach
       struct Response: Decodable { let deleted: Bool }
       let _: Response = try await request("/me", method: "DELETE", authenticated: true)
       pending.removeAll { $0.userID == owner }; persistQueue(); try saveIdentity(nil)
+      let profile = DemoProgressArchive.profile(for:owner)
+      for key in ["academy.strength."+profile,"academy.style."+profile,"pressure.results."+owner,"tour.emblem."+owner] {
+        UserDefaults.standard.removeObject(forKey:key)
+      }
       boards = [:]
     } catch { self.error = error.localizedDescription }
   }

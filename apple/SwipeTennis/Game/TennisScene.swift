@@ -51,7 +51,7 @@ import SwiftUI
     }
     guard next.phase == .ready || next.phase == .point else { return }
     next.start()
-    try slot.save(next, owner: owner)
+    if next.settings.pressureDay == nil { try slot.save(next, owner: owner) }
     scene.engine = next
     paused = false
     scene.suspended = false
@@ -409,7 +409,11 @@ import SwiftUI
         }
       }
       if let from = replicaFlightFrom, let to = replicaFlightTo { engine.flight?.elapsed = from + (to - from) * t }
-      performance.update(game: engine, dt: dt, reduceMotion: reduceMotion)
+      if !engine.showsPointResult { accumulator += dt }
+      while accumulator >= PointReplay.tick {
+        performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
+        accumulator -= PointReplay.tick
+      }
     } else if engine.needsSimulation {
       accumulator += dt
       while accumulator >= 1 / 120 {
@@ -514,6 +518,9 @@ import SwiftUI
   func receiveCupSnapshot(_ value: PracticeEngine) {
     let old = engine
     engine = value
+    if old.phase == .point && value.phase != .point || old.phase == .ready && value.phase != .ready {
+      resetRallyPresentation()
+    }
     replicaFrom = old.players.map(\.pos)
     replicaTo = value.players.map(\.pos)
     replicaElapsed = 0

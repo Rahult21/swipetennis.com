@@ -1,6 +1,53 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  func testGuestQuickPlayAndOptionalPointReplay() throws {
+    let app = XCUIApplication()
+    app.launch()
+    app.buttons["playPractice"].tap()
+    let quick = app.buttons["quickGuestPlay"]
+    guard quick.waitForExistence(timeout:5) else { throw XCTSkip("This simulator profile already mastered the academy.") }
+    quick.tap()
+    let start = app.buttons["startPractice"]
+    XCTAssertTrue(start.waitForExistence(timeout:8))
+    start.tap()
+    // The far player serves first. Let the serve pass to reach the real result card.
+    let replay = app.buttons["replayPracticePoint"]
+    XCTAssertTrue(replay.waitForExistence(timeout:30))
+    replay.tap()
+    XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:15))
+    app.buttons["replayCameraNeutral"].tap()
+    XCTAssertTrue(app.buttons["Share highlight"].exists)
+    app.buttons["Done"].tap()
+    XCTAssertTrue(replay.waitForExistence(timeout:8))
+  }
+  func testTournamentPointReplay() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard let token = env["TOUR_TEST_TOKEN"], let user = env["TOUR_TEST_USER"] else {
+      throw XCTSkip("Requires a local Worker cup fixture.")
+    }
+    let app = XCUIApplication()
+    app.launchEnvironment = ["SWIPETENNIS_LOCAL_TEST_URL":"http://127.0.0.1:8788/api/",
+      "SWIPETENNIS_LOCAL_TEST_USER":user,"SWIPETENNIS_LOCAL_TEST_TOKEN":token]
+    app.launch()
+    app.buttons["quickCup"].tap()
+    let draw = app.buttons.containing(.staticText,identifier:"Replay test").firstMatch
+    for _ in 0..<6 where !draw.isHittable { app.swipeUp() }
+    XCTAssertTrue(draw.isHittable)
+    draw.tap()
+    let play = app.buttons["playCupMatch"]
+    for _ in 0..<5 where !play.isHittable { app.swipeUp() }
+    play.tap()
+    let ready = app.buttons["I'm ready to play"]
+    XCTAssertTrue(ready.waitForExistence(timeout:12)); ready.tap()
+    let replay = app.buttons["replayCupPoint"]
+    XCTAssertTrue(replay.waitForExistence(timeout:30)); replay.tap()
+    XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:15))
+    app.buttons["replayCameraNeutral"].tap()
+    app.buttons["Done"].tap()
+    XCTAssertTrue(app.buttons["Next point"].isEnabled)
+    XCTAssertTrue(replay.exists)
+  }
   func testPracticeFlow() {
     let app = XCUIApplication()
     app.launch()

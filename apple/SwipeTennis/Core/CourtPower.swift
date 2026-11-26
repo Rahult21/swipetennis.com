@@ -69,7 +69,7 @@ extension PracticeEngine {
     flight?.missedChaseTarget = nil
     // Give the receiver enough time to lift the feed for the overhead.
     let chase = CourtTactics.travelTime(distance: players[1].pos.distance(to: intercept(1)),
-      speed: settings.style.speed * settings.difficulty.speed)
+      speed: settings.style.speed * settings.botSpeed)
     if var outgoing = flight {
       let remaining = max(0.000001, 1 - outgoing.progress)
       let fraction = outgoing.progress

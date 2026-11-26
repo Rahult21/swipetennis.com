@@ -1,5 +1,6 @@
 import {verifyAppleToken, randomToken, digest} from './apple-auth.mjs';
 import {maskEmail, publicPlayerName, validatePoint, validateSequence, demoEntries} from './rules.mjs';
+import {career, clubAction, findDraw, rematchDraw} from './tour.mjs';
 import {validCode} from './cup-rules.mjs';
 import {ratingFor, tentativeMatches, ratingAlgorithm} from './st-ratings.mjs';
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store','X-Content-Type-Options': 'nosniff'}});
@@ -45,8 +46,13 @@ export default {
         if (!(await env.API_LIMITER.limit({key})).success) throw fail(429, 'Please wait a minute and retry');
       }
       if (path === '/health' && request.method === 'GET') return json({ok: true, rulesVersion: 3});
-      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 2, players: 4, liveInvites: true,
+      if (path === '/cups/capabilities' && request.method === 'GET') return json({version: 2, players: 4, drawSizes: [2,4,8], liveInvites: true,
         stRankings: true, stTentativeMatches: tentativeMatches, stRatingAlgorithm: ratingAlgorithm});
+      if (path === '/career' && request.method === 'GET') return json(await career(env.DB, (await user(request,env)).id));
+      if (path === '/club' && request.method === 'POST') {
+        const account = await user(request,env);
+        return json(await clubAction(env.DB, account.id, await body(request)));
+      }
       if (path === '/cups' || path.startsWith('/cups/')) {
         const account = await user(request, env);
         account.stRating = await ratingFor(env.DB, account.id);
@@ -58,13 +64,26 @@ export default {
             method: payload === undefined ? 'GET' : 'POST', headers,
             body: payload === undefined ? undefined : JSON.stringify(payload)}));
         };
+        const modern = request.headers.get('X-Cup-Version') === '3';
+        const index = code => env.DB.prepare('INSERT OR IGNORE INTO cup_memberships VALUES(?,?,?)').bind(account.id, code, Date.now()).run();
+        if (path === '/cups/find' && request.method === 'POST') {
+          const data = await body(request);
+          const cup = await findDraw(env.DB, account, roomRequest, data);
+          await index(cup.code);
+          return json(cup);
+        }
+        if (path === '/cups/rematch' && request.method === 'POST') {
+          const cup = await rematchDraw(account, roomRequest, await body(request));
+          await index(cup.code);
+          return json(cup);
+        }
         if (path === '/cups' && request.method === 'GET') {
           const rows = await env.DB.prepare('SELECT cup_code FROM cup_memberships WHERE user_id=? ORDER BY joined_at DESC LIMIT 20').bind(account.id).all();
           const cups = await Promise.all(rows.results.map(async row => {
             const response = await roomRequest(row.cup_code, '/');
             return response.ok ? response.json() : null;
           }));
-          return json({cups: cups.filter(Boolean)});
+          return json({cups: cups.filter(cup => cup && (modern || (cup.size ?? 4) === 4))});
         }
         if (path === '/cups' && request.method === 'POST') {
           const data = await body(request);
@@ -74,7 +93,7 @@ export default {
           const code = Array.from({length: 8}, (_, i) => alphabet[parseInt(seed.slice(i * 2, i * 2 + 2), 16) % alphabet.length]).join('');
           const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM cup_memberships WHERE user_id=? AND joined_at>?').bind(account.id, Date.now() - 86400000).first();
           if (count.n >= 20) throw fail(429, 'You have joined twenty cups today. Try again tomorrow.');
-          const response = await roomRequest(code, '/create', {...data, code});
+          const response = await roomRequest(code, '/create', {level:data.level, surface:data.surface, title:data.title, name:data.name, size:modern && data.size === 8 ? 8 : 4, adaptive:data.adaptive === true, code});
           if (response.ok) await env.DB.prepare('INSERT OR IGNORE INTO cup_memberships VALUES(?,?,?)').bind(account.id, code, Date.now()).run();
           return response;
         }
@@ -82,9 +101,9 @@ export default {
         if (!route || !validCode(route[1])) throw fail(404, 'Check the eight-character invite code.');
         const action = route[2] ?? '/';
         const write = ['/join', '/ready', '/start', '/leave'].includes(action);
-        if (!write && action !== '/' && !/^\/matches\/(semi-[12]|final)\/socket$/.test(action)) throw fail(404, 'Not found');
+        if (!write && action !== '/' && !/^\/matches\/(quarter-[1-4]|semi-[12]|final)\/socket$/.test(action)) throw fail(404, 'Not found');
         if ((write && request.method !== 'POST') || (!write && request.method !== 'GET')) throw fail(405, 'Method not allowed');
-        const response = await roomRequest(route[1], action, write ? await body(request) : undefined);
+        const response = await roomRequest(route[1], action, write ? {...await body(request),clientVersion:modern ? 3 : 2} : undefined);
         if (response.ok && action === '/join') {
           await env.DB.prepare('INSERT OR IGNORE INTO cup_memberships VALUES(?,?,?)').bind(account.id, route[1], Date.now()).run();
         }

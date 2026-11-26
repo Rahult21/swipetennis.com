@@ -7,7 +7,7 @@ struct ShotDemoLink: View {
     NavigationLink { ShotDemoHub() } label: {
       Label {
         VStack(alignment: .leading, spacing: 3) {
-          Text("Guided on-court demo").font(.headline)
+          Text("Tennis academy").font(.headline)
           Text(demos.progress.remaining.isEmpty ? "All skills mastered"
             : demos.progress.unlocksCourt ? "Watch, try, and master each skill" : "Master the first five skills to take the court")
             .font(.subheadline).foregroundStyle(.secondary)
@@ -42,6 +42,7 @@ struct ShotDemoHub: View {
             .font(.subheadline)
         }
       }
+      AcademyRecommendation(owner:demos.profile) { selected = $0 }.id(demos.profile)
       if let error = demos.storageError { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) } }
       if let next = demos.progress.next {
         Section {
@@ -73,7 +74,7 @@ struct ShotDemoHub: View {
             description: Text("You're ready to put them together in Play & practice. Your mastered skills will stay out of this demo."))
         }
       }
-    }.listStyle(.insetGrouped).navigationTitle("Guided demo")
+    }.listStyle(.insetGrouped).navigationTitle("Tennis academy")
       .onChange(of: demos.profile) { _, _ in selected = nil }
       .fullScreenCover(item: $selected) { lesson in
         ShotDemoFlowView(first: lesson)
@@ -227,6 +228,42 @@ struct ShotDemoLessonView: View {
       case .angle: engine.selectShotSwipe(Vec(x: 50 * opposite, y: 0), side: 0)
       case .lob: engine.selectShotSwipe(Vec(x: 0, y: 50), side: 0)
       case .drop, .slice: engine.selectTouchShot(session.lesson.shot, side: 0, epoch: engine.shotGestureEpoch(0))
+      }
+    }
+  }
+}
+
+private struct AcademyRecommendation: View {
+  @AppStorage private var strength: String
+  @AppStorage private var style: String
+  let launch: (DemoLesson) -> Void
+  init(owner: String, launch: @escaping (DemoLesson) -> Void) {
+    _strength = AppStorage(wrappedValue:"Choose", "academy.strength."+owner)
+    _style = AppStorage(wrappedValue:"Choose", "academy.style."+owner)
+    self.launch = launch
+  }
+  private var drills: [DemoLesson] {
+    let strengthDrill: DemoLesson
+    switch strength {
+    case "Serve": strengthDrill = .serveWide
+    case "Return": strengthDrill = .secondReturn
+    case "Split step": strengthDrill = .recoverySplit
+    case "Backhand": strengthDrill = .downLine
+    default: strengthDrill = .crosscourt
+    }
+    let styleDrill: DemoLesson = style == "Net play" ? .approachVolley : style == "Patient rallies" ? .rallyRecovery : .shortAngle
+    return [strengthDrill,styleDrill]
+  }
+  var body: some View {
+    Section("Practice for your game") {
+      Picker("Strongest skill",selection:$strength) {
+        ForEach(["Choose","Serve","Return","Split step","Forehand","Backhand"],id:\.self) { Text($0) }
+      }
+      Picker("Preferred style",selection:$style) {
+        ForEach(["Choose","Net play","Patient rallies","Attacking baseline"],id:\.self) { Text($0) }
+      }
+      if strength != "Choose" && style != "Choose" {
+        ForEach(drills) { drill in Button("Practice " + drill.title.lowercased()) { launch(drill) } }
       }
     }
   }

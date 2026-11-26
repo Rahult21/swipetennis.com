@@ -105,6 +105,10 @@ enum CourtSurface: String, Codable, CaseIterable {
 struct PracticeSettings: Codable {
   var local = false
   var tournament = false
+  var botST: Double?
+  var pressureDay: Int?
+  var botSpeed: Double { botST.map { 0.85 + clamp($0,1,10)*0.026 } ?? difficulty.speed }
+  var botReaction: Double { botST.map { 0.60 - clamp($0,1,10)*0.044 } ?? difficulty.reaction }
   var difficulty: Difficulty = .easy
   var style: BotStyle = .baseline
   var surface: CourtSurface = .grass
@@ -114,7 +118,7 @@ struct PracticeSettings: Codable {
   var opponentName = ""
 
   enum CodingKeys: String, CodingKey {
-    case local, tournament, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
+    case local, tournament, botST, pressureDay, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
   }
   init(
     local: Bool = false, difficulty: Difficulty = .easy, style: BotStyle = .baseline,
@@ -133,6 +137,8 @@ struct PracticeSettings: Codable {
   init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
     local = try values.decodeIfPresent(Bool.self, forKey: .local) ?? false
+    botST = try values.decodeIfPresent(Double.self, forKey: .botST)
+    pressureDay = try values.decodeIfPresent(Int.self, forKey: .pressureDay)
     tournament = try values.decodeIfPresent(Bool.self, forKey: .tournament) ?? false
     difficulty = try values.decodeIfPresent(Difficulty.self, forKey: .difficulty) ?? .easy
     style = try values.decodeIfPresent(BotStyle.self, forKey: .style) ?? .baseline
@@ -282,6 +288,14 @@ struct PracticeEngine: Codable {
   init(settings: PracticeSettings) {
     self.settings = settings
     scoring = PracticeScore(format: settings.scoring)
+    if let day = settings.pressureDay, settings.scoring == .tiebreak {
+      for _ in 0..<5 { scoring.award(0); scoring.award(1) }
+      switch day % 3 {
+      case 0: scoring.award(1)
+      case 1: scoring.award(0)
+      default: scoring.award(0); scoring.award(1)
+      }
+    }
   }
   func name(_ side: Int) -> String { settings.name(side) }
   func quickNetFeet(_ side: Int) -> Bool {
@@ -435,7 +449,7 @@ struct PracticeEngine: Codable {
       x: landing.x, y: landing.y + (side == 0 ? -1 : 1) * (kind == .drop ? 0.3 : kind == .angle ? 0.45 : 1.1))
     if serve { contact = ServeGeometry.contact(from: from, landing: landing, server: side, number: serveNumber) }
     let bot = side == 1 && !settings.local
-    let pace = (bot ? settings.style.pace * settings.difficulty.speed : 1) * settings.surface.pace
+    let pace = (bot ? settings.style.pace * settings.botSpeed : 1) * settings.surface.pace
     var loft =
       serve ? 0.4 : stroke == .overhead
       ? 0.45
@@ -467,7 +481,7 @@ struct PracticeEngine: Codable {
       && CourtTactics.hitsBehind(players[1 - side], target: contact)
     if trainingApproach {
       // Give the practice partner enough flight time to reach the approach with ordinary footwork.
-      let speed = settings.style.speed * settings.difficulty.speed * (wrongFooted ? 0.6 : 1)
+      let speed = settings.style.speed * settings.botSpeed * (wrongFooted ? 0.6 : 1)
       let travel = CourtTactics.travelTime(
         distance: players[1].pos.distance(to: contact), speed: speed)
       duration = max(duration, (travel + 0.15) / 0.86)
@@ -488,7 +502,7 @@ struct PracticeEngine: Codable {
       trainingReply: trainingReply, returnedShortBall: returnedShort)
     ball = from
     players[1 - side].settled = 0
-    reactAt = time + (trainingApproach ? 0.08 : settings.difficulty.reaction)
+    reactAt = time + (trainingApproach ? 0.08 : settings.botReaction)
     rally += 1
     bestRally = max(bestRally, rally)
     contactSerial += 1
@@ -821,7 +835,7 @@ struct PracticeEngine: Codable {
       let d = p.pos.distance(to: p.destination)
       let shortBallBoost = (i == 0 || settings.local) && showsGoldenContact(i) ? 1.5 : 1.0
       let baseSpeed = i == 1 && !settings.local
-        ? (flight?.hitter == 0 && flight?.kind == .drop ? 7.0 : settings.style.speed) * settings.difficulty.speed : 6
+        ? (flight?.hitter == 0 && flight?.kind == .drop ? 7.0 : settings.style.speed) * settings.botSpeed : 6
       let turning = flight?.receiverWrongFooted == true && flight?.hitter == 1 - i && phase == .live
       let boost = quickNetFeet(i) ? 2 : shortBallBoost
       let maxSpeed = baseSpeed * boost * (turning ? 0.6 : 1)

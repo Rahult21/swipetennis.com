@@ -2,9 +2,11 @@
 
 ## Quick Cup
 
-**Court → Quick Cup** creates a four-player lobby. Share its eight-character code or `https://swipetennis.com/cup/CODE`. The website opens `swipetennis://cup/CODE` in an already-installed iPhone/iPad app. Apple sign-in is required; the app is not on the App Store and invites do not install it.
+**Court → Quick Cup** opens tournaments and matchmaking. Share its eight-character code or `https://swipetennis.com/cup/CODE`. The website opens `swipetennis://cup/CODE` in an already-installed iPhone/iPad app. Apple sign-in is required; the app is not on the App Store and invites do not install it.
 
-Friends join and mark themselves ready. Only the host starts the cup. The shuffled draw locks at start and open slots receive clearly labeled AI players at the selected Easy/Medium/Hard level, initially the host's practice preference. This is in-game difficulty, independent of ST ranking. Bot styles vary, but level stays fixed. Bot-only matches are labeled simulated. Semifinals feed one final; matches are first to seven points, win by two. Powers are disabled, and cups do not affect Coachability; played human matches update ST ranking.
+Private cups have four or eight slots. The host starts the bracket after the human entrants are ready. New clients request adaptive bots, whose target ST is drawn within 0.3 of a human entrant before rounding. Bot ST adjusts reaction time and movement speed. Older cups retain their fixed difficulty. All rounds use seven-point, win-by-two tiebreaks. The server requires an advance from every human before accepting the next score. Optional point replay withholds the viewer’s vote until they dismiss it and tap Next point.
+
+The Tour runs three ST divisions (below 4, 4 to below 7, and 7–10). Find an ST opponent pairs two signed-in players in the same division. Weekly Opens share an eight-slot lobby by division and UTC week, beginning Monday. A finished human match offers a two-seat rematch that opens once both players opt in. Calendar quarters define seasons. Career and club ladders read persisted results and current ST. A separate trophy table survives cup expiry. Migration 0006 also provides the aggregate SQL view `tour_engagement_daily` with UTC active and returning players, completed human matches and practice points. It covers recorded account play. Guest practice remains on-device.
 
 `CUPS` is a SQLite-backed Durable Object binding. The existing Git-connected deployment applies its configuration and class migration. `0003_quick_cups.sql` adds the account/cup index to D1. No new secrets or manual production commands are required. If the provider rejects the binding or migration, correct the existing build token's Worker deployment permissions and rebuild the same GitHub commit; do not deploy locally.
 
@@ -34,7 +36,7 @@ For rating R versus opponent O, expected point share is `clamp(0.5 + (R-O)/10, 0
 
 Both pre-match ratings are read and updated in one D1 batch transaction. A unique cup/match receipt prevents retries from double-counting or overwriting later results. Migration `0005_st_score_margin.sql` versions the receipts: existing version-1 results keep their original changes and tentative markers; new version-2 results use point share and three tentative matches. Existing profile counts of three or more become established without changing their points. The durable room saves a finished match before settlement and retries pending receipts after failures; rating receipts survive ordinary cup expiry. Account deletion removes that account's rating and associated receipts.
 
-ST is separate from Coachability. Bot difficulty remains the host's fixed Easy/Medium/Hard selection; automatic ST matchmaking and ST-calibrated bots are not implemented.
+ST is separate from Coachability. Automatic matching uses ST division, and new private and weekly cups use ST-calibrated bots.
 
 ## GitHub → Cloudflare → D1
 

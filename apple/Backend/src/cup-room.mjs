@@ -1,4 +1,4 @@
-import {cupError, createCup, joinCup, startCup, recordResult, forfeitMatch, publicCup} from './cup-rules.mjs';
+import {completedScore, cupError, createCup, joinCup, startCup, recordResult, forfeitMatch, publicCup} from './cup-rules.mjs';
 import {eligibleSTMatch, settleSTMatch, ratingFor} from './st-ratings.mjs';
 
 const json = (value, status = 200) => Response.json(value, {status, headers: {'Cache-Control': 'no-store'}});
@@ -42,7 +42,19 @@ export class CupRoom {
         await this.ctx.storage.setAlarm(Date.now() + 30000);
       }
     }
+    if (this.pendingTrophy()) {
+      try {
+        await this.env.DB.prepare('INSERT OR IGNORE INTO tour_trophies SELECT ?,id,?,?,?,? FROM users WHERE id=?')
+          .bind(this.cup.code,this.cup.title,this.cup.division ?? 'Open',this.cup.size ?? 4,
+            this.cup.finishedAt ?? Date.now(),this.cup.championID).run();
+        this.cup.archived = true; changed = true;
+      } catch { await this.ctx.storage.setAlarm(Date.now() + 30000); }
+    }
     if (changed) await this.save();
+  }
+  pendingTrophy() {
+    return this.cup.status === 'complete' && this.cup.size !== 2 && !this.cup.archived &&
+      this.cup.participants.some(p => p.id === this.cup.championID && p.kind === 'human');
   }
   humans(game) { return game.playerIDs.filter(id => this.cup.participants.find(p => p.id === id)?.kind === 'human'); }
   connected(game) { return new Set(this.sockets(game.id).map(ws => ws.deserializeAttachment().userID)); }
@@ -69,7 +81,7 @@ export class CupRoom {
   async schedule() {
     const deadlines = this.cup.matches.flatMap(m => this.cup.status === 'playing' && m.status === 'live'
       ? Object.values(m.missingSince ?? {}).map(time => time + reconnectWindow) : []);
-    if (this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))) deadlines.push(Date.now() + 30000);
+    if (this.pendingTrophy() || this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))) deadlines.push(Date.now() + 30000);
     await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, Math.min(this.cup.expiresAt, ...deadlines)));
   }
   async fetch(request) {
@@ -91,7 +103,13 @@ export class CupRoom {
           this.cup.status = 'expired'; await this.announce();
         }
         if (path === '/join') {
-          joinCup(this.cup, user, data); await this.announce();
+          if (this.cup.size === 8 && data.clientVersion !== 3) throw cupError(409, 'Update SwipeTennis for eight-player cups.');
+          joinCup(this.cup, user, data);
+          if (this.cup.size === 2 && this.cup.participants.length === 2 && this.cup.status === 'lobby') {
+            this.cup.participants.forEach(p => { p.ready = true; });
+            startCup(this.cup, this.cup.hostID);
+          }
+          await this.announce();
           return json(publicCup(this.cup));
         }
         const member = this.cup.participants.find(p => p.id === user.id);
@@ -100,7 +118,11 @@ export class CupRoom {
           await this.settleRatings();
           return json(publicCup(this.cup));
         }
-        if (path === '/ready') {
+        if (path === '/rematch-offer' && request.method === 'POST') {
+          const game = this.cup.matches.find(m => m.id === data.match && m.status === 'complete' && m.playerIDs.includes(user.id));
+          if (!game || this.humans(game).length !== 2) throw cupError(403, 'This match cannot offer a rematch.');
+          if (!game.rematchRequestedBy) { game.rematchRequestedBy = user.id; await this.announce(); }
+        } else if (path === '/ready') {
           if (this.cup.status !== 'lobby') throw cupError(409, 'The draw has already started.');
           member.ready = data.ready === true; await this.announce();
         } else if (path === '/start') {
@@ -117,7 +139,7 @@ export class CupRoom {
           for (const ws of this.sockets().filter(ws => ws.deserializeAttachment().userID === user.id)) ws.close(1000, 'Left cup');
           await this.announce();
         } else {
-          const socketRoute = path.match(/^\/matches\/(semi-[12]|final)\/socket$/);
+          const socketRoute = path.match(/^\/matches\/(quarter-[1-4]|semi-[12]|final)\/socket$/);
           if (!socketRoute || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') throw cupError(404, 'Not found');
           const game = this.cup.matches.find(m => m.id === socketRoute[1]);
           if (!game?.playerIDs.includes(user.id)) throw cupError(403, 'This match belongs to other players.');
@@ -184,6 +206,18 @@ export class CupRoom {
           const previous = game.snapshot?.scoring?.points ?? [0, 0];
           const change = state.scoring.points.map((n, i) => n - previous[i]);
           if (change.some(n => n < 0) || change[0] + change[1] > 1) throw cupError(409, 'Court score is out of sequence.');
+          const total = previous[0] + previous[1];
+          const scored = change[0] + change[1] > 0;
+          if (!scored && ['serving','serveFault','live'].includes(state.phase) && game.advancePoint !== total) {
+            throw cupError(409, 'Waiting for both players to advance.');
+          }
+          if (scored && (game.advancePoint !== total || !['point','finished'].includes(state.phase))) {
+            throw cupError(409, 'Both players must advance before scoring a point.');
+          }
+          if (completedScore(state.scoring.points) !== (state.phase === 'finished')) {
+            throw cupError(409, 'Match phase and tiebreak result disagree.');
+          }
+          if (scored) game.nextReady = [];
           game.snapshot = state; game.score = state.scoring.points;
           for (const peer of this.sockets(game.id).filter(peer => peer !== ws)) this.send(peer, message);
           if (state.phase === 'finished') {
@@ -198,7 +232,11 @@ export class CupRoom {
   async webSocketClose(ws) {
     return this.ctx.blockConcurrencyWhile(async () => {
       const game = this.cup?.matches.find(m => m.id === ws.deserializeAttachment()?.matchID);
-      if (game) await this.presence(game);
+      if (game) {
+        const id = ws.deserializeAttachment()?.userID;
+        if (!this.connected(game).has(id)) game.nextReady = (game.nextReady ?? []).filter(ready => ready !== id);
+        await this.presence(game);
+      }
     });
   }
   async webSocketError(ws) { try { ws.close(1011, 'Reconnect to resume'); } catch {} await this.webSocketClose(ws); }
@@ -211,10 +249,10 @@ export class CupRoom {
         await this.announce();
         for (const ws of this.sockets()) ws.close(1000, 'Cup closed');
         // Retain results for 30 days, then remove the room and its account index.
-        if (Date.now() >= this.cup.expiresAt + 30 * 86400000) {
+        if (Date.now() >= this.cup.expiresAt + 30 * 86400000 && !this.pendingTrophy() && !this.cup.matches.some(g => !g.stSettled && eligibleSTMatch(this.cup,g))) {
           await this.env.DB.prepare('DELETE FROM cup_memberships WHERE cup_code=?').bind(this.cup.code).run();
           await this.ctx.storage.deleteAll(); this.cup = null;
-        } else await this.ctx.storage.setAlarm(this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))
+        } else await this.ctx.storage.setAlarm(this.pendingTrophy() || this.cup.matches.some(game => !game.stSettled && eligibleSTMatch(this.cup, game))
           ? Date.now() + 30000 : this.cup.expiresAt + 30 * 86400000);
         return;
       }

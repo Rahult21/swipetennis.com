@@ -45,10 +45,10 @@ extension PracticeEngine {
     flight!.opponentReplyPrepared = true
     if incoming.kind == .drop || incoming.kind == .slice {
       let isDrop = incoming.kind == .drop
-      let speed = (isDrop ? 7.0 : settings.style.speed) * settings.difficulty.speed
+      let speed = (isDrop ? 7.0 : settings.style.speed) * settings.botSpeed
       let travel = CourtTactics.travelTime(distance: players[1].pos.distance(to: incoming.contact), speed: speed)
       let succeeds = !isDrop || dropReturns.next(difficulty: settings.difficulty, random: random)
-      let reaction = isDrop ? 0.06 : settings.difficulty.reaction
+      let reaction = isDrop ? 0.06 : settings.botReaction
       flight!.duration = max(incoming.duration, (travel + reaction + 0.2) / 0.86)
       if isDrop {
         flight!.dropReachable = succeeds

@@ -30,9 +30,9 @@ import SwiftUI
       error = nil
     } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
   }
-  func create(_ account: CoachAccountStore, title: String, name: String, level: CupLevel, surface: CourtSurface) async {
+  func create(_ account: CoachAccountStore, title: String, name: String, level: CupLevel, surface: CourtSurface, size: Int = 4) async {
     await perform(account, path: "cups", payload: ["requestID": requestID, "title": title,
-      "name": name, "level": level.rawValue, "surface": surface.rawValue.lowercased()])
+      "name": name, "adaptive": true, "size": size, "level": level.rawValue, "surface": surface.rawValue.lowercased()])
     if error == nil { requestID = UUID().uuidString }
   }
   func join(_ account: CoachAccountStore, text: String, name: String) async {
@@ -45,6 +45,12 @@ import SwiftUI
       selectedCode = nil
       if cup.status == "lobby" { cups.removeAll { $0.code == cup.code } }
     }
+  }
+  func find(_ account: CoachAccountStore, weekly: Bool, name: String) async {
+    await perform(account,path:"cups/find",payload:["mode":weekly ? "weekly" : "duel","name":name])
+  }
+  func rematch(_ account: CoachAccountStore, cup: QuickCup, match: CupMatch) async {
+    await perform(account,path:"cups/rematch",payload:["code":cup.code,"match":match.id])
   }
   private func perform(_ account: CoachAccountStore, path: String, payload: [String: Any]) async {
     guard !busy, let id = account.identity?.userID else { return }
@@ -173,13 +179,17 @@ private struct CupMessage: Decodable {
       scene.suspended = !ready; scene.resetClock()
       connection = ready ? "Connected" : "Waiting for your opponent…"
       if ready { sendSnapshot(scene.engine) }
-    case "snapshot": if !isAuthority, let snapshot = message.snapshot { scene.receiveCupSnapshot(snapshot) }
+    case "snapshot":
+      if !isAuthority, let snapshot = message.snapshot {
+        if snapshot.phase != .point && snapshot.phase != .ready { waitingForNext = false }
+        scene.receiveCupSnapshot(snapshot)
+      }
     case "input":
       if isAuthority, ready, let input = message.input, let side = message.side, side != self.side {
         input.apply(to: &scene.engine, side: side)
       }
     case "advance":
-      waitingForNext = false
+      waitingForNext = !isAuthority
       if isAuthority, ready, message.point == scene.engine.scoring.points.reduce(0, +), [.ready, .point].contains(scene.engine.phase) {
         scene.engine.start(); scene.resetRallyPresentation(); scene.resetClock()
         game = scene.engine; sendSnapshot(scene.engine)
@@ -264,7 +274,7 @@ private struct CupMessage: Decodable {
     generation = UUID(); receiveTask?.cancel(); heartbeat?.cancel()
     socket?.cancel(with: .goingAway, reason: nil); socket = nil
     outbox = []; sending = false; connected = false; ready = false
-    scene.suspended = true; scene.resetClock()
+    waitingForNext = false; scene.suspended = true; scene.resetClock()
   }
   func suspend() { active = false; reconnectTask?.cancel(); stopConnection() }
   func resume() { active = true; retries = 0; connect() }
