@@ -91,6 +91,10 @@ import SwiftUI
 }
 @MainActor final class TennisScene: SKScene {
   var engine: PracticeEngine
+  weak var stadium: CourtReplayView?
+  private var entrance: Double = 0
+  private var cameraPlayerX: Float = 4.115
+  private var aimPreview: (side: Int, epoch: Int?, point: Vec)?
   var controlledSide: Int?
   var perspectiveSide = 0
   var isReplica = false
@@ -123,6 +127,9 @@ import SwiftUI
   private let faultRing = SKShapeNode(circleOfRadius: 12)
   private struct ServeTouch {
     let start: CGPoint
+    let startCourt: Vec
+    let initialTarget: Vec
+    let relative: Bool
     var dragging = false
   }
   private var serveTouches: [UITouch: ServeTouch] = [:]
@@ -153,6 +160,7 @@ import SwiftUI
     touchGestures.removeAll()
     serveTouches.removeAll()
     affirmationTouches.removeAll()
+    aimPreview = nil
     keyboardMoving = [false, false]
   }
   func configureMotion() {
@@ -162,7 +170,7 @@ import SwiftUI
   }
   override func didMove(to view: SKView) {
     view.isMultipleTouchEnabled = true
-    backgroundColor = UIColor(red: 0.10, green: 0.22, blue: 0.17, alpha: 1)
+    backgroundColor = stadium == nil ? UIColor(red: 0.10, green: 0.22, blue: 0.17, alpha: 1) : .clear
     if world.parent == nil {
       addChild(world)
       world.addChild(marks)
@@ -182,6 +190,9 @@ import SwiftUI
   }
   // Perspective projection keeps far court smaller while retaining exact inverse touch mapping.
   func project(_ p: Vec) -> CGPoint {
+    if let stadium, let screen = stadium.project(p.world()) {
+      return CGPoint(x: screen.x, y: size.height-screen.y)
+    }
     let p = CupPerspective.court(p, side: perspectiveSide)
     let t = (p.y + 3) / 29.77
     let width = size.width * (0.64 + 0.24 * t)
@@ -190,6 +201,10 @@ import SwiftUI
       y: size.height - 52 - max(1, size.height - 90) * t)
   }
   func unproject(_ p: CGPoint) -> Vec {
+    if let stadium, let ray = stadium.ray(through:CGPoint(x:p.x,y:size.height-p.y)), abs(ray.direction.y) > 0.001 {
+      let ground = ray.origin - ray.direction * (ray.origin.y / ray.direction.y)
+      return Vec(x:Double(ground.x),y:Double(ground.z))
+    }
     let t = (size.height - 52 - p.y) / max(1, size.height - 90)
     let width = size.width * (0.64 + 0.24 * t)
     return CupPerspective.court(Vec(x: (p.x - size.width / 2) / width * 10.97 + 4.115, y: t * 29.77 - 3), side: perspectiveSide)
@@ -219,6 +234,7 @@ import SwiftUI
   }
   private func drawCourt() {
     marks.removeAllChildren()
+    if stadium != nil { return }
     let surface = engine.settings.surface
     let color =
       surface == .clay
@@ -394,6 +410,14 @@ import SwiftUI
     }
     let dt = previousTime == 0 ? 0 : min(0.1, currentTime - previousTime)
     previousTime = currentTime
+    if engine.phase != .ready && entrance < 1.45 {
+      entrance += dt
+      // Give a new solo match its establishing shot before the first serve clock runs.
+      if !reduceMotion && engine.phase == .serving && engine.demo == nil && controlledSide == nil && onCupFrame == nil {
+        render()
+        return
+      }
+    }
     let oldInventory = engine.inventory
     let oldPhase = engine.phase
     let showedGauges = engine.displayedServeGauges != nil
@@ -428,6 +452,7 @@ import SwiftUI
         accumulator -= 1 / 120
       }
     }
+    cameraPlayerX += (Float(engine.players[perspectiveSide].pos.x)-cameraPlayerX)*Float(1-exp(-dt*2.5))
     animationTime += dt
     let oldMiss = missPresentation.current
     missPresentation.update(coach: engine.coach, delta: dt)
@@ -511,6 +536,7 @@ import SwiftUI
     }
   }
   func restorePresentation() {
+    entrance = engine.phase == .ready ? 0 : 1.45
     resetRallyPresentation()
     missPresentation.restore(from: engine.coach)
   }
@@ -557,6 +583,7 @@ import SwiftUI
   }
 
   private func projectWorld(_ point: CourtPoint3D) -> CGPoint {
+    if let stadium, let screen = stadium.project(point) { return CGPoint(x:screen.x,y:size.height-screen.y) }
     let depth = clamp(CupPerspective.court(Vec(x: Double(point.x), y: Double(point.z)), side: perspectiveSide).y / PracticeEngine.length, 0, 1)
     let ground = project(Vec(x: Double(point.x), y: Double(point.z)))
     return CGPoint(x: ground.x, y: ground.y + CGFloat(point.y) * (0.82 + depth * 0.18) * 29)
@@ -564,7 +591,12 @@ import SwiftUI
 
   private func render() {
     guard actors.count == 2 else { return }
-    positionPlayers()
+    if let stadium, let frame = performance.frame {
+      stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/1.45)),nearX:cameraPlayerX,reduceMotion:reduceMotion)
+      stadium.draw(frame,angle:.neutral,reduceMotion:reduceMotion,powerBeat:nil,live:true)
+    } else { positionPlayers() }
+    actors.forEach { $0.isHidden = stadium != nil }
+    shadow.isHidden = stadium != nil; ballNode.isHidden = stadium != nil
     if courtReaction.parent == nil { dynamic.addChild(courtReaction) }
     let reaction = engine.isResolvingPoint ? engine.pointResolution?.reaction : nil
     courtReaction.draw(reaction, courtCenter: project(Vec(x: PracticeEngine.width / 2, y: 18)),
@@ -578,7 +610,7 @@ import SwiftUI
       missedOpportunityRing.setScale(reduceMotion ? 1 : 1 + progress * 0.12)
     }
     for i in 0...1 {
-      if let frame = performance.frame {
+      if stadium == nil, let frame = performance.frame {
         actors[i].draw(pose: i == 0 ? frame.near : frame.far, project: projectWorld, in: self,
           frustration: i == 1 ? reaction?.frustration ?? 0 : 0,
           surprise: i == 1 && engine.flight?.power == .ace,
@@ -628,49 +660,34 @@ import SwiftUI
         : golden && !reduceMotion ? 0.6 + 0.4 * (0.5 + 0.5 * sin(animationTime * 2 * .pi)) : 1
       contactRings[side].isHidden = !visible || contact == nil
       recoveryRings[side].isHidden = !visible || engine.recoveryGuide(side) == nil
-      if let contact, visible {
-          let center = project(contact)
-          contactRings[side].position = center
-          let outline = CGMutablePath()
-          let points = stride(from: 0.0, through: 2 * .pi, by: .pi / 24).map { angle in
-            let p = project(
-              Vec(
-                x: contact.x + cos(angle) * PracticeEngine.contactRadius,
-                y: contact.y + sin(angle) * PracticeEngine.contactRadius))
-            return CGPoint(x: p.x - center.x, y: p.y - center.y)
-          }
-          outline.addLines(between: points)
-          outline.closeSubpath()
-          contactRings[side].path = outline
-        }
-      if let flight = engine.flight {
-        recoveryRings[side].position = project(PracticeEngine.recovery(side, flight.contact))
-      }
+      if let contact, visible { placeRing(contactRings[side], at: contact, radius: PracticeEngine.contactRadius) }
+      if let recovery = engine.recoveryGuide(side), visible { placeRing(recoveryRings[side], at: recovery, radius: 0.7) }
     }
     if let goal = engine.demo?.target, engine.phase == .serving {
       targetRing.isHidden = false
       targetRing.strokeColor = .systemMint
       targetRing.setScale(1.4)
-      targetRing.position = project(goal)
+      placeRing(targetRing, at: goal, radius: 0.6)
     } else if let demo = engine.demo, demo.lesson == .recoverySplit, demo.stage == .rallyRecovery,
       demo.bounceWindowOpen, demo.result == nil, let landing = engine.flight?.landing {
-      targetRing.position = project(landing)
+      placeRing(targetRing, at: landing, radius: 0.6)
       targetRing.strokeColor = .systemMint
       targetRing.setScale(1.4)
       targetRing.isHidden = false
     } else {
-      targetRing.strokeColor = .systemOrange
-      targetRing.setScale(1)
-      let aimingSide = controlledSide ?? 0
-      targetRing.isHidden = !guides || engine.phase != .live || engine.players[aimingSide].aim == nil
-      if let aim = engine.players[aimingSide].aim { targetRing.position = project(aim) }
+      let side = aimPreview?.side ?? controlledSide ?? (engine.settings.local ? 1-(engine.flight?.hitter ?? 1) : 0)
+      let preview = aimPreview.flatMap { $0.epoch == engine.shotGestureEpoch(side) ? $0.point : nil }
+      let aim = preview ?? engine.players[side].aim
+      targetRing.strokeColor = .systemPurple
+      targetRing.isHidden = !engine.canChooseShot(side) || aim == nil
+      if let aim { targetRing.setScale(1); placeRing(targetRing, at: aim, radius: 0.60) }
     }
     let serveInFlight = engine.phase == .live && engine.flight?.serve == true && (engine.flight?.progress ?? 1) < 0.8
     serveRing.isHidden = engine.phase != .serving && !serveInFlight
-    if serveInFlight, let flight = engine.flight { serveRing.position = project(flight.landing) }
+    if serveInFlight, let flight = engine.flight { placeRing(serveRing, at: flight.landing, radius: 0.58) }
     servePath.isHidden = engine.phase != .serving
     if engine.phase == .serving, let serve = engine.servePreparation {
-      serveRing.position = project(serve.target)
+      placeRing(serveRing, at: serve.target, radius: 0.58)
       serveRing.alpha = serve.isTossing ? 1 : 0.85
       let line = CGMutablePath()
       line.move(to: project(engine.players[serve.server].pos))
@@ -684,8 +701,30 @@ import SwiftUI
       serveRing.isHidden = true
       servePath.isHidden = true
     }
+    for ring in contactRings + recoveryRings + [serveRing,targetRing] where !ring.isHidden {
+      if ring.children.isEmpty {
+        for scale in [1.34,1.72] {
+          let halo = SKShapeNode(); halo.setScale(scale); halo.lineWidth = 0.9
+          halo.alpha = scale < 1.5 ? 0.42 : 0.20; ring.addChild(halo)
+        }
+      }
+      for case let halo as SKShapeNode in ring.children {
+        halo.path = ring.path; halo.strokeColor = ring.strokeColor
+      }
+    }
     drawTacticalGuides(enabled: guides)
     drawSwipeCoach(enabled: guides)
+  }
+
+  /// Project two ground-plane radii so every ring lies flat even as the camera follows a rally.
+  private func placeRing(_ ring: SKShapeNode, at point: Vec, radius: Double) {
+    let center = project(point)
+    let across = project(Vec(x: point.x + radius, y: point.y))
+    let down = project(Vec(x: point.x, y: point.y + radius))
+    var axes = CGAffineTransform(a: across.x-center.x, b: across.y-center.y,
+                                 c: down.x-center.x, d: down.y-center.y, tx: 0, ty: 0)
+    ring.position = center
+    ring.path = CGPath(ellipseIn: CGRect(x: -1, y: -1, width: 2, height: 2), transform: &axes)
   }
 
   private func drawTacticalGuides(enabled: Bool) {
@@ -856,9 +895,12 @@ import SwiftUI
       if hypot(point.x - serveTouch.start.x, point.y - serveTouch.start.y) >= 8 { serveTouch.dragging = true }
       serveTouches[touch] = serveTouch
       if serveTouch.dragging {
-        cupInput(CupInput(kind: "serveAim", point: unproject(point), finished: ended), side: engine.scoring.server)
+        let cursor = unproject(point)
+        let target = serveTouch.relative ? Vec(x:serveTouch.initialTarget.x+cursor.x-serveTouch.startCourt.x,
+          y:serveTouch.initialTarget.y+cursor.y-serveTouch.startCourt.y) : cursor
+        cupInput(CupInput(kind:"serveAim", point:target, finished:ended),side:engine.scoring.server)
       } else if ended {
-        if engine.demo == nil, let target = engine.servePreparation?.target {
+        if !serveTouch.relative && engine.demo == nil, let target = engine.servePreparation?.target {
           cupInput(CupInput(kind: "serveAim", point: target), side: engine.scoring.server)
         } else {
           cupInput(CupInput(kind: "serve"), side: engine.scoring.server)
@@ -873,6 +915,11 @@ import SwiftUI
       screenPoint: CupPerspective.screen(Vec(x: touch.location(in: self).x, y: -touch.location(in: self).y), side: perspectiveSide),
       ended: ended, timestamp: touch.timestamp)
     touchGestures[touch] = gesture
+    if ended { aimPreview = nil }
+    else if let delta = gesture.previewDelta, gesture.shotEpoch == engine.shotGestureEpoch(gesture.side),
+      let point = engine.swipeLanding(delta, side:gesture.side) {
+      aimPreview = (gesture.side,gesture.shotEpoch,point)
+    } else { aimPreview = nil }
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
       cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch, runPace: gesture.runPace), side: gesture.side)
@@ -898,8 +945,8 @@ import SwiftUI
     for touch in touches {
       let p = unproject(touch.location(in: self))
       if (controlledSide == nil || controlledSide == engine.scoring.server), engine.canAimServe(engine.scoring.server), let serve = engine.servePreparation,
-        p.distance(to: serve.target) <= 1.1 {
-        serveTouches[touch] = ServeTouch(start: touch.location(in: self))
+        p.distance(to: serve.target) <= 1.1 || (serve.server == 0 ? p.y > PracticeEngine.net : p.y < PracticeEngine.net) {
+        serveTouches[touch] = ServeTouch(start:touch.location(in:self),startCourt:p,initialTarget:serve.destination,relative:p.distance(to:serve.target)>1.1)
         continue
       }
       var side = controlledSide ?? (engine.settings.local && p.y < 11.885 ? 1 : 0)
@@ -916,7 +963,9 @@ import SwiftUI
       // A figure at the net can extend into the other half on screen. Its receiving owner wins.
       for candidate in 0...(engine.settings.local ? 1 : 0) where (controlledSide == nil || controlledSide == candidate) && engine.canChooseShot(candidate) {
         let player = project(engine.players[candidate].pos)
-        if abs(finger.x - player.x) <= 25 && finger.y >= player.y - 12 && finger.y <= player.y + 58 {
+        let head = projectWorld(engine.players[candidate].pos.world(height: 1.85))
+        let height = max(22, head.y - player.y)
+        if abs(finger.x - player.x) <= max(22,height * 0.45) && finger.y >= player.y - 12 && finger.y <= player.y + height + 12 {
           side = candidate
           onPlayer = true
           break
@@ -953,6 +1002,7 @@ import SwiftUI
     }
   }
   override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+    aimPreview = nil
     for touch in touches {
       touchGestures.removeValue(forKey: touch)
       serveTouches.removeValue(forKey: touch)

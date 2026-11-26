@@ -10,27 +10,40 @@ import UIKit
   private let white = SimpleMaterial(color: .white, roughness: 0.87, isMetallic: false)
   private let garment: ReplayShorts
   private let sphere: MeshResource
+  private let kit: AthleteKit
   private let side: Int
   private var limbs: [ModelEntity] = []
   private var shoes: [Entity] = []
   private let stamp: ModelEntity
 
-  init(side: Int, sphere: MeshResource, shadow: ModelEntity) {
+  init(side: Int, sphere: MeshResource, shadow: ModelEntity, localSide: Int = 0) {
+    let kit = AthleteKit.current(side: side, localSide: localSide)
+    self.kit = kit
     self.side = side; self.sphere = sphere; stamp = shadow
     skin = SimpleMaterial(color: side == 0 ? UIColor(red: 0.68, green: 0.42, blue: 0.29, alpha: 1)
       : UIColor(red: 0.48, green: 0.285, blue: 0.19, alpha: 1), roughness: 0.85, isMetallic: false)
-    fabric = SimpleMaterial(color: side == 0 ? UIColor(red: 0.26, green: 0.76, blue: 0.84, alpha: 1)
-      : UIColor(red: 0.99, green: 0.42, blue: 0.17, alpha: 1), roughness: 0.92, isMetallic: false)
+    fabric = SimpleMaterial(color: kit.color.tint, roughness: 0.92, isMetallic: false)
     garment = ReplayShorts(material: shorts)
     for part in [torso, hips, face, racket, stamp, garment.model] { root.addChild(part) }
+    if kit.skort {
+      hips.addChild(ModelEntity(mesh:Self.profile([[0.248,-0.235,0.168],[0.241,-0.20,0.162],[0.19,-0.02,0.134],[0.166,0.06,0.113]]),materials:[fabric]))
+    }
     // Cross sections give the shirt a waist, rib cage and sloping shoulder seams.
     let jersey = Self.profile([
       [0.159,-0.27,0.115], [0.181,-0.245,0.119], [0.167,-0.085,0.110],
       [0.19,0.045,0.122], [0.218,0.146,0.136], [0.216,0.195,0.12],
       [0.173,0.226,0.109], [0.087,0.259,0.074]])
-    torso.addChild(ModelEntity(mesh: jersey, materials: [Self.jerseyMaterial(side: side, base: fabric)]))
+    torso.addChild(ModelEntity(mesh: jersey, materials: [Self.jerseyMaterial(color: kit.color.tint, base: fabric)]))
+    if kit.model == .woman { torso.scale = [0.92,1,0.98]; face.scale = [0.96,0.97,0.96] }
+    if kit.shirt == .polo {
+      for sign: Float in [-1,1] {
+        let collar = ModelEntity(mesh: .generateBox(size:[0.066,0.068,0.012],cornerRadius:0.009), materials:[white])
+        collar.position = [sign*0.046,0.218,-0.091]
+        collar.orientation = simd_quatf(angle:sign * 0.52,axis:[0,0,1]); torso.addChild(collar)
+      }
+    }
     for x: Float in [-0.195,0.195] {
-      ellipsoid(torso, [x,0.218,0], [0.087,0.068,0.099], fabric)
+      ellipsoid(torso, [x,0.218,0], [0.087,0.068,0.099], kit.shirt == .sleeveless ? skin : fabric)
     }
     ellipsoid(face, [0, -0.148, 0.008], [0.063, 0.102, 0.063], skin)
     ellipsoid(torso, [0, 0.236, 0], [0.105, 0.030, 0.095], white)
@@ -41,9 +54,19 @@ import UIKit
     for x: Float in [-0.096, 0.096] { ellipsoid(face, [x, -0.013,0], [0.015,0.028,0.017], skin) }
     let hair = SimpleMaterial(color: UIColor(red: 0.12, green: 0.081, blue: 0.065, alpha: 1), roughness: 1, isMetallic: false)
     ellipsoid(face, [0, 0.064, 0.012], [0.104, 0.091, 0.106], hair)
-    face.addChild(ModelEntity(mesh: Self.profile([[0.102,0.031,0.109], [0.104,0.050,0.111]]), materials: [white]))
+    if kit.model == .woman {
+      ellipsoid(face, [0,0.032,0.096], [0.057,0.070,0.063], hair)
+      ellipsoid(face, [0,-0.05,0.125], [0.042,0.090,0.043], hair)
+    }
+    if kit.prop == .visor { ellipsoid(face, [0,0.042,-0.089], [0.114,0.012,0.084], fabric) }
+    if kit.prop != .plain { face.addChild(ModelEntity(mesh: Self.profile([[0.102,0.031,0.109], [0.104,0.050,0.111]]), materials: [white])) }
     ellipsoid(face, [0, -0.019, -0.099], [0.024, 0.034, 0.025], skin)
     for x: Float in [-0.039, 0.039] { ellipsoid(face, [x, 0.009, -0.097], [0.012, 0.006, 0.006], hair) }
+    for x: Float in [-0.038,0.038] {
+      ellipsoid(face,[x,0.019,-0.097],[0.020,0.003,0.005],hair)
+    }
+    let lips = SimpleMaterial(color: UIColor(red:0.43,green:0.22,blue:0.18,alpha:1),roughness:0.85,isMetallic:false)
+    ellipsoid(face,[0,-0.062,-0.091],[0.026,0.004,0.005],lips)
     // Each limb mesh is one unit long, with its proximal end at -0.5.
     func limb(_ sections: [(Float, Float)]) -> MeshResource {
       Self.profile(sections.map { CourtPoint3D($0.1, $0.0, $0.1 * 0.92) })
@@ -56,7 +79,7 @@ import UIKit
     let forearm = limb([(-0.56,1.02),(-0.28,1.08),(0.13,0.84),(0.54,0.61)])
     let meshes = [thigh, cuff, calf, sock, arm, cuff, forearm, cuff, sphere]
     for _ in 0..<2 {
-      for (mesh, material) in zip(meshes, [skin, white, skin, white, skin, fabric, skin, white, skin]) {
+      for (mesh, material) in zip(meshes, [skin, white, skin, white, skin, kit.shirt == .sleeveless ? skin : fabric, skin, white, skin]) {
         let part = ModelEntity(mesh: mesh, materials: [material])
         root.addChild(part); limbs.append(part)
       }
@@ -98,15 +121,13 @@ import UIKit
   }
 
   /// UVs wrap the torso from the side seam. The knit, shoulder panels and hems turn with the shirt.
-  private static func jerseyMaterial(side: Int, base: SimpleMaterial) -> SimpleMaterial {
+  private static func jerseyMaterial(color: UIColor, base: SimpleMaterial) -> SimpleMaterial {
     let format = UIGraphicsImageRendererFormat()
     format.scale = 1; format.opaque = true
     let bounds = CGRect(x: 0,y: 0,width: 512,height: 512)
-    let teal = UIColor(red: 0.23,green: 0.68,blue: 0.75,alpha: 1)
-    let coral = UIColor(red: 0.94,green: 0.42,blue: 0.23,alpha: 1)
     let image = UIGraphicsImageRenderer(size: bounds.size,format: format).image { renderer in
       let ctx = renderer.cgContext
-      ctx.setFillColor((side == 0 ? teal : coral).cgColor); ctx.fill(bounds)
+      ctx.setFillColor(color.cgColor); ctx.fill(bounds)
       for x: CGFloat in [0,256,512] {
         let panel = UIBezierPath()
         panel.move(to: CGPoint(x: x-72,y: 0)); panel.addLine(to: CGPoint(x: x+72,y: 0))
@@ -175,7 +196,7 @@ import UIKit
     node.orientation = simd_quatf(from: [0, 1, 0], to: d / length)
   }
 
-  func draw(_ p: AthletePose) {
+  func draw(_ p: AthletePose, handshake: Bool = false) {
     garment.draw(p)
     let hip = (p[.leftHip] + p[.rightHip]) / 2
     let shoulder = (p[.leftShoulder] + p[.rightShoulder]) / 2
@@ -192,6 +213,10 @@ import UIKit
     let normal = simd_normalize(simd_cross(width, shaft))
     racket.position = p[.grip]
     racket.orientation = simd_quatf(simd_float3x3(columns: (simd_cross(shaft, normal), shaft, normal)))
+    if handshake {
+      racket.position = p[.leftHand]
+      racket.orientation = simd_quatf(angle: side == 0 ? 2.72 : -2.72, axis:[0,0,1])
+    }
     for i in 0..<2 {
       let h = p[i == 0 ? .leftHip : .rightHip], k = p[i == 0 ? .leftKnee : .rightKnee]
       let foot = p[i == 0 ? .leftShoe : .rightShoe]
@@ -201,7 +226,7 @@ import UIKit
       segment(limbs[j+1], foot + (k-foot)*0.33, foot + (k-foot)*0.37, 0.062)
       segment(limbs[j+2], k, foot, 0.066)
       segment(limbs[j+3], foot, foot + (k-foot) * 0.36, 0.060)
-      segment(limbs[j+4], s + (e-s) * 0.36, e, 0.062)
+      segment(limbs[j+4], s + (e-s) * 0.36, e, kit.model == .woman ? 0.054 : 0.062)
       segment(limbs[j+5], s, s + (e-s) * 0.46, 0.076)
       segment(limbs[j+6], e, hand, 0.048)
       segment(limbs[j+7], hand + (e-hand)*0.12, hand + (e-hand)*0.26, 0.045)

@@ -288,7 +288,7 @@ struct CupMatchView: View {
         scorePlayer(1 - session.side)
       }.padding(.horizontal, 20).padding(.bottom, 10)
       ZStack {
-        SpriteView(scene: session.scene, preferredFramesPerSecond: ProcessInfo.processInfo.isLowPowerModeEnabled ? 60 : 120)
+        LiveCourt(scene:session.scene)
           .accessibilityLabel("Tournament court. \(game.scoreSummary)")
           .accessibilityAction(named: "Move to contact") { session.input(CupInput(kind: "receive")) }
           .accessibilityAction(named: "Recover") { session.input(CupInput(kind: "recover")) }
@@ -345,6 +345,12 @@ struct CupMatchView: View {
         }.padding(8)
       } else { Text("\(game.name(game.scoring.server)) serving · Win by two").font(.caption).foregroundStyle(.white).padding(8) }
     }
+    .onChange(of:game.showsPointResult) { _, visible in
+      if visible && session.scene.performance.replay.canPlay {
+        review = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
+          side:session.side,venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished)
+      }
+    }
     .sheet(item: $review) { PointReplayView(review:$0).presentationDetents([.large]) }
     .background(TennisTheme.green).tint(TennisTheme.accent)
     .onAppear { session.scene.reduceMotion = reduceMotion; session.connect(); UIApplication.shared.isIdleTimerDisabled = true }
@@ -362,7 +368,7 @@ struct CupMatchView: View {
   @ViewBuilder private var replayButton: some View {
     if !session.waitingForNext && session.scene.performance.replay.canPlay {
       Button("Replay point") {
-        review = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, side:session.side)
+        review = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, side:session.side,venue:game.settings.matchVenue,handshake:game.phase == .finished)
       }.accessibilityIdentifier("replayCupPoint")
     }
   }

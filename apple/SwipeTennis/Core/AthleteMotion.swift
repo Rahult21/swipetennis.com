@@ -129,7 +129,10 @@ struct AthleteMotion {
     let lowBall = min(1, max(0, (1.10 - strike.y) / 0.85))
     let low = lowBall * drive
     let split = Float(game.splitProgress(side) ?? 0)
-    let hop: Float = reduceMotion ? 0 : 0.115 * sin(split * .pi)
+    let waiting = game.phase == .serving && game.servePreparation?.isTossing == false
+    let beat = Float(game.time) * 8.7 + Float(side)*1.45
+    let toeBounce: Float = waiting && !reduceMotion ? 0.031 * pow(max(0,sin(beat)),2) : 0
+    let hop: Float = reduceMotion ? 0 : 0.115 * sin(split * .pi) + toeBounce
     let landing = game.serveLanding.flatMap { $0.server == side ? $0.progress : nil }
     let effort = player.netEffort
     let effortTime = effort.map { Float(game.time - $0.impactTime) } ?? 1

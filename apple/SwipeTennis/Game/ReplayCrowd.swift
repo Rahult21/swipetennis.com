@@ -43,9 +43,17 @@ import UIKit
       body.oval(neck + [0,0.125,0], radii: [0.103,0.143,0.109])
       hair.oval(neck + [0,0.208,0.012], radii: [0.107,0.077,0.109])
       if v % 4 == 0 { cloth.oval(neck + [0,0.195,-0.055], radii: [0.12,0.035,0.147]) }
+      if v % 5 == 1 { hair.oval(neck + [0,0.08,0.082],radii:[0.072,0.15,0.064]) }
       for side: Float in [-1,1] {
         let shoulder = neck + [side*0.163,-0.08,0], elbow = neck + [side*0.235,-0.29,-0.08]
-        let hand = CourtPoint3D(side*0.112,0.13,-0.26-lean)
+        let hand: CourtPoint3D
+        switch v % 6 {
+        case 0: hand = neck + [side*0.045,-0.10,-0.21]
+        case 1: hand = side > 0 ? neck + [0.11,0.20,-0.13] : [side*0.112,0.13,-0.26]
+        case 2: hand = neck + [side*0.05,0.012,-0.17]
+        default: hand = [side*0.112,0.13,-0.26-lean]
+        }
+        body.oval(hand,radii:[0.042,0.050,0.040])
         cloth.line(shoulder,elbow,radius: 0.072); body.line(elbow,hand,radius: 0.046)
         let knee = CourtPoint3D(side*0.135,-0.02,-0.33)
         pants.line([side*0.12,0.04,0],knee,radius: 0.095)

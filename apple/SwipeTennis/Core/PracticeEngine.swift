@@ -112,6 +112,7 @@ struct PracticeSettings: Codable {
   var botReaction: Double { botST.map { 0.60 - clamp($0,1,10)*0.044 } ?? difficulty.reaction }
   var difficulty: Difficulty = .easy
   var style: BotStyle = .baseline
+  var venue: TennisVenue?
   var surface: CourtSurface = .grass
   var allCourtTraining = true
   var scoring: PracticeScoring = .tennis
@@ -119,7 +120,7 @@ struct PracticeSettings: Codable {
   var opponentName = ""
 
   enum CodingKeys: String, CodingKey {
-    case local, tournament, botST, pressureDay, clubEncounter, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
+    case local, tournament, botST, pressureDay, clubEncounter, venue, difficulty, style, surface, allCourtTraining, scoring, playerName, opponentName
   }
   init(
     local: Bool = false, difficulty: Difficulty = .easy, style: BotStyle = .baseline,
@@ -144,6 +145,7 @@ struct PracticeSettings: Codable {
     tournament = try values.decodeIfPresent(Bool.self, forKey: .tournament) ?? false
     difficulty = try values.decodeIfPresent(Difficulty.self, forKey: .difficulty) ?? .easy
     style = try values.decodeIfPresent(BotStyle.self, forKey: .style) ?? .baseline
+    venue = try values.decodeIfPresent(TennisVenue.self, forKey: .venue)
     surface = try values.decodeIfPresent(CourtSurface.self, forKey: .surface) ?? .grass
     allCourtTraining = try values.decodeIfPresent(Bool.self, forKey: .allCourtTraining) ?? true
     scoring = try values.decodeIfPresent(PracticeScoring.self, forKey: .scoring) ?? .tennis
@@ -437,7 +439,7 @@ struct PracticeEngine: Codable {
     feedback = Coaching(title: "Set up the serve.",
       reason: "Blue is the serve's bounce target. Yellow is the receiver's contact position.",
       tip: bot ? "Read the blue target and move to yellow before the toss."
-        : "Drag blue to aim; tap your side of the court to serve.")
+        : "Drag on your half to aim blue. Lift, then tap to serve.")
   }
 
   mutating func launch(

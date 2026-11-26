@@ -72,6 +72,13 @@ final class PointReplayTests: XCTestCase {
     }
     let penultimate = try XCTUnwrap(clip.strikes.dropLast().last)
     XCTAssertEqual(clip.opening, max(0, penultimate.time - 0.65))
+    var ending = clip.finishingShot
+    XCTAssertEqual(ending.strikes.map(\.hitter), [0])
+    XCTAssertLessThanOrEqual(try XCTUnwrap(ending.strikes.last?.time), 0.55 + tick)
+    XCTAssertEqual(ending.frames.last?.ball, clip.frames.last?.ball)
+    ending.appendHandshake()
+    let shake = try XCTUnwrap(ending.frame(at: try XCTUnwrap(ending.ceremonyStart) + 1.5))
+    XCTAssertLessThan(simd_distance(shake.near[.grip], shake.far[.grip]), 0.002)
     let recorded = clip.frames[45], next = clip.frames[46]
     let halfway = try XCTUnwrap(clip.frame(at: 45 * tick + tick * PointReplay.speed))
     XCTAssertLessThan(simd_distance(halfway.ball, (recorded.ball + next.ball) / 2), 0.00001)

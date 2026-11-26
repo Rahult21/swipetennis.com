@@ -2,6 +2,7 @@ import SwiftUI
 
 /// One compact courtside strip contains coaching, the score, and match controls.
 struct CourtBillboard: View {
+  @Environment(\.verticalSizeClass) private var heightClass
   let game: PracticeEngine
   let paused: Bool
   var miss: CoachMiss? = nil
@@ -10,8 +11,11 @@ struct CourtBillboard: View {
   let onPause: () -> Void
 
   var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 0) {
+    let wide = heightClass == .compact
+    let header = wide ? AnyLayout(VStackLayout(spacing:3)) : AnyLayout(HStackLayout(spacing:0))
+    let panel = wide ? AnyLayout(VStackLayout(spacing:4)) : AnyLayout(HStackLayout(spacing:12))
+    return VStack(spacing: wide ? 8 : 0) {
+      header {
         VStack(alignment: .leading, spacing: 3) {
           if let miss {
             Text(miss.label).tracking(0.6).font(.system(size: 8, weight: .bold))
@@ -26,14 +30,16 @@ struct CourtBillboard: View {
         }.padding(.leading, 12)
           .accessibilityElement(children: .combine)
           .accessibilityIdentifier("coachMissFeedback")
-        Spacer(minLength: 0)
+        if !wide { Spacer(minLength:0) }
+        HStack(spacing:0) {
         control("xmark", label: "Leave practice", action: onLeave)
         control("questionmark.circle", label: "Illustrated court guide", action: onHelp)
           .accessibilityIdentifier("courtGuide")
         control(paused ? "play.fill" : "pause.fill",
           label: paused ? "Resume practice" : "Pause practice", action: onPause)
-      }.frame(height: 44)
-      HStack(spacing: 12) {
+        }
+      }.frame(height: wide ? 91 : 44)
+      panel {
         Group {
           if game.needsSimulation && !paused {
             GestureArtwork(mark: artwork.mark, tint: artwork.color, targetRing: artwork.ring)
@@ -45,10 +51,10 @@ struct CourtBillboard: View {
           .accessibilityElement(children: .ignore)
           .accessibilityLabel(paused ? "Paused" : "\(game.instruction.title). \(game.instruction.detail)")
           .accessibilityIdentifier("courtsideBillboard")
-        Rectangle().fill(.white.opacity(0.15)).frame(width: 1, height: 44)
+        if !wide { Rectangle().fill(.white.opacity(0.15)).frame(width:1,height:44) }
         score
-      }.frame(height: 56).padding(.horizontal, 12).padding(.bottom, 6)
-    }.foregroundStyle(.white)
+      }.frame(height: wide ? 119 : 56).padding(.horizontal, 12).padding(.bottom, 6)
+    }.frame(maxHeight:wide ? .infinity : nil).foregroundStyle(.white)
       .background(Color(red: 0.055, green: 0.105, blue: 0.09))
   }
 

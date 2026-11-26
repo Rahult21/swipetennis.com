@@ -1,8 +1,30 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  func testLockerRoomChangesKitAndKeepsItWhenReopened() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1", "YES"]
+    app.launch()
+    let locker = app.buttons["Player & kit"]
+    XCTAssertTrue(locker.waitForExistence(timeout: 10))
+    locker.tap()
+    let woman = app.buttons["Woman"]
+    let man = app.buttons["Man"]
+    XCTAssertTrue(woman.waitForExistence(timeout: 8))
+    let selected = woman.isSelected ? man : woman
+    selected.tap()
+    app.navigationBars.buttons.element(boundBy: 0).tap()
+    locker.tap()
+    XCTAssertTrue(selected.isSelected)
+    let photo = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    photo.name = "Player-kit"
+    photo.lifetime = .keepAlways
+    add(photo)
+  }
+
   func testCareerResumesAtSavedPointAfterQuickPlay() throws {
     let app = XCUIApplication()
+    app.launchArguments += ["-watchedQuickStartV1", "YES"]
     app.launch()
     let career = app.buttons["soloCareer"]
     XCTAssertTrue(career.waitForExistence(timeout: 10))
@@ -34,16 +56,38 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertEqual(app.staticTexts["resultScore"].label, savedScore)
   }
 
-  func testGuestQuickPlayAndOptionalPointReplay() throws {
+  func testQuickStartRotationAndWinningShotReplay() throws {
     let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1", "NO"]
+    XCUIDevice.shared.orientation = .portrait
+    defer { XCUIDevice.shared.orientation = .portrait }
     app.launch()
+    let done = app.buttons["closeQuickStart"]
+    XCTAssertTrue(done.waitForExistence(timeout: 15))
+    done.tap()
     app.buttons["playPractice"].tap()
     let quick = app.buttons["quickGuestPlay"]
     guard quick.waitForExistence(timeout:5) else { throw XCTSkip("This simulator profile already mastered the academy.") }
     quick.tap()
     let start = app.buttons["startPractice"]
     XCTAssertTrue(start.waitForExistence(timeout:8))
+    func capture(_ name: String) {
+      let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      attachment.name = name
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+    capture("Portrait-ready")
+    XCUIDevice.shared.orientation = .landscapeLeft
+    capture("Landscape-ready")
     start.tap()
+    capture("Landscape-rally")
+    let skip = app.buttons["Skip"]
+    XCTAssertTrue(skip.waitForExistence(timeout: 35))
+    XCTAssertTrue(app.staticTexts["playingHighlight"].waitForExistence(timeout: 10))
+    capture("Winning-shot")
+    if skip.isHittable { skip.tap() }
+    XCUIDevice.shared.orientation = .portrait
     // The far player serves first. Let the serve pass to reach the real result card.
     let replay = app.buttons["replayPracticePoint"]
     XCTAssertTrue(replay.waitForExistence(timeout:30))
@@ -60,6 +104,7 @@ final class SwipeTennisUITests: XCTestCase {
       throw XCTSkip("Requires a local Worker cup fixture.")
     }
     let app = XCUIApplication()
+    app.launchArguments += ["-watchedQuickStartV1", "YES"]
     app.launchEnvironment = ["SWIPETENNIS_LOCAL_TEST_URL":"http://127.0.0.1:8788/api/",
       "SWIPETENNIS_LOCAL_TEST_USER":user,"SWIPETENNIS_LOCAL_TEST_TOKEN":token]
     app.launch()
@@ -83,6 +128,7 @@ final class SwipeTennisUITests: XCTestCase {
   }
   func testPracticeFlow() {
     let app = XCUIApplication()
+    app.launchArguments += ["-watchedQuickStartV1", "YES"]
     app.launch()
     app.buttons["playPractice"].tap()
     app.swipeUp()
@@ -128,6 +174,7 @@ final class SwipeTennisUITests: XCTestCase {
   }
   func testManualMatchAndRelaunch() {
     let app = XCUIApplication()
+    app.launchArguments += ["-watchedQuickStartV1", "YES"]
     app.launch()
     app.tabBars.buttons["Score"].tap()
     if app.buttons["End this match"].exists {

@@ -30,9 +30,9 @@ extension PracticeEngine {
         return CourtInstruction(title: "\(name(serve.server)) serving",
           detail: "Watch the toss. Receiver: tap to split step as the racket meets the ball.", symbol: "hand.tap")
       }
-      return CourtInstruction(title: humanServing ? "Drag blue. Tap to serve." : "Read the opponent's serve",
+      return CourtInstruction(title: humanServing ? "Drag to aim. Tap to serve." : "Read the opponent's serve",
         detail: humanServing
-          ? "Place blue, then touch a gauge within one second. Speed is on your left and spin on your right. Tap your side to serve."
+          ? "Drag on your half to place blue, then touch a gauge within one second. Speed is on your left and spin on your right. Tap your side to serve."
           : "The blue bounce target is moving into place. Make a short swipe toward yellow to prepare your return.",
         symbol: "scope")
     }

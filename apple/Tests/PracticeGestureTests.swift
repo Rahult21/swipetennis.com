@@ -153,6 +153,39 @@ final class PracticeGestureTests: XCTestCase {
     }
   }
 
+  func testLiveSwipePreviewMatchesCommittedAimAndDepthOnBothSides() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.launch(1-side, aim: Vec(x: 2, y: side == 0 ? 22 : 2), kind: .cross)
+      game.phase = .live
+      var previous: Vec?
+      for distance in [24.0, 48, 72] {
+        let delta = Vec(x: distance, y: -distance)
+        let target = try XCTUnwrap(game.swipeLanding(delta, side: side))
+        game.selectShotSwipe(delta, side: side)
+        XCTAssertEqual(game.players[side].aim, target)
+        if let previous {
+          XCTAssertTrue(side == 0 ? target.x > previous.x : target.x < previous.x)
+          XCTAssertTrue(side == 0 ? target.y < previous.y : target.y > previous.y)
+        }
+        previous = target
+      }
+    }
+  }
+
+  func testOlderSurfaceSavesSelectTheMatchingArena() throws {
+    for surface in CourtSurface.allCases {
+      let data = try JSONEncoder().encode(PracticeSettings(surface: surface))
+      let saved = try JSONDecoder().decode(PracticeSettings.self, from: data)
+      XCTAssertNil(saved.venue)
+      XCTAssertEqual(saved.matchVenue.surface, surface)
+    }
+    var night = PracticeSettings(surface: .hard)
+    night.venue = .night
+    let saved = try JSONDecoder().decode(PracticeSettings.self, from: JSONEncoder().encode(night))
+    XCTAssertEqual(saved.matchVenue, .night)
+  }
+
   func testDirectionalRunningKeepsShotAndStaysOnOwnCourt() {
     for side in 0...1 {
       var engine = PracticeEngine(settings: .init(local: true))

@@ -28,6 +28,7 @@ struct PracticeGesture {
   private var screenStart: Vec?
   private var screenTravelled = 0.0
   private var circlePoints: [Vec] = []
+  private(set) var previewDelta: Vec?
   private(set) var runPace = 1.0
   private var startedAt: Double?
 
@@ -51,6 +52,7 @@ struct PracticeGesture {
       let enough = screenPoint == nil ? delta.length >= 0.2 : screen.distance(to: screenStart!) >= 8
       let alignment = (delta.x * path.x + delta.y * path.y) / max(0.000001, delta.length * path.length)
       if enough && alignment >= 0.65 {
+        previewDelta = nil
         movementCommitted = true
         return .guidedMove(guide.kind)
       }
@@ -67,6 +69,8 @@ struct PracticeGesture {
     }
     if intent == .shot {
       let origin = screenStart!
+      let facing = side == 0 ? 1.0 : -1.0
+      previewDelta = Vec(x:(screen.x-origin.x)*facing,y:(screen.y-origin.y)*facing)
       screenTravelled = max(screenTravelled, origin.distance(to: screen))
       guard ended else { return nil }
       if screenTravelled < 8 { return .courtTap(point) }
@@ -124,20 +128,25 @@ extension PracticeEngine {
     guard let selection = ShotSwipe.read(delta) else { return }
     choose(side, selection.kind)
     // Distance inside the far baseline, in metres. A short angle stays shorter than a drive.
+    guard let landing = swipeLanding(delta, side:side) else { return }
+    players[side].aim = landing
+    players[side].swipeDepth = side == 0 ? landing.y : Self.length-landing.y
+  }
+
+  func swipeLanding(_ delta: Vec, side: Int) -> Vec? {
+    guard let selection = ShotSwipe.read(delta) else { return nil }
     let reach = clamp((delta.length - 16) / 132, 0, 1)
     let deep = selection.kind == .angle ? 3.6 : 0.85
-    players[side].swipeDepth = 8.8 + (deep - 8.8) * reach
-    if selection.kind == .lob && selection.lateral == 0 {
-      players[side].aim?.x = Self.width / 2
-    }
-    if selection.kind == .line && flight?.serve == true && flight?.serveNumber == 1 {
-      players[side].aim = Self.aim(side, players[1 - side].pos)
-    }
+    let depth = 8.8 + (deep - 8.8) * reach
+    let pos = players[side].pos
+    var x = pos.x
+    if selection.kind == .lob && selection.lateral == 0 { x = Self.width / 2 }
+    if selection.kind == .line && flight?.serve == true && flight?.serveNumber == 1 { x = players[1-side].pos.x }
     if selection.lateral != 0 && selection.kind != .line {
-      let right = selection.lateral * (side == 0 ? 1 : -1) > 0
-      let margin = selection.kind == .angle ? 0.55 : 1.4
-      players[side].aim!.x = right ? Self.width - margin : margin
+      let lateral = side == 0 ? delta.x : -delta.x
+      x = Self.width/2 + (Self.width/2 - 0.45) * clamp(lateral/72,-1,1)
     }
+    return Self.aim(side,Vec(x:x,y:side == 0 ? depth : Self.length-depth))
   }
 
   mutating func tapCourt(_ side: Int, at point: Vec) {

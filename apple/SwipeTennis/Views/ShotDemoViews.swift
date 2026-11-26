@@ -138,7 +138,7 @@ struct ShotDemoLessonView: View {
         if let error = demos.storageError { Text(error).font(.caption).foregroundStyle(.red) }
       }.padding(.horizontal, 16).padding(.vertical, 10).background(.bar)
       ZStack {
-        SpriteView(scene: session.scene, isPaused: session.paused, preferredFramesPerSecond: 60)
+        LiveCourt(scene:session.scene,paused:session.paused)
           .accessibilityLabel("Demo court. \(run?.instruction ?? "")")
           .accessibilityAction(named: "Move to yellow") {
             session.input { engine in if let point = engine.contactGuide(0) { engine.tapCourt(0, at: point) } }

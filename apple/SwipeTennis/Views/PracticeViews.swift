@@ -30,8 +30,9 @@ struct PracticeSetupView: View {
       if !demos.progress.unlocksCourt {
         Section {
           Button("Quick play") {
-            let quick = PracticeSettings(allCourtTraining:false,scoring:.tiebreak,
+            var quick = PracticeSettings(surface: settings.surface, allCourtTraining:false,scoring:.tiebreak,
               playerName:ApplePlayerName.display(account.identity?.emailMask))
+            quick.venue = settings.matchVenue
             presentedMatch = SavedPracticeMatch(owner:account.identity?.userID ?? DemoProgressArchive.guest,
               engine:PracticeEngine(settings:quick))
           }.accessibilityIdentifier("quickGuestPlay")
@@ -65,9 +66,12 @@ struct PracticeSetupView: View {
           : "All difficulty levels count toward your Coachability personal bests. Playing style changes your opponent’s tactics.")
       }
       Section {
-        Picker("Surface", selection: $settings.surface) {
-          ForEach(CourtSurface.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-        }.pickerStyle(.segmented)
+        Picker("Arena", selection: Binding(get: { settings.matchVenue }, set: { venue in
+          settings.venue = venue; settings.surface = venue.surface
+        })) {
+          ForEach(TennisVenue.allCases, id: \.self) { Text("\($0.rawValue) · \($0.surface.rawValue)").tag($0) }
+        }
+        NavigationLink("Player & kit") { LockerRoom() }
         if !settings.local { Toggle("All-court training", isOn: $settings.allCourtTraining) }
       } header: { Text("Court") } footer: {
         Text("Swipe forward after your shot and before the far bounce to approach the net.")
@@ -131,6 +135,7 @@ struct PracticeGameView: View {
   @Environment(\.dismiss) var dismiss
   @Environment(\.scenePhase) var scenePhase
   @Environment(\.accessibilityReduceMotion) var reduceMotion
+  @Environment(\.verticalSizeClass) private var courtHeight
   @StateObject private var session: PracticeSession
   @State private var showCoach = false
   @State private var resumeAfterGuide = false
@@ -148,10 +153,7 @@ struct PracticeGameView: View {
   }
   var game: PracticeEngine { session.snapshot }
   private var courtView: some View {
-    SpriteView(
-      scene: session.scene, isPaused: session.paused || replayReview != nil,
-      preferredFramesPerSecond: ProcessInfo.processInfo.isLowPowerModeEnabled ? 60 : 120
-    )
+    LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil)
     .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
     .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
     .accessibilityAction(named: "Move to contact") {
@@ -169,15 +171,17 @@ struct PracticeGameView: View {
     .accessibilityAction(named: "Serve body") { session.scene.engine.chooseServe(.body, side: 0) }
   }
   var body: some View {
-    VStack(spacing: 0) {
-      VStack(spacing: 0) {
+    let landscape = courtHeight == .compact
+    let layout = landscape ? AnyLayout(HStackLayout(spacing:0)) : AnyLayout(VStackLayout(spacing:0))
+    return VStack(spacing: 0) {
+      layout {
         CourtBillboard(game: game, paused: session.paused, miss: session.coachMiss, onLeave: requestExit, onHelp: {
           resumeAfterGuide = !session.paused
           session.pause()
           showCoach = true
         }, onPause: {
           if session.paused { session.resume() } else { session.pause() }
-        })
+        }).frame(width:landscape ? 180 : nil)
         ZStack {
           courtView
           .accessibilityAction(named: "Down the line") { session.scene.engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0) }
@@ -253,8 +257,14 @@ struct PracticeGameView: View {
         if game.showsPointResult && !session.paused && !showCoach {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
             onReplay: session.scene.performance.replay.canPlay ? {
-              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface)
+              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, venue:game.settings.matchVenue, handshake:game.phase == .finished)
             } : nil)
+        }
+      }
+      .onChange(of: game.showsPointResult) { _, visible in
+        if visible && replayReview == nil && session.scene.performance.replay.canPlay {
+          replayReview = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
+            venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished)
         }
       }
       .sheet(item: $replayReview) { PointReplayView(review: $0).presentationDetents([.large]) }

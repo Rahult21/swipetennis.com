@@ -53,6 +53,10 @@ struct RootView: View {
 }
 struct HomeView: View {
   @EnvironmentObject var store: AppStore
+  @EnvironmentObject private var cupStore: CupStore
+  private var cupsInviteIsAbsent: Bool { cupStore.pendingInvite == nil }
+  @AppStorage("watchedQuickStartV1") private var introduced = false
+  @State private var quickStart = false
   var body: some View {
     List {
       Section {
@@ -62,6 +66,10 @@ struct HomeView: View {
             .font(.subheadline).foregroundStyle(.secondary)
         }.padding(.vertical, 4)
           .listRowBackground(Color.clear)
+      }
+      Section {
+        Button { quickStart = true } label: { Label("Quick start · 20 seconds",systemImage:"play.rectangle") }
+        NavigationLink { LockerRoom() } label: { Label("Player & kit",systemImage:"tshirt") }
       }
       SoloCareerLink()
       DailyPressureSection()
@@ -108,6 +116,8 @@ struct HomeView: View {
         }
       }
     }.listStyle(.insetGrouped).navigationTitle("SwipeTennis")
+      .onAppear { if !introduced && cupsInviteIsAbsent { introduced = true; quickStart = true } }
+      .sheet(isPresented:$quickStart) { QuickStartFilm() }
       .toolbar {
         ToolbarItemGroup(placement: .topBarTrailing) {
           NavigationLink { CoachLeaderboardView() } label: {
