@@ -348,7 +348,7 @@ struct CupMatchView: View {
     .onChange(of:game.showsPointResult) { _, visible in
       if visible && session.scene.performance.replay.canPlay {
         review = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
-          side:session.side,venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished)
+          side:session.side,venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished,stadium:session.scene.stadium)
       }
     }
     .sheet(item: $review) { PointReplayView(review:$0).presentationDetents([.large]) }
@@ -368,7 +368,7 @@ struct CupMatchView: View {
   @ViewBuilder private var replayButton: some View {
     if !session.waitingForNext && session.scene.performance.replay.canPlay {
       Button("Replay point") {
-        review = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, side:session.side,venue:game.settings.matchVenue,handshake:game.phase == .finished)
+        review = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, side:session.side,venue:game.settings.matchVenue,handshake:game.phase == .finished,stadium:session.scene.stadium)
       }.accessibilityIdentifier("replayCupPoint")
     }
   }

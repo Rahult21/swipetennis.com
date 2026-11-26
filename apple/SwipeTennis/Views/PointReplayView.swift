@@ -7,8 +7,10 @@ struct ReplayReview: Identifiable {
   let side: Int
   let venue: TennisVenue?
   let automatic: Bool
+  let stadium: CourtReplayView?
   init(clip: PointReplay, surface: CourtSurface, side: Int = 0, venue: TennisVenue? = nil,
-       automatic: Bool = false, handshake: Bool = false) {
+       automatic: Bool = false, handshake: Bool = false, stadium: CourtReplayView? = nil) {
+    self.stadium = stadium
     var shot = clip.finishingShot
     if handshake { shot.appendHandshake() }
     self.clip = shot; self.surface = surface; self.side = side; self.venue = venue; self.automatic = automatic
@@ -56,11 +58,11 @@ struct PointReplayView: View {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
           let time = cursor
           ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
-            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic) {
+            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, liveStadium:review.stadium) {
               ready = true
               if (review.automatic || !reduceMotion) && phase == .active { play() }
             }
-            .overlay { if !ready { ProgressView().accessibilityLabel("Preparing replay") } }
+            .overlay { if !ready { ZStack { Color(uiColor: .systemBackground); ProgressView("Preparing replay") } } }
             .accessibilityLabel("\(angle.rawValue) camera")
             .onChange(of: time >= review.clip.duration) { _, ended in if ended { pause(); if review.automatic { dismiss() } } }
         }

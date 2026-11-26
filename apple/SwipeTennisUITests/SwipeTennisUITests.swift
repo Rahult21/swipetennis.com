@@ -86,7 +86,7 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(skip.waitForExistence(timeout: 35))
     XCTAssertTrue(app.staticTexts["playingHighlight"].waitForExistence(timeout: 10))
     capture("Winning-shot")
-    if skip.isHittable { skip.tap() }
+    if skip.exists && skip.isHittable { skip.tap() }
     XCUIDevice.shared.orientation = .portrait
     // The far player serves first. Let the serve pass to reach the real result card.
     let replay = app.buttons["replayPracticePoint"]

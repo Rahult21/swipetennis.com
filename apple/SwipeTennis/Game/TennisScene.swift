@@ -591,7 +591,7 @@ import SwiftUI
 
   private func render() {
     guard actors.count == 2 else { return }
-    if let stadium, let frame = performance.frame {
+    if let stadium, !stadium.isReviewing, let frame = performance.frame {
       stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/1.45)),nearX:cameraPlayerX,reduceMotion:reduceMotion)
       stadium.draw(frame,angle:.neutral,reduceMotion:reduceMotion,powerBeat:nil,live:true)
     } else { positionPlayers() }

@@ -17,14 +17,47 @@ enum ReplayAngle: String, CaseIterable {
   let playbackID: Int
   let reduceMotion: Bool
   var automatic = false
+  var liveStadium: CourtReplayView?
   let onReady: () -> Void
 
-  func makeUIView(context: Context) -> CourtReplayView {
-    let view = CourtReplayView(surface: surface, venue: venue, localSide: localSide)
-    view.whenRendering(onReady)
-    return view
+  final class Stage: UIView {
+    let stadium: CourtReplayView
+    weak var liveHost: UIView?
+
+    init(stadium: CourtReplayView) {
+      self.stadium = stadium
+      self.liveHost = stadium.superview
+      super.init(frame: .zero)
+      stadium.isReviewing = true
+      stadium.playbackID = -1
+      stadium.lastTime = -1
+      addSubview(stadium)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      stadium.frame = bounds
+    }
   }
-  func updateUIView(_ view: CourtReplayView, context: Context) {
+
+  func makeUIView(context: Context) -> Stage {
+    let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide))
+    stage.stadium.whenRendering(onReady)
+    return stage
+  }
+
+  static func dismantleUIView(_ stage: Stage, coordinator: ()) {
+    let stadium = stage.stadium
+    stadium.finishReview()
+    if let host = stage.liveHost {
+      host.insertSubview(stadium, at: 0)
+      stadium.frame = host.bounds
+      host.setNeedsLayout()
+    }
+  }
+
+  func updateUIView(_ stage: Stage, context: Context) {
+    let view = stage.stadium
     guard let frame = replay.frame(at: seconds) else { return }
     let beat = replay.strikes.last.flatMap { strike in
       strike.power.map { _ in seconds - strike.time }
@@ -57,6 +90,9 @@ enum ReplayAngle: String, CaseIterable {
   private let players: [ReplayAthlete]
   let powerTrail: [ModelEntity]
   private var firstFrame: Cancellable?
+  private var checkingFrame = false
+  private var readinessID = UUID()
+  var isReviewing = false
   var playbackID = -1
   var lastTime = -1.0
 
@@ -110,13 +146,54 @@ enum ReplayAngle: String, CaseIterable {
   @MainActor required dynamic init?(coder decoder: NSCoder) { fatalError("Use init(surface:)") }
 
   func whenRendering(_ ready: @escaping () -> Void) {
+    let id = UUID()
+    readinessID = id
+    checkingFrame = false
     firstFrame = scene.subscribe(to: SceneEvents.Update.self) { [weak self] _ in
       Task { @MainActor in
-        guard let self, self.firstFrame != nil, self.bounds.width > 0 else { return }
-        self.firstFrame?.cancel(); self.firstFrame = nil
-        ready()
+        guard let self, self.readinessID == id, self.firstFrame != nil, !self.checkingFrame,
+              self.window != nil, self.bounds.width > 0 else { return }
+        self.checkingFrame = true
+        self.snapshot(saveToHDR: false) { [weak self] image in
+          Task { @MainActor in
+            guard let self, self.readinessID == id else { return }
+            if let frame = image?.cgImage, Self.hasCourtPixels(frame) {
+              self.firstFrame?.cancel()
+              self.firstFrame = nil
+              ready()
+            } else {
+              // RealityKit can deliver scene updates while its drawable still contains only sky.
+              try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard self.readinessID == id else { return }
+            self.checkingFrame = false
+          }
+        }
       }
     }
+  }
+
+  private static func hasCourtPixels(_ frame: CGImage) -> Bool {
+    var pixels = [UInt8](repeating: 0, count: 12*12*4)
+    return pixels.withUnsafeMutableBytes { buffer in
+      guard let context = CGContext(data: buffer.baseAddress, width: 12, height: 12, bitsPerComponent: 8,
+                                    bytesPerRow: 48, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return false }
+      context.draw(frame, in: CGRect(x: 0, y: 0, width: 12, height: 12))
+      let values = buffer.bindMemory(to: UInt8.self)
+      return (0..<3).contains { channel in
+        let samples = stride(from: channel, to: values.count, by: 4).map { Int(values[$0]) }
+        return (samples.max() ?? 0) - (samples.min() ?? 0) > 28
+      }
+    }
+  }
+
+  func finishReview() {
+    readinessID = UUID()
+    firstFrame?.cancel()
+    firstFrame = nil
+    isReviewing = false
+    powerTrail.forEach { $0.isEnabled = false }
   }
 
   private static func shadowStamp() -> ModelEntity {

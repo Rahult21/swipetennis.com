@@ -257,14 +257,14 @@ struct PracticeGameView: View {
         if game.showsPointResult && !session.paused && !showCoach {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
             onReplay: session.scene.performance.replay.canPlay ? {
-              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, venue:game.settings.matchVenue, handshake:game.phase == .finished)
+              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, venue:game.settings.matchVenue, handshake:game.phase == .finished,stadium:session.scene.stadium)
             } : nil)
         }
       }
       .onChange(of: game.showsPointResult) { _, visible in
         if visible && replayReview == nil && session.scene.performance.replay.canPlay {
           replayReview = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
-            venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished)
+            venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished,stadium:session.scene.stadium)
         }
       }
       .sheet(item: $replayReview) { PointReplayView(review: $0).presentationDetents([.large]) }

@@ -24,7 +24,8 @@ struct LiveCourt: UIViewRepresentable {
     required init?(coder: NSCoder) { fatalError() }
     override func layoutSubviews() {
       super.layoutSubviews()
-      stadium.frame = bounds; controls.frame = bounds
+      if stadium.superview === self { stadium.frame = bounds }
+      controls.frame = bounds
     }
   }
   func makeUIView(context: Context) -> Container { Container(scene:scene) }
