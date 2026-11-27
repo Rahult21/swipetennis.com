@@ -279,9 +279,11 @@ struct AthleteMotion {
     let outsideStep = forward*(-0.105+0.19*ramp(time,-0.02,0.19)) + right*sideOfBall*0.085
     let leftSet = (backhand ? outsideStep : leadStep)*driveSet
     let rightSet = (backhand ? leadStep : outsideStep)*driveSet
+    let lateralDriveTime: Float? = !reduceMotion && game.phase == .live && swing.style == .groundstroke
+      && effort == nil && activePower == nil && (arrival != nil || elapsed != nil) ? time : nil
     feet.advance(centre: centre, velocity: player.velocity.world(), destination: player.destination.world(),
       facing: sign, strideBias: step+leftSet, dt: Float(dt), readiness: max(stance,driveSet), surface: game.settings.surface,
-      rightStrideBias: rightSet)
+      rightStrideBias: rightSet, lateralDriveTime: lateralDriveTime)
     let recoveryRun = game.phase == .live && game.flight?.hitter == side && !game.followingApproach[side] && abs(player.velocity.x) > 0.9
     let captured = capture.step(speed:speed,remaining:player.pos.distance(to:player.destination),recovering:recoveryRun,dt:Float(dt))
     var pose = AthletePose()
@@ -382,6 +384,13 @@ struct AthleteMotion {
     let offset = shoeMid - centre
     let support = CourtPoint3D(max(-0.19, min(0.19, offset.x)), 0, max(-0.14, min(0.14, offset.z)))
     var pelvis = centre + support * 0.72 + weight + weightForward + up * (0.99 - bend + 0.022 * pushOff + hop + leap)
+    if feet.plantedSide != 0 {
+      // Carry the belt over the outside knee as the shot loads, then send it
+      // toward the stepping shoe while the shoulders finish their rotation.
+      let pressure = ramp(time,-0.33,-0.16)*(1-ramp(time,-0.08,0.11))
+      pelvis += right*feet.plantedSide*(0.078*pressure-0.058*feet.push)
+      pelvis.y -= 0.025*pressure+0.038*feet.push
+    }
     if !reduceMotion { pelvis.y += max(-0.07,min(0.06,captured.pelvis)) }
     pelvis += relative(receiver.hips) + forward*0.065*transfer*driveSet
     pelvis.y += (runner?.trunk.z ?? 0)*runWeight

@@ -3,6 +3,54 @@ import simd
 @testable import TennisCore
 
 final class RallyFootworkTests: XCTestCase {
+  func testWideDrivePlantsOutsideAndOpensInsideOnRecoveryCommand() throws {
+    for side in 0...1 {
+      for direction in [-1.0, 1.0] {
+        for requestRecovery in [false, true] {
+          var game = PracticeEngine(settings: .init(local: true, surface: .hard, allCourtTraining: false))
+          game.phase = .live
+          game.players[side].pos = Vec(x: 4.115, y: side == 0 ? 22.6 : PracticeEngine.length-22.6)
+          game.players[1-side].pos = Vec(x: 4.115, y: side == 0 ? 1 : PracticeEngine.length-1)
+          for i in 0...1 { game.players[i].destination = game.players[i].pos }
+          game.launch(1-side, aim: Vec(x: 4.115+direction*2.65, y: side == 0 ? 21.5 : PracticeEngine.length-21.5), kind: .cross)
+          game.apply(.guidedMove(.receive), side: side)
+          var performance = CourtPerformance(game: game), poses: [AthletePose] = []
+          var impact: Int?
+          for tick in 0..<420 {
+            if let impact, tick == impact+19, requestRecovery { game.apply(.guidedMove(.recover), side: side) }
+            game.step(PointReplay.tick, random: { 0.8 })
+            performance.update(game: game, dt: PointReplay.tick)
+            let frame = try XCTUnwrap(performance.frame)
+            poses.append(side == 0 ? frame.near : frame.far)
+            if impact == nil && game.flight?.hitter == side { impact = tick }
+            if let impact, tick >= impact+70 { break }
+          }
+          let hit = try XCTUnwrap(impact)
+          let rightPlant = (direction > 0) == (side == 0)
+          let outside: BodyJoint = rightPlant ? .rightShoe : .leftShoe
+          let inside: BodyJoint = rightPlant ? .leftShoe : .rightShoe
+          let anchor = poses[hit-17][outside]
+          // A shoe can roll about the forefoot while keeping its place on court.
+          for i in (hit-17)...(hit+33) {
+            let shift = poses[i][outside]-anchor
+            XCTAssertLessThan(hypot(shift.x,shift.z), 0.025)
+          }
+          let hips = (poses[hit-17][.leftHip]+poses[hit-17][.rightHip])/2
+          XCTAssertLessThan(abs(hips.x-anchor.x), 0.17)
+          let inward = Float(-direction)
+          let first = poses[hit+34][inside]-poses[hit+18][inside]
+          if requestRecovery {
+            XCTAssertGreaterThan(first.x*inward, 0.18)
+            XCTAssertGreaterThan(first.y, 0.035)
+            XCTAssertGreaterThan((poses[hit+62][outside].x-anchor.x)*inward, 0.28)
+          } else {
+            XCTAssertLessThan(abs(first.x), 0.025)
+          }
+        }
+      }
+    }
+  }
+
   private func incoming(side: Int, bot: Bool = false) -> PracticeEngine {
     var game = PracticeEngine(settings: .init(local: !bot, surface: .hard, allCourtTraining: false))
     game.phase = .live

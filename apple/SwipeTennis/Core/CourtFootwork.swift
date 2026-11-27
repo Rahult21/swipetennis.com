@@ -24,6 +24,13 @@ struct CourtFootwork {
   private var progress: Float = 0
   private var length: Float = 0.4
 
+  // Anatomical side of the last lateral approach, independent of racket hand.
+  private var approachSide: Float = 0
+  private(set) var plantedSide: Float = 0
+  private var insideStart = CourtPoint3D.zero, insideGoal = CourtPoint3D.zero
+  private var firstStep: Float = 0
+  private(set) var push: Float = 0
+
   /// Take ownership of both ground contacts at the end of a receiver's hop.
   /// Subsequent strides pick each shoe up from its actual landing spot.
   mutating func landSplit(leftOffset: CourtPoint3D, rightOffset: CourtPoint3D) {
@@ -34,10 +41,23 @@ struct CourtFootwork {
   }
 
   mutating func advance(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
-    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1, surface: CourtSurface = .hard, rightStrideBias: CourtPoint3D = .zero) {
+    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1, surface: CourtSurface = .hard, rightStrideBias: CourtPoint3D = .zero, lateralDriveTime: Float? = nil) {
     let restarted = previous.map { simd_distance(centre,$0) >= 1.8 } ?? true
     left = shuffleLeft
     right = shuffleRight
+    if restarted || lateralDriveTime == nil {
+      approachSide = 0; plantedSide = 0; firstStep = 0; push = 0
+    }
+    if let time = lateralDriveTime, time < 0,
+       abs(velocity.x) > max(1.25,abs(velocity.z)*1.3) {
+      approachSide = velocity.x*facing > 0 ? 1 : -1
+    }
+    if let time = lateralDriveTime, !restarted,
+       strokeStep(time:time,centre:centre,destination:destination,facing:facing,dt:dt) {
+      previous = centre
+      shuffleLeft = left; shuffleRight = right
+      return
+    }
     shuffle(centre:centre,velocity:velocity,destination:destination,facing:facing,
             strideBias:strideBias,rightBias:rightStrideBias,dt:dt,readiness:readiness,surface:surface)
     shuffleLeft = left
@@ -124,6 +144,63 @@ struct CourtFootwork {
       footPitch[index] += (roll-footPitch[index])*rollEase
     }
     armStride = cos(2*Float.pi*(gaitPhase-support*0.5))*runBlend
+  }
+
+  /// Hold a real landing through the turn. On a recovery command the inside
+  /// shoe opens toward the target before the outside shoe leaves the court.
+  private mutating func strokeStep(time: Float, centre: CourtPoint3D, destination: CourtPoint3D,
+                                    facing: Float, dt: Float) -> Bool {
+    let toTarget = destination-centre
+    if plantedSide == 0 {
+      guard approachSide != 0, time > -0.43, time < -0.035, runBlend < 0.04,
+            simd_length(toTarget) < 0.28 else { return false }
+      let shoe = approachSide > 0 ? right : left
+      guard shoe.y < 0.018, (shoe.x-centre.x)*facing*approachSide > 0.21 else { return false }
+      plantedSide = approachSide
+      if plantedSide > 0 { right.y = 0 } else { left.y = 0 }
+      insideStart = plantedSide > 0 ? left : right
+      firstStep = 0; push = 0
+      running = false; runBlend = 0; armStride = 0
+      supportFeet = [nil,nil]; toeOffOffsets = [.zero,.zero]
+      stepping = false; replanting = false
+    }
+    let outsideRight = plantedSide > 0
+    let outside = outsideRight ? right : left
+    let inward: Float = -plantedSide*facing
+    let returning = time >= 0 && toTarget.x*inward > 0.18 && abs(toTarget.x) > abs(toTarget.z)*0.7
+    if time > 0.58 || abs(centre.x-outside.x) > 0.62 ||
+       (simd_length(toTarget) > 0.45 && !returning && firstStep == 0) {
+      plantedSide = 0; firstStep = 0; push = 0
+      return false
+    }
+    var inside = outsideRight ? left : right
+    if returning || firstStep > 0 {
+      if firstStep == 0 {
+        insideStart = inside
+        let distance = simd_length(toTarget)
+        insideGoal = centre + CourtPoint3D(0.22*inward,0,0) + toTarget/distance*min(0.44,distance)
+      }
+      firstStep = min(1,firstStep+dt/0.185)
+      let u = firstStep*firstStep*(3-2*firstStep)
+      inside = insideStart+(insideGoal-insideStart)*u
+      inside.y += 0.092*sin(.pi*firstStep)
+      push = sin(.pi*firstStep)
+    } else {
+      // Finish grounding an airborne inside shoe without moving either sole laterally.
+      inside.y = max(0,inside.y-dt*0.75)
+    }
+    let outsideIndex = outsideRight ? 1 : 0
+    let pitch = 0.34*firstStep*firstStep
+    footPitch[outsideIndex] += (pitch-footPitch[outsideIndex])*min(1,dt*30)
+    footPitch[1-outsideIndex] *= max(0,1-dt*26)
+    if outsideRight { left = inside } else { right = inside }
+    if firstStep == 1 {
+      // Continue the shuffle from these contacts, collecting the trailing shoe.
+      leftSwings = !outsideRight
+      lateralDirection = -plantedSide
+      plantedSide = 0; firstStep = 0; push = 0
+    }
+    return true
   }
 
   private mutating func shuffle(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
