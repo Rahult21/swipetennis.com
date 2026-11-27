@@ -8,7 +8,6 @@ import UIKit
   static let shared = Immersion()
   private var haptics: CHHapticEngine?
   private let speech = AVSpeechSynthesizer()
-  private var crowd: AVAudioPlayer?
   private var audio: [AVAudioPlayer] = []
   private let motion = CMMotionManager()
   private var neutral: (Double, Double)?
@@ -30,15 +29,6 @@ import UIKit
     return textures[file]?.first(where:{ !$0.isPlaying }) ?? textures[file]?.first
   }
 
-  func footfall(_ step: ShoeContact, perspective: Int) {
-    guard soundEnabled, volume > 0 else { return }
-    activateAudio()
-    guard let player = texture("shoe-" + step.surface.rawValue.lowercased()) else { return }
-    player.volume = volume * Float(0.30 + 0.40*step.intensity)
-    player.pan = Float(clamp((step.x/4.115-1)*(perspective == 0 ? 1 : -1),-0.85,0.85))
-    player.currentTime = 0
-    player.play()
-  }
   private init() {
     // This update restores audible play once; later user mute/volume choices are retained.
     let defaults = UserDefaults.standard
@@ -68,15 +58,6 @@ import UIKit
       player.prepareToPlay()
       return player
     }
-  }
-
-  func cheer() {
-    guard soundEnabled, let url = Bundle.main.url(forResource: "crowd", withExtension: "wav") else { return }
-    activateAudio()
-    if crowd == nil { crowd = try? AVAudioPlayer(contentsOf: url) }
-    crowd?.volume = volume * 0.65
-    crowd?.currentTime = 0
-    crowd?.play()
   }
 
   func playHit(x: Double, gain: Double, blocked: Bool = false) {
@@ -117,20 +98,51 @@ import UIKit
     if !bounce { playHit(x: x, gain: gain, blocked: blocked) }
   }
 
-  func opponentExclamation() {
-    guard soundEnabled, volume > 0 else { return }
+  private var audiencePlayer: AVAudioPlayer?
+  private var ovationPlayer: AVAudioPlayer?
+
+  func applaudPoint() {
+    guard soundEnabled else { return }
     activateAudio()
-    let cue = AVSpeechUtterance(string: "C’mon!")
-    cue.voice = AVSpeechSynthesisVoice(language: "en-US")
-    cue.rate = 0.53
-    cue.pitchMultiplier = 0.89
-    cue.volume = volume * 0.72
-    speech.speak(cue)
+    audiencePlayer?.stop()
+    audiencePlayer = texture("point-applause")
+    audiencePlayer?.volume = volume * 0.50
+    audiencePlayer?.currentTime = 0
+    audiencePlayer?.play()
   }
 
-  func point(_ text: String) {
+  func endApplause() {
+    audiencePlayer?.stop()
+    audiencePlayer = nil
+    ovationPlayer?.stop()
+    ovationPlayer = nil
+  }
+
+  /// Follow the ceremony playhead, including pauses, scrubbing, and early dismissal.
+  func updateOvation(at seconds: Double?, playing: Bool) {
+    guard soundEnabled, let seconds, seconds >= 0 else {
+      ovationPlayer?.stop()
+      ovationPlayer = nil
+      return
+    }
+    guard playing else { ovationPlayer?.pause(); return }
+    if ovationPlayer == nil {
+      activateAudio()
+      audiencePlayer?.stop()
+      ovationPlayer = texture("match-ovation")
+    }
+    guard let player = ovationPlayer else { return }
+    guard seconds < player.duration else { player.stop(); return }
+    if !player.isPlaying || abs(player.currentTime - seconds) > 0.45 {
+      player.currentTime = seconds
+      player.volume = volume * 0.83
+      player.play()
+    }
+  }
+
+  func point(_ text: String, announce: Bool = true) {
     if hapticsEnabled { UINotificationFeedbackGenerator().notificationOccurred(.success) }
-    if UserDefaults.standard.bool(forKey: "voice") {
+    if announce && UserDefaults.standard.bool(forKey: "voice") {
       speech.stopSpeaking(at: .immediate)
       let utterance = AVSpeechUtterance(string: text)
       utterance.rate = 0.48
@@ -161,9 +173,9 @@ import UIKit
   func stop() {
     finishRally()
     speech.stopSpeaking(at: .immediate)
+    endApplause()
     audio.forEach { $0.stop() }
     textures.values.forEach { $0.forEach { $0.stop() } }
-    crowd?.stop()
     if audioActive { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
     audioActive = false
     haptics?.stop()

@@ -5,6 +5,63 @@ import simd
 final class PointReplayTests: XCTestCase {
   private let tick = PointReplay.tick
 
+  func testLowGroundstrokesKeepTheLegsLoadedThroughContact() throws {
+    for shot in [StudioStroke.forehand,.backhand] {
+      let clip = try XCTUnwrap(StrokeStudioClip(shot))
+      let impact = try XCTUnwrap(clip.frame(clip.contactTime)).near
+      let finish = try XCTUnwrap(clip.frame(clip.contactTime+0.15)).near
+      XCTAssertLessThan(impact[.strings].y,0.70)
+      let thigh = simd_normalize(impact[.rightHip]-impact[.rightKnee])
+      let shin = simd_normalize(impact[.rightShoe]-impact[.rightKnee])
+      let kneeFlexion = Float.pi-acos(min(1,max(-1,simd_dot(thigh,shin))))
+      XCTAssertGreaterThan(kneeFlexion,Float.pi/6)
+      XCTAssertGreaterThan(finish[.rightHip].y-impact[.rightHip].y,0.06)
+    }
+  }
+
+  func testRunCadenceAndSupportsThroughAcceleration() throws {
+    XCTAssertNotNil(RunningStride.sample(phase:0.5))
+    for facing: Float in [-1,1] { for heading: Float in [-1.56,0,0.72,1.56] {
+      var feet = CourtFootwork(), center = CourtPoint3D.zero
+      let direction = CourtPoint3D(sin(heading)*facing,0,-cos(heading)*facing)
+      let dt = Float(tick)
+      feet.advance(centre:center,velocity:.zero,destination:center,facing:facing,strideBias:.zero,dt:0)
+      var steps = 0, airborne = 0, supported = 0
+      for i in 0..<360 {
+        let speed: Float = min(9,Float(i)*dt*12)
+        let previous = feet.left
+        center += direction*speed*dt
+        feet.advance(centre:center,velocity:direction*speed,destination:center+direction*3,
+                     facing:facing,strideBias:.zero,dt:dt)
+        if i >= 120 {
+          if previous.y > 0.015 && feet.left.y <= 0.015 { steps += 1 }
+          if feet.left.y < 0.0005 && previous.y < 0.0005 {
+            XCTAssertLessThan(simd_distance(feet.left,previous),0.003)
+            supported += 1
+          }
+          if min(feet.left.y,feet.right.y)>0.035 { airborne += 1 }
+        }
+      }
+      XCTAssertTrue((4...6).contains(steps))
+      XCTAssertGreaterThan(supported,35)
+      XCTAssertGreaterThan(airborne,20)
+    } }
+  }
+
+  func testFreeWristTravelsContinuouslyAtReplaySamplingRate() throws {
+    for stroke in StudioStroke.allCases {
+      let clip = try XCTUnwrap(StrokeStudioClip(stroke))
+      var prior = try XCTUnwrap(clip.frame(0)).near
+      for t in stride(from:tick,to:clip.duration,by:tick) {
+        let next = try XCTUnwrap(clip.frame(t)).near
+        XCTAssertLessThan(simd_distance(next[.leftHand],prior[.leftHand]),0.13,
+                          "\(stroke.rawValue) free wrist jumped at \(t)")
+        if stroke == .serve { XCTAssertLessThan(simd_distance(next[.grip],prior[.grip]),0.16) }
+        prior = next
+      }
+    }
+  }
+
   func testAPlantedShoeStaysOnCourtDuringRunsAndAdjustmentSteps() {
     for facing: Float in [-1, 1] {
       var feet = CourtFootwork()

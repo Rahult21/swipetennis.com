@@ -23,6 +23,16 @@ final class ShortBallFootworkTests: XCTestCase {
     }
   }
 
+  func testShortBallBonusAppliesAtTheSameSwipeTempoIncludingSprint() {
+    for tempo in [0.75, 1.0, 1.5] {
+      var short = incoming(), deep = incoming(depth: 4.99)
+      short.players[0].runPace = tempo
+      deep.players[0].runPace = tempo
+      for _ in 0..<24 { short.updateFootwork(1/120); deep.updateFootwork(1/120) }
+      XCTAssertEqual(short.players[0].velocity.length/deep.players[0].velocity.length,1.5,accuracy:0.01)
+    }
+  }
+
   func testBoostCoversGoldThresholdButExcludesServeFaultRecoveryAndOpponent() {
     for mode in ["gold", "serve", "fault", "outgoing", "bot"] {
       let side = mode == "bot" ? 1 : 0

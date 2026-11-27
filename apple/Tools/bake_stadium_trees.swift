@@ -12,7 +12,7 @@ struct Generator {
 struct Twig { let a,b:SIMD3<Float>; let width:Float }
 struct Leaf { let p:SIMD3<Float>; let radius, light, angle:Float }
 let tile = 480, count=6
-let canvas=CGContext(data:nil,width:tile*count,height:tile,bitsPerComponent:8,bytesPerRow:0,
+let canvas=CGContext(data:nil,width:tile*count,height:tile*2,bitsPerComponent:8,bytesPerRow:0,
                      space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
 for variant in 0..<count {
   var random=Generator(bits:UInt64(4569+variant*2409)), wood:[Twig]=[], leaves:[Leaf]=[]
@@ -44,18 +44,24 @@ for variant in 0..<count {
   branch([0,0,0],[0.018,1,0.03],2.1,0.104,5)
   let loX=leaves.map{$0.p.x}.min()!,hiX=leaves.map{$0.p.x}.max()!,high=leaves.map{$0.p.y}.max()!
   let fit=min(0.94*Float(tile)/(hiX-loX+0.2),0.95*Float(tile)/(high+0.2))
-  func point(_ v:SIMD3<Float>)->CGPoint{
-    CGPoint(x:CGFloat(variant*tile+tile/2)+CGFloat((v.x-(loX+hiX)/2)*fit),y:CGFloat(4+v.y*fit))
+  let topZ = (leaves.map{$0.p.z}.min()!+leaves.map{$0.p.z}.max()!)/2
+  for overhead in [false,true] {
+  func point(_ v:SIMD3<Float>)->CGPoint {
+    if overhead {
+      return CGPoint(x:CGFloat(variant*tile+tile/2)+CGFloat((v.x-(loX+hiX)/2)*fit),
+                     y:CGFloat(tile/2)+CGFloat((v.z-topZ)*fit))
+    }
+    return CGPoint(x:CGFloat(variant*tile+tile/2)+CGFloat((v.x-(loX+hiX)/2)*fit),y:CGFloat(tile+4)+CGFloat(v.y*fit))
   }
   canvas.saveGState()
-  canvas.clip(to:CGRect(x:variant*tile,y:0,width:tile,height:tile))
+  canvas.clip(to:CGRect(x:variant*tile,y:overhead ? 0 : tile,width:tile,height:tile))
   canvas.setLineCap(.round)
   for twig in wood.sorted(by:{$0.b.z>$1.b.z}) {
     let amount=CGFloat(min(1,twig.b.y/high))
     canvas.setStrokeColor(CGColor(red:0.20+0.10*amount,green:0.19+0.10*amount,blue:0.15+0.08*amount,alpha:1))
     canvas.setLineWidth(CGFloat(max(0.44,twig.width*2*fit)));canvas.move(to:point(twig.a));canvas.addLine(to:point(twig.b));canvas.strokePath()
   }
-  let sorted=leaves.sorted{$0.p.z>$1.p.z}
+  let sorted=overhead ? leaves.sorted{$0.p.y<$1.p.y} : leaves.sorted{$0.p.z>$1.p.z}
   for leaf in sorted {
     let back=leaf.p.z*0.3, north=leaf.p.y/high, flank = -leaf.p.x/(hiX-loX)
     let lit=CGFloat(max(0,min(1,leaf.light*(0.43+0.49*north+0.18*flank)-0.09*back)))
@@ -65,6 +71,7 @@ for variant in 0..<count {
     canvas.fillEllipse(in:CGRect(x:at.x-r,y:at.y-r*0.78,width:2*r,height:r*(1.1+CGFloat(abs(sin(leaf.angle)))*0.61)))
   }
   canvas.restoreGState()
+  }
 }
 let output=URL(fileURLWithPath:CommandLine.arguments[1])
 try NSBitmapImageRep(cgImage:canvas.makeImage()!).representation(using:.png,properties:[:])!.write(to:output)

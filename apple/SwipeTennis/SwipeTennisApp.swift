@@ -143,12 +143,12 @@ struct SettingsView: View {
     Form {
       Section("Feel the game") {
         Toggle("Racket & bounce haptics", isOn: $haptics)
-        Toggle("Tennis ball hits", isOn: $sound)
-        LabeledContent("Hit volume", value: "\(Int((courtVolume * 10).rounded())) / 10")
-        Slider(value: $courtVolume, in: 0...1, step: 0.1).accessibilityLabel("Hit volume")
-        Text("A recorded tennis-ball impact for every shot. Starts at 3 / 10. Your device volume buttons also control loudness. Plays even in Silent Mode.")
+        Toggle("Court sounds", isOn: $sound)
+        LabeledContent("Court volume", value: "\(Int((courtVolume * 10).rounded())) / 10")
+        Slider(value: $courtVolume, in: 0...1, step: 0.1).accessibilityLabel("Court volume")
+        Text("Racket contact during play, applause after each point, and a standing ovation at the handshake. Starts at 3 / 10. Your device volume buttons also control loudness.")
           .font(.caption).foregroundStyle(.secondary)
-        Toggle("Spoken score announcements", isOn: $voice)
+        Toggle("Spoken scores for manual scoring", isOn: $voice)
       }
       Section {
         Toggle("Tilt to move", isOn: $tilt).disabled(!Immersion.shared.motionAvailable)

@@ -19,3 +19,9 @@ The separate editable asset `SwipeTennis/Core/Motion/court-strokes.csv` is also 
 | Volley | lvargas_VDerecha.bvh | 1227 |
 
 The conversion projects the tracked joints into player-relative coordinates and derives trunk rotations, elbow bending directions, free-hand motion and rear-foot displacement. Racket orientation is calculated separately. To recreate the CSV, run `python3 apple/Tools/bake_stroke_capture.py /path/to/original/recordings apple/SwipeTennis/Core/Motion/court-strokes.csv`.
+
+## Running stride
+
+The runner’s shoulder rotation, pelvic rotation and height, elbows and hands come from trial 16_55 of the Carnegie Mellon Graphics Lab Motion Capture Database. The database was created with funding from NSF EIA-0196217. [Subject 16 catalog](https://mocap.cs.cmu.edu/search.php?subjectnumber=16) · [Database and usage terms](https://mocap.cs.cmu.edu/)
+
+The editable stride uses 36 samples from a left-foot contact to the next. The converter subtracts each shoulder position from its wrist, normalizes arm length, and removes drift at the cycle boundary. The game turns the cycle into the direction of travel and blends it with the racket carry, braking and shot preparation. Regenerate the asset with `python3 apple/Tools/bake_run_capture.py 16_55.c3d apple/SwipeTennis/Core/Motion/running-stride.csv`.

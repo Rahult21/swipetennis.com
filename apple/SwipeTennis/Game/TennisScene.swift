@@ -437,7 +437,6 @@ import SwiftUI
       if !engine.showsPointResult { accumulator += dt }
       while accumulator >= PointReplay.tick {
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
-        for step in performance.steps { Immersion.shared.footfall(step,perspective:perspectiveSide) }
         accumulator -= PointReplay.tick
       }
     } else if engine.needsSimulation {
@@ -447,7 +446,6 @@ import SwiftUI
         let oldContact = engine.contactSerial
         engine.step(PointReplay.tick)
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
-        for step in performance.steps { Immersion.shared.footfall(step,perspective:perspectiveSide) }
         if engine.contactSerial != oldContact {
           Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1, blocked:engine.flight?.contactQuality == .stretched || engine.flight?.contactQuality == .diving)
           trails.removeAll()
@@ -463,13 +461,14 @@ import SwiftUI
     let showGuides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     swipeCoach.update(guide: showGuides && controlledSide == nil ? engine.movementGuide(0) : nil, delta: dt)
     if engine.bounceSerial != oldBounce { Immersion.shared.hit(bounce: true, x: engine.ball.x) }
+    if oldPhase == .live && (engine.phase == .point || engine.phase == .finished) && engine.demo == nil {
+      Immersion.shared.applaudPoint()
+    }
     if oldPhase.isPlaying && !engine.phase.isPlaying {
-      if (engine.pointResolution?.reaction?.frustration ?? 0) > 0 { Immersion.shared.opponentExclamation() }
-      if engine.flight?.power == .ace { Immersion.shared.cheer() }
       Immersion.shared.finishRally()
     }
     if !oldResultVisible && engine.showsPointResult {
-      Immersion.shared.point(engine.scoreAnnouncement)
+      Immersion.shared.point(engine.scoreAnnouncement, announce:false)
     }
     if oldPhase == .serveFault && engine.phase == .serving { configureMotion(); trails.removeAll() }
     render()
@@ -555,6 +554,9 @@ import SwiftUI
     replicaElapsed = 0
     replicaFlightFrom = old.contactSerial == value.contactSerial ? old.flight?.elapsed : nil
     replicaFlightTo = value.flight?.elapsed
+    if old.phase.isPlaying && (value.phase == .point || value.phase == .finished) {
+      Immersion.shared.applaudPoint()
+    }
     if old.phase != value.phase { trails.removeAll() }
     if old.contactSerial != value.contactSerial { Immersion.shared.hit(x: perspectiveSide == 0 ? value.ball.x : PracticeEngine.width-value.ball.x, gain:value.flight?.power?.contactGain ?? 1, blocked:value.flight?.contactQuality == .stretched || value.flight?.contactQuality == .diving) }
     if old.bounceSerial != value.bounceSerial { Immersion.shared.hit(bounce: true, x: value.ball.x) }
@@ -567,6 +569,7 @@ import SwiftUI
   }
 
   func resetRallyPresentation() {
+    Immersion.shared.endApplause()
     swipeCoach.dismiss()
     actors.forEach { $0.reset() }
     trails.removeAll()
@@ -731,6 +734,12 @@ import SwiftUI
     let down = project(Vec(x: point.x, y: point.y + radius))
     var axes = CGAffineTransform(a: across.x-center.x, b: across.y-center.y,
                                  c: down.x-center.x, d: down.y-center.y, tx: 0, ty: 0)
+    let maxRadius = min(size.width, size.height) * 0.30
+    guard center.x.isFinite, center.y.isFinite,
+      hypot(axes.a, axes.b) <= maxRadius, hypot(axes.c, axes.d) <= maxRadius else {
+      ring.path = nil
+      return
+    }
     ring.position = center
     ring.path = CGPath(ellipseIn: CGRect(x: -1, y: -1, width: 2, height: 2), transform: &axes)
   }

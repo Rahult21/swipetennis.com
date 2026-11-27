@@ -55,3 +55,34 @@ struct CapturedTransitions {
     return pose
   }
 }
+
+/// A measured left-foot-to-left-foot cycle expressed in the runner's heading.
+struct RunningStride {
+  let hand, elbow, freeHand, freeElbow, trunk: CourtPoint3D
+
+  private static let samples: [Self] = {
+    #if SWIFT_PACKAGE
+    let bundle = Bundle.module
+    #else
+    let bundle = Bundle.main
+    #endif
+    guard let url = bundle.url(forResource:"running-stride",withExtension:"csv"),
+      let csv = try? String(contentsOf:url,encoding:.utf8) else { return [] }
+    return csv.split(separator:"\n").dropFirst().compactMap { row in
+      let values = row.split(separator:",").compactMap { Float($0) }
+      guard values.count == 15 else { return nil }
+      func vector(_ i: Int) -> CourtPoint3D { [values[i],values[i+1],values[i+2]] }
+      return Self(hand:vector(0),elbow:vector(3),freeHand:vector(6),freeElbow:vector(9),trunk:vector(12))
+    }
+  }()
+
+  static func sample(phase: Float) -> Self? {
+    guard !samples.isEmpty else { return nil }
+    let position = phase*Float(samples.count), index = Int(position)
+    let a = samples[index % samples.count], b = samples[(index+1) % samples.count]
+    let t = position-Float(index)
+    func blend(_ u: CourtPoint3D, _ v: CourtPoint3D) -> CourtPoint3D { u+(v-u)*t }
+    return Self(hand:blend(a.hand,b.hand),elbow:blend(a.elbow,b.elbow),freeHand:blend(a.freeHand,b.freeHand),
+                freeElbow:blend(a.freeElbow,b.freeElbow),trunk:blend(a.trunk,b.trunk))
+  }
+}

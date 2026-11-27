@@ -1,4 +1,5 @@
 import XCTest
+import simd
 @testable import TennisCore
 
 final class RallyFootworkTests: XCTestCase {
@@ -105,27 +106,82 @@ final class RallyFootworkTests: XCTestCase {
     XCTAssertEqual(game.contactSerial, volleySerial)
   }
 
-  func testWideChaseGetsOneDiveChanceAndASlowRecovery() throws {
+  func testLateLateralAndForwardChasesDiveLobAndRecover() throws {
     for side in 0...1 {
-      for roll in [0.49, 0.50] {
+      for forward in [false, true] {
         var g = incoming(side: side, bot: side == 1)
-        g.players[side].pos.x -= 1.98
+        let direction = side == 0 ? -1.0 : 1.0
+        if forward {
+          g.players[side].pos.y -= 1.98 * direction
+          g.players[side].velocity.y = 4.2 * direction
+        } else {
+          g.players[side].pos.x -= 1.98
+          g.players[side].velocity.x = 4.2
+        }
         g.players[side].destination = g.flight!.contact
-        g.players[side].velocity.x = 4.2
         g.flight!.opponentReplyPrepared = true
         g.flight!.elapsed = g.flight!.duration - 0.10
-        g.attemptRunningDive(side, incoming: g.flight!, random: {roll})
-        g.attemptRunningDive(side, incoming: g.flight!, random: { XCTFail("Rerolled a dive"); return 0 })
-        XCTAssertEqual(g.players[side].netEffort != nil, roll < 0.5)
-        if roll < 0.5 {
-          for _ in 0..<25 where g.flight?.hitter != side { g.step(1/120, random: {0.99}) }
-          XCTAssertEqual(g.flight?.contactQuality, .diving)
-          XCTAssertEqual(g.flight?.kind, .lob)
-          let effort = try XCTUnwrap(g.players[side].netEffort)
-          XCTAssertGreaterThan(effort.impactTime + NetStroke.dive.recovery, g.time)
-          XCTAssertEqual(g.tactics[side].volleys, 0)
+        g.attemptRunningDive(side, incoming: g.flight!)
+        let effort = try XCTUnwrap(g.players[side].netEffort)
+        for _ in 0..<25 where g.flight?.hitter != side { g.step(1/120, random: {0.99}) }
+        XCTAssertEqual(g.flight?.contactQuality, .diving)
+        XCTAssertEqual(g.flight?.stroke, .lob)
+        XCTAssertGreaterThan(effort.impactTime + NetStroke.dive.recovery, g.time)
+        let overhead = try XCTUnwrap(BallContactWindow.overheadTarget(flight:g.flight!,side:1-side))
+        g.players[1-side].pos = overhead.point
+        g.players[1-side].destination = overhead.point
+        for _ in 0..<600 where g.flight?.hitter == side && g.phase == .live { g.step(1/120, random:{0.99}) }
+        XCTAssertEqual(g.flight?.stroke, .overhead)
+      }
+    }
+  }
+
+  func testLateSwipeProducesARealLobAndOpponentRunsUnderIt() throws {
+    for (aim,delay) in [(Vec(x:0.865,y:22.1),0.675),(Vec(x:7.365,y:22.1),0.675),
+                        (Vec(x:4.5,y:16.9),0.525)] {
+      var game = PracticeEngine(settings:.init(difficulty:.medium,style:.allcourt,surface:.hard,allCourtTraining:false))
+      game.phase = .live
+      game.players[0].pos = Vec(x:4.115,y:23.1)
+      let opponentStart = Vec(x:3.5,y:-0.45)
+      game.players[1].pos = opponentStart
+      for side in 0...1 { game.players[side].destination = game.players[side].pos }
+      game.launch(1,aim:aim,kind:.cross)
+      var running = false, sawLob = false, sawOverhead = false
+      var performance = CourtPerformance(game:game)
+      var lobTime: Double?
+      var closestRacketToHead = Float.infinity
+      let sendAt = try XCTUnwrap(game.flight).duration*delay
+      for _ in 0..<1100 where game.phase == .live && !sawOverhead {
+        if !running && game.time >= sendAt {
+          let yellow = try XCTUnwrap(game.contactGuide(0))
+          let feet = game.players[0].pos
+          game.swipeCourt(0,delta:Vec(x:yellow.x-feet.x,y:yellow.y-feet.y))
+          running = true
+        }
+        let before = game.contactSerial
+        game.step(PointReplay.tick,random:{0.77})
+        performance.update(game:game,dt:PointReplay.tick)
+        if before != game.contactSerial, let flight = game.flight {
+          if flight.hitter == 0 {
+            sawLob = flight.isDefensiveLob && flight.fault == nil
+            lobTime = game.time
+          }
+          else if sawLob {
+            sawOverhead = flight.stroke == .overhead
+            XCTAssertGreaterThan(game.players[1].pos.distance(to:opponentStart),1.5)
+            XCTAssertGreaterThan(try XCTUnwrap(flight.strikeOrigin).y,2.1)
+          }
+        }
+        if let lobTime, (0.08...0.45).contains(game.time-lobTime), let pose = performance.frame?.near {
+          let shaft = pose[.strings]-pose[.grip]
+          let projection = simd_dot(pose[.head]-pose[.grip],shaft)/simd_length_squared(shaft)
+          let nearest = pose[.grip]+shaft*min(1,max(0,projection))
+          closestRacketToHead = min(closestRacketToHead,simd_distance(nearest,pose[.head]))
         }
       }
+      XCTAssertTrue(sawLob && sawOverhead)
+      XCTAssertTrue(closestRacketToHead.isFinite)
+      XCTAssertGreaterThan(closestRacketToHead,0.15, "Keep the racket clear of the face during landing")
     }
   }
 }

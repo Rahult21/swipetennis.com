@@ -36,7 +36,10 @@ import UIKit
     racket.orientation = simd_quatf(simd_float3x3(columns:(simd_cross(shaft,normal),shaft,normal)))
     if handshake {
       racket.position = p[.leftHand]
-      racket.orientation = simd_quatf(angle:side == 0 ? 2.72 : -2.72,axis:[0,0,1])
+      let axis = p.handshakeRacketAxis
+      let across = simd_normalize(p[.rightHip]-p[.leftHip])
+      let edge = simd_normalize(across-axis*simd_dot(across,axis))
+      racket.orientation = simd_quatf(simd_float3x3(columns:(edge,axis,simd_cross(edge,axis))))
     }
     let hip = (p[.leftHip]+p[.rightHip])*0.5
     for (i, shadow) in footShadows.enumerated() {
@@ -273,6 +276,17 @@ import UIKit
   private var vertices: [CourtPoint3D] = []
   private var normals: [CourtPoint3D] = []
   private var indices: [UInt32] = []
+  func panel(_ a: CourtPoint3D, _ b: CourtPoint3D, _ c: CourtPoint3D, _ d: CourtPoint3D,
+             facing normal: CourtPoint3D) {
+    let base = UInt32(vertices.count)
+    vertices += [a,b,c,d]
+    normals += Array(repeating:normal,count:4)
+    if simd_dot(simd_cross(b-a,c-a),normal) >= 0 {
+      indices += [base,base+1,base+2,base,base+2,base+3]
+    } else {
+      indices += [base,base+2,base+1,base,base+3,base+2]
+    }
+  }
   func line(_ a: CourtPoint3D, _ b: CourtPoint3D, radius: Float) {
     let axis = simd_normalize(b-a)
     let ref: CourtPoint3D = abs(axis.y) < 0.9 ? [0,1,0] : [1,0,0]

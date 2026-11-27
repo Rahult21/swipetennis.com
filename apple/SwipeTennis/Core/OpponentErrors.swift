@@ -38,7 +38,7 @@ struct OpponentErrors: Codable {
 
 extension PracticeEngine {
   mutating func prepareOpponentReply(random: () -> Double) {
-    guard !settings.local else { return }
+    guard !settings.local, flight?.isDefensiveLob != true else { return }
     if prepareApproachReply(random: random) { return }
     guard !settings.local, let incoming = flight, incoming.hitter == 0,
       incoming.fault == nil, !incoming.opponentReplyPrepared else { return }

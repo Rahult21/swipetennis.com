@@ -3,6 +3,38 @@ import simd
 @testable import TennisCore
 
 final class PlayerCameraTests: XCTestCase {
+  func testHandshakeOrbitReturnsOverTheStandsAndReduceMotionHoldsTheClasp() {
+    for aspect: Float in [0.43,0.68,1.2,2.15] {
+      let last = MatchCeremony.camera(seconds:MatchCeremony.duration,aspect:aspect,reduceMotion:false)
+      let center = CourtPoint3D(4.115,0,11.885)
+      for x: Float in [-22,22] { for z: Float in [-29.6,29.6] {
+        let seat = last.projected(center+[x,8.5,z],aspect:aspect)
+        XCTAssertLessThan(max(abs(seat.x),abs(seat.y)),1)
+      } }
+      var previous: Float?, rotation: Float = 0
+      let still = MatchCeremony.camera(seconds:0,aspect:aspect,reduceMotion:true)
+      for step in 0...20 {
+        let seconds = Double(step)/20
+        let depth = Float(MatchCeremony.distanceToNet(at:seconds))
+        let tracking = MatchCeremony.camera(seconds:seconds,aspect:aspect,reduceMotion:false)
+        for camera in [still,tracking] { for side: Float in [-1,1] { for shoulder: Float in [-0.27,0.27] {
+          let headAndShoulders = center+[shoulder-side*0.14,1.78,side*depth]
+          let p = camera.projected(headAndShoulders,aspect:aspect)
+          XCTAssertLessThan(max(abs(p.x),abs(p.y)),0.99)
+        } } }
+      }
+      for t in stride(from:0.0,through:MatchCeremony.duration,by:0.05) {
+        let shot = MatchCeremony.camera(seconds:t,aspect:aspect,reduceMotion:false)
+        let delta = shot.eye-shot.target, bearing = atan2(delta.x,delta.z)
+        if let previous { rotation += atan2(sin(bearing-previous),cos(bearing-previous)) }
+        previous = bearing
+        XCTAssertEqual(still.eye,MatchCeremony.camera(seconds:t,aspect:aspect,reduceMotion:true).eye)
+      }
+      XCTAssertGreaterThan(abs(rotation),2 * .pi)
+      XCTAssertLessThan(simd_distance(simd_normalize(last.eye-last.target),[0,1,0]),0.01)
+    }
+  }
+
   func testPlayerBallAndNextRingFitBothEndsAndOrientations() {
     for side in 0...1 { for aspect: Float in [0.43,0.68,1.2,2.15] {
       for nearX in [-0.6,4.115,8.83] { for depth in [15.2,22.7,25.1] {

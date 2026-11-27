@@ -202,29 +202,35 @@ struct CourtPerformance {
 extension PointReplay {
   /// Cut to the final two steps at the net. This ceremony never advances the match clock.
   mutating func appendHandshake() {
-    guard let last = frames.last else { return }
+    guard ceremonyStart == nil, let last = frames.last else { return }
     cuts.insert(frames.count)
     let start = duration + Self.tick
     ceremonyStart = start
     var model = PracticeEngine(settings:.init(local:true))
     var athletes = [AthleteMotion(),AthleteMotion()]
-    for sample in 0..<270 {
+    for sample in 0...Int(MatchCeremony.duration / Self.tick) {
       let t = Double(sample)*Self.tick
-      let walk = StrokeAnimation.ease(t/1.05)
+      model.time = t
       let reach = Float(StrokeAnimation.ease((t-0.78)/0.45) * (1-StrokeAnimation.ease((t-1.82)/0.41)))
       var pair = [AthletePose]()
       for side in 0...1 {
         let sign:Double = side == 0 ? 1 : -1
-        let distance = 0.54 + 1.18*(1-walk)
-        let feet = Vec(x:4.115-sign*0.14,y:PracticeEngine.net+sign*distance)
-        model.players[side].pos = feet
-        model.players[side].destination = Vec(x:feet.x,y:PracticeEngine.net+sign*0.54)
-        model.players[side].velocity = Vec(x:0,y: -sign*1.18*6*max(0,t/1.05)*max(0,1-t/1.05)/1.05)
+        let distance = MatchCeremony.distanceToNet(at:t)
+        // After releasing hands the pair walk along their own side of the net.
+        let leave = StrokeAnimation.ease((t-2.26)/2.80)
+        let x = 4.115-sign*0.14
+        let feet = Vec(x:x+2.7*leave,y:PracticeEngine.net+sign*distance)
+        let walkFrame = Vec(x:x,y:feet.y-sign*2.7*leave)
+        model.players[side].pos = walkFrame
+        model.players[side].destination = Vec(x:x,y:PracticeEngine.net+sign*(0.54-(t<2.26 ? 0 : 2.7)))
+        let stride = clamp((t-2.26)/2.80,0,1)
+        let entering = 1.18*6*max(0,t/1.05)*max(0,1-t/1.05)/1.05
+        let leaving = 2.7*6*stride*(1-stride)/2.80
+        model.players[side].velocity = Vec(x:0,y:-sign*(entering+leaving))
         var pose = athletes[side].sample(game:model,side:side,hit:false,dt:Self.tick,reduceMotion:false)
-        let grip = pose[.grip]
         let meet = CourtPoint3D(4.115,1.19 + 0.027*sin(Float(t-1.22)*15),Float(PracticeEngine.net))
-        pose[.grip] += (meet-grip)*reach
-        pose[.rightElbow] += (meet-grip)*reach*0.44
+        pose.walkToHandshake(from:walkFrame.world(),at:feet.world(),turn:Float(StrokeAnimation.ease((t-2.09)/0.64)),
+                             side:side,depart:Float(leave),reach:reach,meet:meet)
         pair.append(pose)
       }
       frames.append(RallyFrame(near:pair[0],far:pair[1],ball:last.ball))

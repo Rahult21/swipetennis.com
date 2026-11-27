@@ -4,7 +4,7 @@ enum NetStroke: String, Codable {
   case volley, overhead, dive, jump
   var overhead: Bool { self == .overhead || self == .jump }
   var extended: Bool { self == .dive || self == .jump }
-  var recovery: Double { self == .dive ? 0.55 : 0.32 }
+  var recovery: Double { self == .dive ? 0.94 : 0.32 }
 }
 
 struct NetEffort: Codable {
@@ -21,6 +21,10 @@ struct NetEffort: Codable {
     let u = StrokeAnimation.ease((time - startTime) / max(0.10, duration))
     return Vec(x: from.x + (landing.x - from.x) * u, y: from.y + (landing.y - from.y) * u)
   }
+}
+
+extension BallFlight {
+  var isDefensiveLob: Bool { contactQuality == .diving && kind == .lob }
 }
 
 /// One contact clock shared by the simulation, swing preparation and drawn ball.
@@ -71,7 +75,7 @@ struct BallContactWindow {
         cost = 0.8 + t
       } else {
         let reach = hypot(dx / 1.70, ahead / 1.22)
-        guard h <= 1.72, abs(dx) >= 0.48, reach <= 1.14 else { continue }
+        guard h <= 1.72, (abs(dx) >= 0.48 || ahead >= 0.85), reach <= 1.14 else { continue }
         stroke = .dive
         touch = reach <= 1
         cost = 3 + reach
@@ -133,6 +137,19 @@ struct BallContactWindow {
       flight.loft >= 2, flight.fault == nil, flight.hitter != side else {
       return nil
     }
+    if flight.isDefensiveLob {
+      // Use the descending flight from the diving player's actual racket face.
+      var high = 0.4, low = 0.8
+      guard flight.worldBall(at: high).y >= 2.55 else { return nil }
+      for _ in 0..<11 {
+        let t = (high + low) / 2
+        if flight.worldBall(at: t).y > 2.55 { high = t } else { low = t }
+      }
+      let ball = flight.worldBall(at: low)
+      let point = Vec(x: Double(ball.x), y: Double(ball.z))
+      guard (point.y - PracticeEngine.net) * (side == 0 ? 1 : -1) > 0.7 else { return nil }
+      return (point, low)
+    }
     let fraction = 1 - asin(min(1, 2.65 / (flight.loft * 1.7))) / .pi
     let point = Vec(
       x: flight.from.x + (flight.landing.x - flight.from.x) * fraction,
@@ -145,8 +162,11 @@ struct BallContactWindow {
 
   static func overhead(flight: BallFlight, player: Vec, side: Int) -> BallContactWindow? {
     guard let target = overheadTarget(flight: flight, side: side),
-      player.distance(to: target.point) <= PracticeEngine.contactRadius + 0.000001,
-      let segment = intersection(
+      player.distance(to: target.point) <= PracticeEngine.contactRadius + 0.000001 else { return nil }
+    if flight.isDefensiveLob {
+      return Self(entry: target.progress, exit: target.progress, volley: true, overhead: true, netStroke: .overhead)
+    }
+    guard let segment = intersection(
         from: flight.from, to: flight.landing, player: player,
         radius: PracticeEngine.contactRadius)
     else { return nil }

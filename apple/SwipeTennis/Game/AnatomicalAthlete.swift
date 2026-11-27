@@ -2,8 +2,8 @@ import RealityKit
 import UIKit
 
 /// Drives the same skinned asset in the match, slow-motion replay and kit studio.
-/// The USD joints are siblings under an identity root. A recorded joint can be
-/// positioned directly, without inheriting a second rotation from its parent.
+/// Major joints are siblings under an identity root, so recorded positions are
+/// applied directly. Each hand carries its own local finger chains.
 @MainActor final class AnatomicalAthlete {
   private enum Joint: String, CaseIterable {
     case root, pelvis, chest, neck, head
@@ -18,6 +18,12 @@ import UIKit
   private let bindRotation: [simd_quatf]
   private var transforms: [Transform]
   private let index: [Joint:Int]
+  private struct Finger {
+    let index, side: Int
+    let axis: SIMD3<Float>
+    let bend: Float
+  }
+  private let fingers: [Finger]
   private let shoulderMid, hipMid: SIMD3<Float>
   private let side: Int
   private static var models: [String:ModelEntity] = [:]
@@ -41,6 +47,19 @@ import UIKit
     rest = transforms.map(\.translation)
     bindRotation = transforms.map(\.rotation)
     index = keys
+    var fingerRig: [Finger] = []
+    for (i,path) in copy.jointNames.enumerated() {
+      guard let label = path.split(separator:"/").last, label.hasPrefix("digit") else { continue }
+      let digits = Array(label.dropFirst(5))
+      guard digits.count == 3, let finger = digits[0].wholeNumberValue,
+        let segment = digits[1].wholeNumberValue, (1...3).contains(segment) else { continue }
+      let right = digits[2] == "R"
+      let line = rest[keys[right ? .gripAxisR : .gripAxisL]!]-rest[keys[right ? .palmR : .palmL]!]
+      let angles: [Float] = [0.71,1.08,0.77]
+      let bend = angles[segment-1]*(finger == 1 ? 0.32 : 0.95+Float(finger-2)*0.035)
+      fingerRig.append(Finger(index:i,side:right ? 1 : 0,axis:simd_normalize(line),bend:bend*(right ? 1 : -1)))
+    }
+    fingers = fingerRig
     shoulderMid = (rest[keys[.upperArmL]!] + rest[keys[.upperArmR]!]) * 0.5
     hipMid = (rest[keys[.thighL]!] + rest[keys[.thighR]!]) * 0.5
     if var component = copy.model {
@@ -70,7 +89,8 @@ import UIKit
     var image: String?
     var hidden = false
     switch name {
-    case "Skin":
+    case "Skin","SleeveSkin":
+      hidden = name == "SleeveSkin" && kit.shirt != .sleeveless
       let tones: [SkinTone:UIColor] = [.porcelain:.white,
         .honey:UIColor(red:0.91,green:0.81,blue:0.72,alpha:1),
         .bronze:UIColor(red:0.79,green:0.64,blue:0.54,alpha:1),
@@ -108,6 +128,7 @@ import UIKit
     default: break
     }
     mat.baseColor = .init(tint:color,texture:image.flatMap(texture))
+    if ["Shirt","Sleeves","Shorts","Skort","Sock"].contains(name) { mat.faceCulling = .none }
     if ["Shirt","Sleeves","Shorts"].contains(name), let normal = texture("CourtKitNormal.jpg") {
       mat.normal = .init(texture:normal)
     }
@@ -158,7 +179,7 @@ import UIKit
     let hips = basis(p[.rightHip]-p[.leftHip]), chest = basis(p[.rightShoulder]-p[.leftShoulder])
     let facing = simd_quatf(angle:side == 0 ? 0 : .pi,axis:[0,1,0])
     let gaze = handshake ? SIMD2<Float>.zero : p.gaze
-    let head = simd_slerp(facing,chest,0.22) * simd_quatf(angle:-gaze.x * 0.84,axis:[0,1,0])
+    let head = simd_slerp(handshake ? hips : facing,chest,0.22) * simd_quatf(angle:-gaze.x * 0.84,axis:[0,1,0])
       * simd_quatf(angle:gaze.y*0.8,axis:[1,0,0])
     set(.pelvis,at:hip+hips.act(anchor(.pelvis)-hipMid),rotation:hips)
     let middle = simd_slerp(hips,chest,0.52)
@@ -189,7 +210,7 @@ import UIKit
       x = simd_normalize(x)
       return simd_quatf(simd_float3x3(columns:(x,y,simd_cross(x,y))))
     }
-    let footFacing = simd_slerp(facing,hips,0.27)
+    let footFacing = handshake ? hips : simd_slerp(facing,hips,0.27)
     for right in [false,true] {
       let upper: Joint = right ? .upperArmR : .upperArmL, fore: Joint = right ? .forearmR : .forearmL
       let hand: Joint = right ? .handR : .handL
@@ -213,20 +234,30 @@ import UIKit
       let s = pivot+clavRotation.act(anchor(upper)-anchor(clav))
       let palm = p[right ? .grip : .leftHand]
       let offset = anchor(hand)-anchor(palmJoint)
-      let handRotation: simd_quatf
-      let wristPoint: CourtPoint3D
-      let onGrip = !handshake && (right || simd_distance(palm,p[.grip])<0.12)
-      if onGrip {
-        let from = handBasis(anchor(across)-anchor(palmJoint),towardWrist:offset)
-        let to = handBasis(p[.strings]-p[.grip],towardWrist:e-palm)
-        handRotation = to*from.inverse
-        wristPoint = palm+handRotation.act(offset)
-      } else {
-        let forearmAxis = chest.act(simd_normalize(anchor(hand)-anchor(fore)))
-        let wrist = simd_quatf(from:forearmAxis,to:simd_normalize(palm-e))*chest
-        wristPoint = palm+wrist.act(offset)
-        handRotation = wrist
+      // Align the knuckles with the forearm when the hand is free. Using the
+      // bind-pose forearm alone leaves the wrist cocked as the running arm swings.
+      let palmDirection = simd_normalize(palm-e)
+      let restHand = simd_normalize(anchor(palmJoint)-anchor(hand))
+      let natural = simd_quatf(from:chest.act(restHand),to:palmDirection)*chest
+      var handRotation = natural
+      let separation = simd_distance(palm,p[.grip])
+      let attachment: Float = handshake ? (right ? 0 : 1) : right ? 1 : min(1,max(0,(0.19-separation)/0.085))
+      if attachment > 0 {
+        let handle = handshake ? p.handshakeRacketAxis : simd_normalize(p[.strings]-p[.grip])
+        let gripAxis = simd_normalize(anchor(across)-anchor(palmJoint))
+        let aligned = simd_quatf(from:natural.act(gripAxis),to:handle)*natural
+        let bind = handBasis(gripAxis,towardWrist:offset)
+        let neutral = aligned.act(bind.act([1,0,0]))
+        let wrist = e-palm
+        let wanted = wrist-handle*simd_dot(wrist,handle)
+        // Let the forearm roll toward the elbow. The sine response vanishes
+        // at a straight wrist instead of turning the hand inside out.
+        let roll = simd_dot(simd_cross(neutral,wanted),handle)/max(0.16,simd_length(wanted))
+        let gripRotation = simd_quatf(angle:0.93*roll,axis:handle)*aligned
+        let fraction = attachment*attachment*(3-2*attachment)
+        handRotation = simd_slerp(natural,gripRotation,fraction)
       }
+      let wristPoint = palm+handRotation.act(offset)
       _ = align(upper,end:fore,from:s,to:e,base:chest,
                 pole:(anchor(hand)-anchor(fore),wristPoint-e))
       let proximal = align(fore,end:hand,from:e,to:wristPoint,base:chest)
@@ -242,7 +273,7 @@ import UIKit
       set(hand,at:wristPoint,rotation:handRotation)
       let h = hip+hips.act(anchor(thigh)-hipMid), k = p[right ? .rightKnee : .leftKnee]
       let feet = footFacing * simd_quatf(angle:p.shoeYaw[right ? 1 : 0],axis:[0,1,0])
-        * simd_quatf(angle:-p.heelPitch,axis:[1,0,0])
+        * simd_quatf(angle:-p.heelPitch-p.footRoll[right ? 1 : 0],axis:[1,0,0])
       let shoe = p[right ? .rightShoe : .leftShoe]
       let toe = anchor(right ? .toeR : .toeL)-anchor(foot)
       let heel = anchor(right ? .heelR : .heelL)-anchor(foot)
@@ -253,6 +284,10 @@ import UIKit
       _ = align(thigh,end:shin,from:h,to:k,base:hips,pole:(anchor(foot)-anchor(shin),ankle-k))
       _ = align(shin,end:foot,from:k,to:ankle,base:hips)
       set(foot,at:ankle,rotation:feet)
+    }
+    for finger in fingers {
+      let curl = p.fingerCurl[finger.side]
+      transforms[finger.index].rotation = simd_quatf(angle:finger.bend*curl,axis:finger.axis)*bindRotation[finger.index]
     }
     entity.jointTransforms = transforms
   }

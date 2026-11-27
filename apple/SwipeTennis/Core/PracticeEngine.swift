@@ -564,7 +564,7 @@ struct PracticeEngine: Codable {
     guard let f = flight else { return players[side].pos }
     let p = players[side].pos
     if let effort = players[side].netEffort, effort.serial == contactSerial { return effort.landing }
-    if attacking[side] || abs(p.y - Self.net) < 6.5,
+    if attacking[side] || abs(p.y - Self.net) < 6.5 || f.isDefensiveLob,
       let overhead = BallContactWindow.overheadTarget(flight: f, side: side),
       f.progress <= overhead.progress
     {
@@ -614,28 +614,26 @@ struct PracticeEngine: Codable {
     return window
   }
 
-  mutating func prepareNetEffort(_ side: Int, flight f: BallFlight, dt: Double,
-    random: () -> Double = { Double.random(in: 0..<1) }) {
+  mutating func prepareNetEffort(_ side: Int, flight f: BallFlight, dt: Double) {
     guard players[side].netEffort == nil, assist == nil, queuedPower == nil,
       f.opponentError != .unreachable, f.dropReachable != false,
       let air = BallContactWindow.netOpportunity(flight: f, player: players[side].pos, side: side, after: f.progress),
       let stroke = air.netStroke, stroke.extended else { return }
     let remaining = max(0, (air.entry - f.progress) * f.duration)
     guard remaining <= (stroke == .jump ? 0.23 : 0.21) else { return }
-    if stroke == .dive && demo == nil && players[side].velocity.length > 1.8 {
-      guard players[side].diveDecision != contactSerial else { return }
-      players[side].diveDecision = contactSerial
-      guard random() < 0.5 else { return }
-    }
     let target = f.worldBall(at: air.entry), from = players[side].pos
     let dx = Double(target.x) - from.x, dz = Double(target.z) - from.y
     let travel = min(stroke == .dive ? 0.94 : 0.34, hypot(dx, dz) * 0.55, (remaining + 0.1) * 3.75)
     let scale = travel / max(0.01, hypot(dx, dz))
     let landing = Self.own(side, Vec(x: from.x + dx * scale, y: from.y + dz * scale))
     let timeNeeded = stroke == .jump ? max(0, Double(target.y)-2.66)/3.2 : max(0, hypot(dx,dz)-0.94)/5.5
+    let reachable = air.reachable && remaining + dt >= timeNeeded
+    // A well-read drop can be lifted after the bounce. Keep chasing if this
+    // earlier airborne interception would leave the receiver on the ground.
+    if f.dropReachable == true && !reachable { return }
     players[side].netEffort = NetEffort(stroke: stroke, serial: contactSerial, startTime: time-dt,
       impactTime: time-dt+remaining, progress: air.entry, from: from, landing: landing,
-      target: target, reachable: air.reachable && remaining + dt >= timeNeeded)
+      target: target, reachable: reachable)
     players[side].destination = landing
   }
   mutating func end(_ winner: Int, reason: String, tip: String,
@@ -729,6 +727,10 @@ struct PracticeEngine: Codable {
         aim.y = max(aim.y, Self.length - 3.2)
       }
     }
+    if bot && overhead && f.isDefensiveLob {
+      aim = CourtTactics.openCourt(side: side, opponent: players[0].pos, overhead: true)
+      kind = .cross
+    }
     if bot && queuedPower == .overhead {
       aim = Vec(x: players[0].pos.x, y: Self.net + 5)
       kind = .lob
@@ -777,15 +779,14 @@ struct PracticeEngine: Codable {
     // Reaching the ring guarantees a swing. Placement is a separate decision for both players.
     let contactChance = quality == .diving || bot || onTime || volley ? 1 : Self.contactChance(
       settings.difficulty, settled: p.settled, gap: gap, speed: speed, risky: risk)
-    let controlledFeed = bot && (dropReply || f.kind == .slice || f.trainingApproach
+    let controlledFeed = bot && ((overhead && f.isDefensiveLob) || dropReply || f.kind == .slice || f.trainingApproach
       || netReply == .volley || queuedPower == .overhead)
     let redirect = !f.serve && CourtTactics.redirects(from: f.from, at: p.pos, to: aim)
     let decision = ReturnDecision(shot: kind, redirected: redirect,
       shorterSide: redirect && CourtTactics.courtLength(from: p.pos, toward: aim, side: side) + 0.35
         < CourtTactics.courtLength(from: p.pos, toward: f.from, side: side),
       split: !bot && p.splitForReturn == contactSerial,
-      baseAccuracy: quality == .diving || demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect)
-        * (effort?.stroke == .dive ? 0.82 : 1))
+      baseAccuracy: quality == .diving || demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect))
     if !bot { players[side].lastReturn = decision }
     let placementChance = decision.accuracy
     let forcedMiss = bot && f.opponentError != nil && queuedPower != .overhead
@@ -831,11 +832,11 @@ struct PracticeEngine: Codable {
     launch(
       side, aim: aim, kind: kind, fault: fault,
       explanation: reason,
-      stroke: overhead ? .overhead : volley ? .volley : kind == .lob ? .lob : .groundstroke,
+      stroke: overhead ? .overhead : quality == .diving ? .lob : volley ? .volley : kind == .lob ? .lob : .groundstroke,
       trainingApproach: lineApproach && !miss, trainingReply: netReply != nil || dropReply)
     if effort?.stroke == .dive && !miss {
       flight!.duration *= 1.18
-      flight!.loft = max(flight!.loft, 1.02)
+      flight!.loft = max(flight!.loft, 2.65)
     }
     if quality != .diving && netReply == .volley && !volley {
       flight!.duration = max(flight!.duration, settings.difficulty == .easy ? 2.5 : 2.15)
@@ -898,13 +899,12 @@ struct PracticeEngine: Codable {
       let baseSpeed = i == 1 && !settings.local
         ? (flight?.hitter == 0 && flight?.kind == .drop ? 7.0 : settings.style.speed) * settings.botSpeed : 6
       let turning = flight?.receiverWrongFooted == true && flight?.hitter == 1 - i && phase == .live
-      let boost = quickNetFeet(i) ? 2 : shortBallBoost
       let bot = i == 1 && !settings.local
       let chase = bot && flight?.hitter == 0 && phase == .live
       let effort = bot ? (chase ? 1 + 0.5 * clamp((d - 2) / 5, 0, 1) : 1) : p.runPace ?? 1
       let fatigue = 0.70 + 0.30 * min(1, p.energyLevel / 0.9)
       // The bot can sprint up to its existing style speed instead of stacking movement bonuses.
-      let gait = bot ? min(1, 0.90 * effort) : min(max(1.5, boost), boost * effort)
+      let gait = bot ? min(1, 0.90 * effort) : quickNetFeet(i) ? 2 : shortBallBoost * clamp(effort, 0.75, 1.5)
       let maxSpeed = baseSpeed * gait * fatigue * (turning ? 0.6 : 1)
       let braking = p.velocity.length > 1 && (p.velocity.x * (p.destination.x-p.pos.x) + p.velocity.y * (p.destination.y-p.pos.y) < 0 || d < p.velocity.length*p.velocity.length/18)
       let traction = settings.surface == .clay ? (braking ? 0.71 : 0.96) : settings.surface == .hard ? 1.07 : (braking ? 0.89 : 1)
@@ -952,8 +952,8 @@ struct PracticeEngine: Codable {
     let current = flight!
     let receiver = 1 - current.hitter
     if settings.local || receiver == 0 || time >= reactAt {
-      prepareNetEffort(receiver, flight: current, dt: dt, random: random)
-      attemptRunningDive(receiver, incoming: current, random: random)
+      prepareNetEffort(receiver, flight: current, dt: dt)
+      attemptRunningDive(receiver, incoming: current)
     }
     if current.power == nil && current.fault == nil && !settings.local && receiver == 1 && time >= reactAt {
       players[1].destination = current.missedChaseTarget ?? Self.own(1, intercept(1))

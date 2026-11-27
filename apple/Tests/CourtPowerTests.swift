@@ -201,7 +201,7 @@ final class CourtPowerTests: XCTestCase {
         XCTAssertEqual(effort.reachable, touch)
         if touch {
           XCTAssertEqual(game.bounceSerial, 0)
-          XCTAssertEqual(game.flight?.stroke, stroke.overhead ? .overhead : .volley)
+          XCTAssertEqual(game.flight?.stroke, stroke == .dive ? .lob : stroke.overhead ? .overhead : .volley)
           let hit = try XCTUnwrap(motion.replay.strikes.last)
           let frame = try XCTUnwrap(motion.replay.frame(at: hit.time))
           let body = side == 0 ? frame.near : frame.far

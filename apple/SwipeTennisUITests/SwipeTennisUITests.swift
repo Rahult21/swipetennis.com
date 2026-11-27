@@ -57,7 +57,10 @@ final class SwipeTennisUITests: XCTestCase {
       app.buttons[venue].tap()
       let quick = app.buttons["quickGuestPlay"]
       let take = app.buttons["takeCourt"]
-      for _ in 0..<5 where !quick.isHittable { app.swipeDown() }
+      // After dismissing the arena picker a partly clipped row can report hittable.
+      // Keep its center below the navigation bar before sending the tap.
+      let formTop = app.navigationBars.firstMatch.frame.maxY + 18
+      for _ in 0..<5 where !quick.isHittable || quick.frame.midY < formTop { app.swipeDown() }
       if quick.isHittable { quick.tap() }
       else {
         for _ in 0..<6 where !take.isHittable { app.swipeUp() }
@@ -278,7 +281,8 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
     XCUIDevice.shared.orientation = .landscapeLeft
     let control = app.buttons["Contact"]
-    XCTAssertTrue(control.isHittable)
+    let rotated = XCTNSPredicateExpectation(predicate:NSPredicate(format:"hittable == true"),object:control)
+    XCTAssertEqual(XCTWaiter.wait(for:[rotated],timeout:10),.completed)
     XCTAssertGreaterThan(control.frame.minX,court.frame.maxX)
     XCTAssertLessThan(court.frame.maxY,app.tabBars.firstMatch.frame.minY)
     control.tap()

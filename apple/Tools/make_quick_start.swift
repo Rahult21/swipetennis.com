@@ -65,7 +65,7 @@ func diagram(_ c:CGContext,chapter:Int,t:Double) {
   case 1:
     tint=yellow;target=CGPoint(x:court.maxX-9,y:court.minY+16)
     finger=CGPoint(x:start.x+(target.x-start.x)*progress,y:start.y+(target.y-start.y)*progress)
-    title="Run to yellow";caption="Tap the ring or swipe toward it"
+    title="Run to yellow";caption="Swipe toward the yellow ring"
   default:
     let deep=chapter==2
     tint=purple;target=CGPoint(x:court.midX+(deep ? -19:18)*progress,y:court.midY+(deep ? 63:24)*progress)

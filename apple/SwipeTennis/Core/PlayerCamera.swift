@@ -65,3 +65,35 @@ struct PlayerCamera {
     return [simd_dot(ray,right)/(half*aspect),simd_dot(ray,up)/half]
   }
 }
+
+/// Replay seconds run at half real time. Hold the hands in frame before lifting
+/// clear of the seat backs and completing an orbit over the spectators.
+enum MatchCeremony {
+  static let duration = 6.5
+  static func distanceToNet(at seconds: Double) -> Double {
+    0.54 + 1.18*(1-StrokeAnimation.ease(seconds/1.05))
+  }
+  static func camera(seconds: Double, aspect: Float, reduceMotion: Bool) -> PlayerCamera {
+    let center = CourtPoint3D(4.115,0,11.885)
+    // Fit both approaching bodies in a portrait frame, then close in on the clasp.
+    // The stationary accessibility camera holds the initial two-player composition.
+    let separation = Float(distanceToNet(at:reduceMotion ? 0 : seconds))
+    let horizontalTangent = max(0.26,aspect)*tan(Float(43)*(.pi/360))
+    let openingRadius = max(4.5,(0.90*separation+0.40)/horizontalTangent+0.45*separation+0.28)
+    if reduceMotion {
+      return PlayerCamera(eye:center+[0.90*openingRadius,2.15,0.435*openingRadius],
+                          target:center+[0,1.03,0],verticalFOV:46)
+    }
+    func ease(_ a: Double,_ b: Double) -> Float { Float(StrokeAnimation.ease((seconds-a)/(b-a))) }
+    let rise = ease(1.5,6.1), expand = ease(1.45,4.55), orbit = ease(1.35,6.35)
+    let target = center+[0,1.04-0.68*rise,0]
+    let angle = Float(1.12)-(2 * .pi+1.12)*orbit
+    let radius = (openingRadius+(23.5-openingRadius)*expand)*(1-0.985*ease(4.70,6.50))
+    let halfFOV = tan(Float(56) * .pi/360)
+    let seatingWidth: Float = 22.0, seatingDepth: Float = 29.6, galleryHeight: Float = 8.5
+    let overheadHeight = max(seatingDepth,seatingWidth/max(0.26,aspect))*1.07/halfFOV+galleryHeight
+    let height = 1.15+rise*(overheadHeight-1.15)
+    return PlayerCamera(eye:target+[sin(angle)*radius,height,cos(angle)*radius],
+                        target:target,verticalFOV:43+13*expand)
+  }
+}
