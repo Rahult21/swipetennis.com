@@ -261,8 +261,11 @@ extension PracticeEngine {
     applyDemoPace(trainingDuration: 3.8)
     if lesson == .overhead {
       attacking[0] = true
-      flight?.landing.y = 23
-      flight?.contact.y = 24.1
+      if var lob = flight {
+        lob.landing.y = 23
+        lob.contact = Self.receiveMark(landing: lob.landing, receiver: 0)
+        flight = lob
+      }
     }
   }
 

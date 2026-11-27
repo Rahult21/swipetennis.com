@@ -296,9 +296,13 @@ struct AthleteMotion {
     let gather, extend, depth: Float
     switch swing.style {
     case .serve:
-      gather = ramp(time, -0.48, -0.30)
-      extend = ramp(time, -0.30, -0.16)
+      gather = ramp(time, -0.54, -0.30)
+      extend = ramp(time, -0.27, -0.075)
       depth = activePower == .ace ? 0.25 : 0.205
+    case .overhead:
+      gather = ramp(time,-0.39,-0.23)
+      extend = ramp(time,-0.23,-0.045)
+      depth = 0.18
     case .volley:
       gather = ramp(time, -0.22, -0.085)
       extend = ramp(time, -0.075, 0.09 + 0.05 * lowBall)
@@ -353,7 +357,7 @@ struct AthleteMotion {
     pose.heelPitch = receiver.heel + readiness * 0.015 + 0.045 * rush + (swing.style == .groundstroke ? 0.195 : 0.17) * pushOff
     let ankleHeight = 0.06 + 0.14 * sin(pose.heelPitch) + hop + leap
     let splitWidth = 0.05 * ramp(sinceSplit, 0.02, 0.155) * (1 - ramp(sinceSplit, 0.24, 0.4)) * readiness
-    let stanceWidth = 0.175 + stance * 0.07
+    let stanceWidth = CourtFootwork.setHalfWidth(stance)
     pose[.leftShoe] = (reduceMotion ? centre - right * stanceWidth : feet.left) + up * ankleHeight
     pose[.rightShoe] = (reduceMotion ? centre + right * stanceWidth : feet.right) + up * ankleHeight
     pose[.leftShoe] += relative(receiver.left)
@@ -365,7 +369,10 @@ struct AthleteMotion {
     if highOverhead {
       // The rear leg passes the front leg after impact on a jumping overhead.
       // Keep the scissors in the airborne part of the stroke.
-      let exchange = jump*ramp(time,-0.075,0.17)
+      let gather = jump*(1-ramp(time,-0.075,0.10))
+      pose[.leftShoe] += (up*0.09-forward*0.23)*gather
+      pose[.rightShoe] += (up*0.12-forward*0.15)*gather
+      let exchange = jump*ramp(time,-0.065,0.17)
       pose[.rightShoe] += forward*(0.40*exchange)
       pose[.leftShoe] -= forward*(0.31*exchange)
     }
@@ -476,9 +483,13 @@ struct AthleteMotion {
     var shoulders = axis(runningShoulders + chestTurn * (blocked ? 0.25 : 1) + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
       + moveTurn * (1 - (backhand ? coil : drive)))
     if let measured, swing.style == .serve || swing.style == .overhead {
-      let blend = 0.83 * motionWeight
-      hips = unit(hips + (axis(max(-1.55,min(1.4,measured.hipYaw)))-hips)*blend,fallback:right)
-      shoulders = unit(shoulders + (axis(max(-1.80,min(1.52,measured.chestYaw)))-shoulders)*blend,fallback:right)
+      // Keep the pelvis short of the full unit turn. At the trophy the
+      // tossing shoulder faces the net while the hitting shoulder stays back.
+      let blend = 0.94 * motionWeight
+      let hipYaw = max(-1.17,min(1.40,measured.hipYaw))
+      let shoulderYaw = max(swing.style == .serve ? -2.04 : -1.88,min(1.52,measured.chestYaw))
+      hips = unit(hips + (axis(hipYaw)-hips)*blend,fallback:right)
+      shoulders = unit(shoulders + (axis(shoulderYaw)-shoulders)*blend,fallback:right)
     }
     if let measured, swing.style == .groundstroke && !blocked {
       // Retain each player's contact geometry. The captured chest follows
@@ -554,6 +565,8 @@ struct AthleteMotion {
     var shoulderTilt = overheadLoad ? tiltAmount * (ramp(time,-0.46,-0.20) - 1.70 * ramp(time,-0.15,0.015)) * finish : 0
     if let measured, overheadLoad {
       shoulderTilt += (measured.tilt-shoulderTilt)*motionWeight*0.60
+      let trophy = ramp(time,-0.54,-0.32)*(1-ramp(time,-0.19,-0.045))
+      shoulderTilt += (swing.style == .serve ? 0.041 : 0.029)*trophy
     }
     shoulderTilt += simd_dot(movingLean,shoulders)*0.19*(1-drive)
     if swing.style == .groundstroke && !blocked { shoulderTilt += sideOfBall*0.042*low }
@@ -648,14 +661,15 @@ struct AthleteMotion {
       let lag = ramp(time,-0.19,-0.065)*(1-ramp(time,-0.065,0))
       shaft = up*(0.86-drive*0.45-low*1.65)+right*sideOfBall*(0.25+drive*0.65)-forward*lag*0.12
       shaft += (-right*sideOfBall*1.6+up*0.48)*ramp(time,0,0.18)*finish
-    } else if swing.style == .serve, let measured {
+    } else if overheadLoad, let measured {
+      let smash = swing.style == .overhead
       // The tracked wrist leads. The racket drops behind the back, then its
       // long axis comes up on edge before the forearm turns the strings through.
-      let trophy = unit(right*0.26+up*0.91-forward*0.34,fallback:up)
+      let trophy = unit(right*(smash ? -0.24 : 0.26)+up*0.91-forward*0.34,fallback:up)
       let drop = unit(-right*0.28-up*0.92-forward*0.32,fallback:-up)
       let extensionAxis = unit(up*0.98+right*0.12+forward*0.15,fallback:up)
       let finishAxis = unit(-right*0.68-up*0.70+forward*0.23,fallback:-up)
-      let descend = ramp(time,-0.33,-0.145)
+      let descend = ramp(time,smash ? -0.27 : -0.33,-0.145)
       // Swing around the wrist on an arc. Linear interpolation between these
       // almost opposing directions makes the racket flip in the middle.
       func swingArc(_ from: CourtPoint3D, _ to: CourtPoint3D, _ phase: Float) -> CourtPoint3D {
@@ -669,10 +683,10 @@ struct AthleteMotion {
       // Keep the bent hitting arm beside the head while the tossing arm rises.
       // The racket head, rather than the wrist, drops behind the shoulder.
       let trophyWeight = ramp(time,-0.65,-0.39)*(1-ramp(time,-0.14,-0.044))
-      let trophyPalm = pose[.rightShoulder]+right*0.14+up*0.23-forward*0.16
+      let trophyPalm = pose[.rightShoulder]+right*(smash ? 0.23 : 0.19)+up*0.23-forward*0.19
       palm += (trophyPalm-palm)*(0.87*trophyWeight)
       let crossing = ramp(time,0.068,0.23)*(1-ramp(time,0.34,0.58))
-      let finishPalm = pose[.leftHip]+up*0.23+forward*0.14
+      let finishPalm = pose[.leftHip]+up*(smash ? 0.33 : 0.23)+forward*0.19
       palm += (finishPalm-palm)*(0.82*crossing)
       let lock = ramp(time,-0.15,0)*(1-ramp(time,0,0.19))
       let impactPalm = strike-extensionAxis*0.49
@@ -720,7 +734,7 @@ struct AthleteMotion {
       let from = unit(shaft,fallback:up), to = unit(strings-palm,fallback:from)
       shaft = simd_slerp(simd_quatf(real:1,imag:.zero),simd_quatf(from:from,to:to),window*0.85).act(from)
     }
-    if jumping || activePower == .ace {
+    if jumping && swing.style != .overhead {
       let t = jumping ? jumpTime : time
       let release = ramp(t, -0.15, 0), wrap = ramp(t, 0, 0.23)
       var contact = strike
@@ -875,7 +889,7 @@ struct AthleteMotion {
         limitWrist(at:.leftShoulder,handle:handleToStrings-0.095,length:armReach)
       }
     }
-    if swing.style == .serve {
+    if overheadLoad {
       let extensionWeight = ramp(time,-0.085,-0.004)*(1-ramp(time,0.018,0.11))
       limitWrist(at:.rightShoulder,handle:handleToStrings,length:0.654*extensionWeight,minimum:true)
     }
@@ -938,7 +952,7 @@ struct AthleteMotion {
     offHand += (local(-0.29, 0.85, 0.06) - offHand) * rest
     if let service {
       let t = Float(service.tossProgress ?? 0)
-      let fold = ramp(t,0.57,0.94)
+      let fold = ramp(t,0.63,0.95)
       let tossHand = ServiceToss.palm(feet:player.pos,side:side,progress:t)
       let tucked = chest-shoulders*0.10-up*0.21+chestFront*0.22
       // Fold the tossing arm around the face, keeping its initial toss and
@@ -951,7 +965,8 @@ struct AthleteMotion {
     } else if swing.style == .overhead {
       let locate = ramp(time,-0.75,-0.38)*(1-ramp(time,-0.17,0.025))
       let tuck = ramp(time,-0.17,0.025)*(1-ramp(time,0.18,0.45))
-      let guide = pose[.leftShoulder]+up*0.47+forward*0.24-shoulders*0.06
+      let toBall = unit(strike-pose[.leftShoulder],fallback:up)
+      let guide = pose[.leftShoulder]+unit(up*0.34+forward*0.32+toBall*0.38,fallback:up)*0.64
       let folded = chest+forward*0.17-up*0.20-shoulders*0.05
       offHand += (guide-offHand)*locate
       offHand += (folded-offHand)*tuck
@@ -1023,6 +1038,11 @@ struct AthleteMotion {
       var supportBend = leftBend+(leftFinish-leftBend)*(backhand ? fold : 0)
       if backhand { supportBend += (unit(-up+forward*0.20-right*0.16,fallback:leftBend)-supportBend)*extensionBeat }
       leftPole += (supportBend-leftPole)*strength
+    }
+    if overheadLoad {
+      let cocked = ramp(time,-0.63,-0.34)*(1-ramp(time,-0.15,-0.03))
+      let throwingElbow = unit(shoulders*0.73-forward*0.50+up*0.10,fallback:rightPole)
+      rightPole += (throwingElbow-rightPole)*cocked
     }
     if volley && !blocked && dive == 0 {
       let inFront = ramp(time,-0.31,-0.16)*(1-ramp(time,0.15,0.32))

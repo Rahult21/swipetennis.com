@@ -129,6 +129,53 @@ extension CourtPresentationTests {
     XCTAssertGreaterThan(short.y-deep.y,2.0, "The quick-start diagonal and drive should teach visibly different depths.")
   }
 
+  func testSetStanceAndServiceCoilInTheRecordedPose() throws {
+    for stroke in [StudioStroke.serve,.forehand,.backhand,.volley] {
+      let clip = try XCTUnwrap(StrokeStudioClip(stroke))
+      let pose = try XCTUnwrap(clip.frame(clip.contactTime-0.30)).near
+      let shoes = pose[.rightShoe]-pose[.leftShoe]
+      let shoulders = pose[.rightShoulder]-pose[.leftShoulder]
+      XCTAssertGreaterThan(hypot(shoes.x,shoes.z),simd_length(shoulders),stroke.rawValue)
+      if stroke == .serve {
+        let hips = pose[.rightHip]-pose[.leftHip]
+        XCTAssertGreaterThan(shoes.z,0.20)
+        XCTAssertGreaterThan(atan2(shoulders.z,shoulders.x),atan2(hips.z,hips.x)+0.30)
+        XCTAssertGreaterThan(pose[.leftHand].y,pose[.head].y+0.10)
+      }
+    }
+  }
+
+  func testSmashTracksTheLobExtendsAndFollowsThrough() throws {
+    var game = PracticeEngine(settings:.init(local:true))
+    game.phase = .live
+    game.launch(1,aim:Vec(x:3.8,y:21.6),kind:.lob)
+    let target = try XCTUnwrap(BallContactWindow.overheadTarget(flight:try XCTUnwrap(game.flight),side:0))
+    game.players[0].pos = target.point
+    game.players[0].destination = target.point
+    game.attacking[0] = true
+    var motion = CourtPerformance(game:game)
+    var contact: RecordedStrike?
+    for _ in 0..<720 {
+      game.step(PointReplay.tick,random:{0.50})
+      motion.update(game:game,dt:PointReplay.tick)
+      if contact == nil && game.flight?.stroke == .overhead {
+        contact = motion.replay.strikes.last(where:{ $0.hitter == 0 })
+      }
+      if let contact, motion.replay.duration > contact.time+0.36 { break }
+    }
+    let strike = try XCTUnwrap(contact)
+    let trophy = try XCTUnwrap(motion.replay.frame(at:strike.time-0.30)).near
+    let impact = try XCTUnwrap(motion.replay.frame(at:strike.time)).near
+    let finish = try XCTUnwrap(motion.replay.frame(at:strike.time+0.20)).near
+    XCTAssertGreaterThan(trophy[.leftHand].y,trophy[.leftShoulder].y+0.25)
+    XCTAssertGreaterThan(trophy[.rightShoulder].z,trophy[.leftShoulder].z+0.22)
+    XCTAssertEqual(simd_distance(impact[.strings],strike.point),0,accuracy:0.001)
+    XCTAssertGreaterThan(impact[.grip].y,impact[.head].y)
+    XCTAssertGreaterThan(min(impact[.leftShoe].y,impact[.rightShoe].y),0.13)
+    XCTAssertLessThan(finish[.grip].x,finish[.rightShoulder].x)
+    XCTAssertLessThan(finish[.strings].y,finish[.head].y)
+  }
+
   func testServeDropsTheHeadOfTheRacketThenExtendsThroughTheToss() throws {
     let clip = try XCTUnwrap(StrokeStudioClip(.serve))
     func pose(_ relative: Double) throws -> AthletePose { try XCTUnwrap(clip.frame(clip.contactTime+relative)).near }

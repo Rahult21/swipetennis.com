@@ -3,6 +3,9 @@ import simd
 
 /// Step out with the travel-side foot, then bring the pushing foot back underneath the hips.
 struct CourtFootwork {
+  // A set tennis stance is wider than the 44 cm shoulder span of the avatar.
+  static func setHalfWidth(_ readiness: Float) -> Float { 0.242 + 0.038 * readiness }
+
   private(set) var left = CourtPoint3D.zero
   private(set) var right = CourtPoint3D.zero
   private(set) var runBlend: Float = 0
@@ -209,7 +212,7 @@ struct CourtFootwork {
 
   private mutating func shuffle(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
     facing: Float, strideBias: CourtPoint3D, rightBias: CourtPoint3D, dt: Float, readiness: Float, surface: CourtSurface) {
-    let base = CourtPoint3D((0.175 + 0.070 * readiness) * facing, 0, (0.025 + 0.03 * readiness) * facing)
+    let base = CourtPoint3D(Self.setHalfWidth(readiness) * facing, 0, (0.025 + 0.03 * readiness) * facing)
     guard let last = previous, simd_distance(centre, last) < 1.8 else {
       previous = centre; left = centre - base; right = centre + base
       stepping = false; replanting = false; lateralDirection = 0
@@ -241,7 +244,7 @@ struct CourtFootwork {
         // A closing foot must leave space under the body. It cannot pass the planted shoe.
         let plantedX = (leftSwings ? right.x : left.x) * facing
         let x = touchdown.x * facing
-        touchdown.x = (leftSwings ? min(x, plantedX - 0.245) : max(x, plantedX + 0.245)) * facing
+        touchdown.x = (leftSwings ? min(x, plantedX - 0.47) : max(x, plantedX + 0.47)) * facing
       }
       progress = 0; stepping = true; replanting = false
     }
