@@ -597,7 +597,8 @@ enum ReplayAngle: String, CaseIterable {
       }
     }
     previousDraw = time; previousAspect = aspect; previousIntro = intro
-    if let frame = liveFrame {
+    if let trackedFrame = liveFrame {
+      let frame = freeze || reduceMotion ? trackedFrame : trackedFrame.including(ball,aspect:aspect)
       camera.camera.fieldOfViewInDegrees = frame.verticalFOV
       camera.look(at:frame.target,from:frame.eye,relativeTo:nil)
       audience?.face(camera:frame.eye)
@@ -652,7 +653,7 @@ enum ReplayAngle: String, CaseIterable {
       ball.scale = .init(repeating:max(0.044,min(0.084,simd_distance(camera.position,frame.ball)*0.0025)))
       return
     }
-    hideBaselineStand(nil)
+    hideBaselineStand(handshake || angle == .neutral ? nil : angle == .you ? 1 : 0)
     let near = (frame.near[.leftHip] + frame.near[.rightHip]) / 2
     let far = (frame.far[.leftHip] + frame.far[.rightHip]) / 2
     let position: CourtPoint3D, target: CourtPoint3D
@@ -666,11 +667,15 @@ enum ReplayAngle: String, CaseIterable {
       let right = simd_normalize(simd_cross([0,1,0],direction)), up = simd_cross(direction,right)
       let tanY = tan(Float.pi/6), aspect = max(0.32,Float(bounds.width/max(1,bounds.height)))
       var distance: Float = 15
-      for x: Float in [-1.65,9.88] { for z: Float in [-2.2,26.2] {
-        let v = CourtPoint3D(x,0,z) - wideTarget
+      func fit(_ point: CourtPoint3D) {
+        let v = point - wideTarget
         let margin = max(abs(simd_dot(v,right))/(tanY*aspect),abs(simd_dot(v,up))/tanY)
         distance = max(distance,simd_dot(v,direction)+margin*1.025)
-      } }
+      }
+      let sides: [Float] = reduceMotion ? [-4,12.23] : [-1.65,9.88]
+      let ends: [Float] = reduceMotion ? [-7.5,31.27] : [-2.2,26.2]
+      for x in sides { for z in ends { fit([x,0,z]) } }
+      if !reduceMotion { fit(frame.ball) }
       let widePosition = wideTarget + direction * distance
       // An independent three-quarter view reads the shoulder turn and airborne feet,
       // then eases back into the full-court shot as the winner travels away.
@@ -690,15 +695,23 @@ enum ReplayAngle: String, CaseIterable {
       target = [x*0.66+other.x*0.34,0.64 + focus*0.65,z-6.8*sign]
       camera.camera.fieldOfViewInDegrees = 58
     }
-    camera.look(at: target, from: position, relativeTo: nil)
+    let aspect = Float(bounds.width/max(1,bounds.height))
+    var replayCamera = PlayerCamera(eye:position,target:target,verticalFOV:camera.camera.fieldOfViewInDegrees)
+    if reduceMotion && angle != .neutral {
+      let z: Float = angle == .you ? 31.27 : -7.5
+      for x: Float in [-4,12.23] { replayCamera = replayCamera.including([x,0,z],aspect:aspect) }
+    } else if !reduceMotion && (angle != .neutral || (beat ?? 0) >= 0) {
+      replayCamera = replayCamera.including(frame.ball,aspect:aspect)
+    }
+    camera.look(at:replayCamera.target,from:replayCamera.eye,relativeTo:nil)
     if let ceremony {
       let shot = MatchCeremony.camera(seconds:ceremony,aspect:Float(bounds.width/max(1,bounds.height)),reduceMotion:reduceMotion)
       camera.camera.fieldOfViewInDegrees = shot.verticalFOV
       camera.look(at:shot.target,from:shot.eye,relativeTo:nil)
       audience?.face(camera:shot.eye,ovation:ceremony,reduceMotion:reduceMotion)
-    } else { audience?.face(camera:position) }
+    } else { audience?.face(camera:replayCamera.eye) }
     // At the far baseline the physical ball would occupy less than one pixel on smaller phones.
-    let radius = max(0.034,min(0.079,simd_distance(position,frame.ball)*0.0023))
+    let radius = max(0.034,min(0.079,simd_distance(replayCamera.eye,frame.ball)*0.0023))
     ball.scale = .init(repeating: radius)
   }
 }

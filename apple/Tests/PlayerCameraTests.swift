@@ -77,6 +77,39 @@ final class PlayerCameraTests: XCTestCase {
     XCTAssertGreaterThan(height(view(.baseline)),height(view(.wide))*1.5)
     XCTAssertEqual(view(.baseline,motion:true).eye,view(.wide,motion:true).eye)
   }
+  func testBaselineAndWideViewsFrameTheBallBehindEitherBaseline() {
+    for aspect: Float in [0.43,2.18] { for side in 0...1 {
+      let feet = Vec(x:5.8,y:side == 0 ? 23.2 : 0.57)
+      for style in MatchViewpoint.allCases { for still in [true,false] {
+        func camera(_ ball: CourtPoint3D) -> PlayerCamera {
+          PlayerCamera.frame(side:side,player:feet,trackedX:5.8,receiver:nil,recovery:nil,
+                             ball:ball,aspect:aspect,intro:1,reduceMotion:still,style:style)
+        }
+        for x: Float in [-3.5,11.7] { for z: Float in [-7.0,30.77] {
+          let ball = CourtPoint3D(x,0.35,z)
+          let view = camera(ball), p = view.projected(ball,aspect:aspect)
+          XCTAssertLessThan(max(abs(p.x),abs(p.y)),1)
+          if still { XCTAssertEqual(camera(feet.world()).eye,view.eye) }
+        } }
+      } }
+    } }
+  }
+
+  func testReplayEyeBacksUpAlongItsAxisForABallPassingTheReceiver() {
+    for side: Float in [-1,1] { for aspect: Float in [0.43,2.18] {
+      let aim = CourtPoint3D(4.1,0.7,11.885+side*6.0)
+      let eye = aim+[side*0.9,1.65,side*10.45]
+      let close = PlayerCamera(eye:eye,target:aim,verticalFOV:58)
+      let ball = CourtPoint3D(-1.8,1.0,11.885+side*20)
+      let pulledBack = close.including(ball,aspect:aspect)
+      let projection = pulledBack.projected(ball,aspect:aspect)
+      XCTAssertLessThan(max(abs(projection.x),abs(projection.y)),1)
+      XCTAssertEqual(pulledBack.target,aim)
+      XCTAssertGreaterThan(simd_dot(simd_normalize(eye-aim),simd_normalize(pulledBack.eye-aim)),0.99999)
+      XCTAssertEqual(close.including(aim,aspect:aspect).eye,eye)
+    } }
+  }
+
   func testSpinTracksFlightDirectionAndReversesForSlice() throws {
     func spin(_ kind: ShotKind, _ hitter: Int, elapsed: Double = 0) -> simd_quatf {
       var game = PracticeEngine(settings:.init())

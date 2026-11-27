@@ -7,7 +7,7 @@ struct BallRotation {
   mutating func advance(_ game: PracticeEngine, dt: Double) {
     guard dt>0 else { return }
     if let flight = game.flight, game.phase == .live || (game.pointResolution?.elapsed ?? 2)<0.7 {
-      let dx = Float(flight.landing.x-flight.from.x), dz = Float(flight.landing.y-flight.from.y)
+      let dx = Float(flight.landing.x-flight.launchPosition.x), dz = Float(flight.landing.y-flight.launchPosition.y)
       let travel = CourtPoint3D(dx,0,dz)
       guard simd_length_squared(travel)>0.0001 else { return }
       var axle = simd_normalize(simd_cross([0,1,0],travel))

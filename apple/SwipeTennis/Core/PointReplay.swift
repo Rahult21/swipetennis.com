@@ -165,7 +165,7 @@ struct CourtPerformance {
       // A return can follow a ground impact within one simulation step.
       let bounced = hit ? previousFlight : game.flight
       if let bounced, bounced.fault != "net" {
-        let bearing = atan2(bounced.landing.x - bounced.from.x,bounced.landing.y - bounced.from.y)
+        let bearing = atan2(bounced.landing.x - bounced.launchPosition.x,bounced.landing.y - bounced.launchPosition.y)
         mark = BounceImpression(serial:game.bounceSerial,position:bounced.landing,direction:Float(bearing),
                                 surface:game.settings.surface,age:0)
       }

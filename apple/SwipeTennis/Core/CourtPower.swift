@@ -74,7 +74,7 @@ extension PracticeEngine {
       let remaining = max(0.000001, 1 - outgoing.progress)
       let fraction = outgoing.progress
       outgoing.duration = max(outgoing.duration, (chase + 0.2) / remaining)
-      outgoing.elapsed = fraction * outgoing.duration
+      outgoing.elapsed = outgoing.time(at:fraction)
       flight = outgoing
     }
     reactAt = time
@@ -103,7 +103,7 @@ extension PracticeEngine {
     let backhand = power == .rally && Double(ball.x) < players[0].pos.x - 0.85
     let offset = smashAt != nil ? 0.31 : backhand ? -0.62 : 0.62
     let feet = Self.own(0, Vec(x: Double(ball.x) - offset, y: Double(ball.z) + 0.26))
-    let timeToBall = (impact - flight.progress) * flight.duration
+    let timeToBall = flight.time(at:impact)-flight.elapsed
     let travel = max(0.30, players[0].pos.distance(to: feet) / 8, timeToBall)
     assist = AssistedContact(power: power, from: players[0].pos, feet: feet,
       impactProgress: impact, startProgress: flight.progress, travelTime: travel, backhand: backhand, setup: setup)
@@ -125,7 +125,7 @@ extension PracticeEngine {
       y: (players[0].pos.y - previous.y) / max(0.00001, dt))
     let progress = alignment.startProgress + (alignment.impactProgress - alignment.startProgress) * t
     if incoming.progress < 0.8 && progress >= 0.8 { bounceSerial += 1 }
-    incoming.elapsed = incoming.duration * progress
+    incoming.elapsed = incoming.time(at:progress)
     flight = incoming
     ball = incoming.position
     assist = alignment
@@ -156,11 +156,9 @@ extension PracticeEngine {
     shot.duration /= 1.5
     if power == .overhead {
       // The rebound clears the receiver before continuing behind the baseline.
-      let forward = max(1, shot.landing.y - players[1].pos.y)
-      shot.contact = Vec(x: clamp(shot.landing.x + (players[1].pos.x - shot.landing.x) *
-        (shot.landing.y + 3) / forward, -1.5, Self.width + 1.5), y: -3)
+      shot.contact = shot.landing.projected(from:shot.launchPosition,toDepth:-3)
     } else if power == .rally {
-      shot.contact = Vec(x: shot.landing.x + (shot.landing.x - shot.from.x) * 0.12, y: -2)
+      shot.contact = shot.landing.projected(from:shot.launchPosition,toDepth:-2)
     } else {
       if inventory.aceCelebrations.isEmpty {
         inventory.aceCelebrations = Array(repeating: false, count: 4)

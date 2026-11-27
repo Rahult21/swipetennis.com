@@ -1,4 +1,5 @@
 import XCTest
+import simd
 @testable import TennisCore
 
 final class PointResolutionTests: XCTestCase {
@@ -144,6 +145,93 @@ final class PointResolutionTests: XCTestCase {
           XCTAssertEqual(impact.ball(after: 2).position, after.position)
         }
       }
+    }
+  }
+
+  func testShotTracksKeepTheirBearingThroughTheBounceAndRunoff() throws {
+    for side in 0...1 {
+      for kind in [ShotKind.cross,.line,.lob,.slice,.drop,.angle] {
+        let near = side == 0
+        let start = Vec(x:6.7,y:near ? 23.37 : 0.4)
+        let target = Vec(x:1.5,y:near ? 1.47 : 22.3)
+        var game = PracticeEngine(settings:.init(local:true))
+        game.phase = .live
+        game.players[side].pos = start
+        game.launch(side,aim:target,kind:kind)
+        var flight = try XCTUnwrap(game.flight)
+        // Include an incoming strike well away from the feet, as happens on a stretch.
+        flight.strikeOrigin = start.world(height:1.24)+[0.65,0,near ? -0.31 : 0.31]
+        let origin = flight.launchPosition, dx = target.x-origin.x, dz = target.y-origin.y
+        let length = hypot(dx,dz)
+        var previous = -1.0
+        for i in 0...175 {
+          let p = Double(i)/100
+          let ball = i <= 100 ? flight.worldBall(at:p) : flight.runout(after:p-1)
+          let x = Double(ball.x)-origin.x, z = Double(ball.z)-origin.y
+          XCTAssertLessThan(abs(dx*z-dz*x)/length,0.00002)
+          let along = (dx*x+dz*z)/length
+          XCTAssertGreaterThanOrEqual(along+0.00001,previous)
+          XCTAssertGreaterThanOrEqual(ball.y,0)
+          previous = along
+        }
+        XCTAssertEqual(flight.worldBall(at:0),flight.launchPoint)
+        XCTAssertEqual(flight.worldBall(at:0.8).y,0,accuracy:0.000001)
+        XCTAssertEqual(flight.worldBall(at:1),flight.runout(after:0))
+        if kind == .cross || kind == .line {
+          let depth = flight.runout(after:PointResolution.resultDelay).z
+          XCTAssertTrue(near ? depth < 0 : depth > Float(PracticeEngine.length))
+        }
+      }
+    }
+  }
+
+  func testHighOverheadClearsTheBackstopWhileLowBallsReboundOffIt() {
+    let shot = BallFlight(from:Vec(x:4.115,y:13.1),landing:Vec(x:4.115,y:6),
+      contact:Vec(x:4.115,y:-3),duration:0.48,hitter:0,fault:nil,explanation:"",loft:0.45,power:.overhead)
+    let end = shot.runout(after:PointResolution.resultDelay)
+    XCTAssertGreaterThan(end.y,2.24)
+    XCTAssertLessThan(Double(end.z),CourtRunoff.depth.lowerBound)
+    let pad = CourtRunoff.depth.lowerBound
+    XCTAssertEqual(CourtRunoff.afterPlay(Vec(x:4,y:pad-1)).y,pad+0.25,accuracy:0.00001)
+  }
+
+  func testVeryShallowAngleRunsAlongItsBearingWithinRacketReachOfYellow() {
+    let landing = Vec(x:7.8,y:12.39)
+    let flight = BallFlight(from:Vec(x:0.25,y:11.17),landing:landing,
+      contact:Vec(x:7.8,y:12.84),duration:1.3,hitter:1,fault:nil,explanation:"",loft:1,kind:.angle)
+    XCTAssertLessThan(flight.reboundEnd.distance(to:flight.contact),0.8)
+    XCTAssertGreaterThan(flight.reboundEnd.x,landing.x)
+    XCTAssertGreaterThan(flight.reboundEnd.y,landing.y)
+  }
+
+  func testUntouchedWinnerContinuesBehindBaselineInLiveReplayAndRestoredPoint() throws {
+    for side in 0...1 {
+      let near = side == 0
+      var game = PracticeEngine(settings:.init(local:true,allCourtTraining:false))
+      game.phase = .live
+      game.players[side].pos = Vec(x:6.7,y:near ? 23.37 : 0.4)
+      game.players[1-side].pos = Vec(x:7.8,y:near ? 1.3 : 22.5)
+      for index in 0...1 { game.players[index].destination = game.players[index].pos }
+      var animation = CourtPerformance(game:game)
+      game.launch(side,aim:Vec(x:1.5,y:near ? 1.47 : 22.3),kind:.cross)
+      var atEnd: CourtPoint3D?, restored: PracticeEngine?
+      for _ in 0..<600 where !game.showsPointResult {
+        game.step(PointReplay.tick,random:{0.8})
+        animation.update(game:game,dt:PointReplay.tick)
+        if game.isResolvingPoint && atEnd == nil {
+          atEnd = game.worldBall
+          restored = try JSONDecoder().decode(PracticeEngine.self,from:JSONEncoder().encode(game))
+        } else if restored != nil { restored!.step(PointReplay.tick,random:{0.8}) }
+      }
+      let last = game.worldBall
+      XCTAssertTrue(game.showsPointResult)
+      XCTAssertGreaterThan(simd_distance(try XCTUnwrap(atEnd),last),1)
+      XCTAssertTrue(near ? last.z < 0 : last.z > Float(PracticeEngine.length))
+      XCTAssertEqual(game.ball,last.courtPosition)
+      XCTAssertEqual(restored?.worldBall,last)
+      XCTAssertEqual(animation.replay.frames.last?.ball,last)
+      XCTAssertEqual(game.scoring.points[side],1)
+      XCTAssertNil(game.pointResolution?.impact)
     }
   }
 

@@ -118,11 +118,11 @@ struct BallContactWindow {
     guard !flight.serve, flight.fault == nil, flight.hitter != side else {
       return nil
     }
-    let dy = flight.landing.y - flight.from.y
+    let dy = flight.landing.y - flight.launchPosition.y
     guard abs(dy) > 0.001,
-      let segment = intersection(from: flight.from, to: flight.landing, player: player, radius: 0.9)
+      let segment = intersection(from: flight.launchPosition, to: flight.landing, player: player, radius: 0.9)
     else { return nil }
-    let ownSide = ((side == 0 ? 12.685 : 11.085) - flight.from.y) / dy
+    let ownSide = ((side == 0 ? 12.685 : 11.085) - flight.launchPosition.y) / dy
     let lowBall =
       flight.loft >= 2
       ? 1 - asin(min(1, 1.7 / (flight.loft * 1.7))) / .pi : 0
@@ -152,8 +152,8 @@ struct BallContactWindow {
     }
     let fraction = 1 - asin(min(1, 2.65 / (flight.loft * 1.7))) / .pi
     let point = Vec(
-      x: flight.from.x + (flight.landing.x - flight.from.x) * fraction,
-      y: flight.from.y + (flight.landing.y - flight.from.y) * fraction)
+      x: flight.launchPosition.x + (flight.landing.x - flight.launchPosition.x) * fraction,
+      y: flight.launchPosition.y + (flight.landing.y - flight.launchPosition.y) * fraction)
     guard side == 0 ? point.y > PracticeEngine.net + 0.7 : point.y < PracticeEngine.net - 0.7 else {
       return nil
     }
@@ -167,7 +167,7 @@ struct BallContactWindow {
       return Self(entry: target.progress, exit: target.progress, volley: true, overhead: true, netStroke: .overhead)
     }
     guard let segment = intersection(
-        from: flight.from, to: flight.landing, player: player,
+        from: flight.launchPosition, to: flight.landing, player: player,
         radius: PracticeEngine.contactRadius)
     else { return nil }
     let peak = flight.loft * 1.7
@@ -185,9 +185,11 @@ struct BallContactWindow {
     guard player.distance(to: flight.contact) <= PracticeEngine.contactRadius + 0.000001 else {
       return nil
     }
+    let end = flight.reboundEnd
+    let hand = Vec(x:player.x+end.x-flight.contact.x,y:player.y+end.y-flight.contact.y)
     guard
       let segment = intersection(
-        from: flight.landing, to: flight.contact, player: player,
+        from: flight.landing, to: end, player: hand,
         radius: PracticeEngine.contactRadius)
     else { return nil }
     // Let the ball rise off the bounce, then strike as soon as it enters racket reach.

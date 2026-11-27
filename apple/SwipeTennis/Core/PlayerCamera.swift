@@ -60,9 +60,25 @@ struct PlayerCamera {
       for point in [receiver,recovery].compactMap({$0}) {
         for dx: Float in [-0.82,0.82] { include(point.world()+[dx,0,sign*0.45],margin:1.13) }
       }
-      include(ball,margin:1.12)
     }
+    if reduceMotion {
+      // Hold a steady broadcast frame, with room beyond both baselines.
+      for x: Float in [-4,12.23] { for z: Float in [-7.5,31.27] {
+        include([x,0,z],margin:1.08)
+      } }
+    } else { include(ball,margin:1.12) }
     return Self(eye:goal+view*(distance+(1-t)*2.8),target:goal,verticalFOV:fov)
+  }
+
+  /// Back up along the same optical axis when a ball would leave the frame.
+  /// The lens, heading and player's eyeline stay steady as it travels past.
+  func including(_ ball: CourtPoint3D, aspect: Float, margin: Float = 1.06) -> Self {
+    let view = simd_normalize(eye-target), right = simd_normalize(simd_cross([0,1,0],view))
+    let up = simd_cross(view,right), ray = ball-eye
+    let tangent = tan(verticalFOV * .pi/360)
+    let span = max(abs(simd_dot(ray,right))/max(0.29,aspect),abs(simd_dot(ray,up)))
+    let retreat = max(0,simd_dot(ray,view)+margin*span/tangent)
+    return Self(eye:eye+view*retreat,target:target,verticalFOV:verticalFOV)
   }
 
   func projected(_ position: CourtPoint3D, aspect: Float) -> SIMD2<Float> {

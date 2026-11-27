@@ -308,7 +308,7 @@ extension PracticeEngine {
     flight!.elapsed += dt
     let receive = previous.hitter == 1 ? contactWindow(0, after: previous.progress) : nil
     if let receive, receive.netStroke != nil, flight!.progress >= receive.entry {
-      flight!.elapsed = min(flight!.progress, receive.exit) * previous.duration
+      flight!.elapsed = previous.time(at:min(flight!.progress, receive.exit))
     }
     let current = flight!
     let world = current.worldBall(at: current.progress)

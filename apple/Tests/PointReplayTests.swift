@@ -174,10 +174,59 @@ final class PointReplayTests: XCTestCase {
     XCTAssertGreaterThan(contact.heelPitch, loaded.heelPitch + 0.10)
     XCTAssertGreaterThan(finish[.strings].y, loaded[.strings].y)
     XCTAssertGreaterThan(rotation(uncoiling, .rightHip, .leftHip) - rotation(loaded, .rightHip, .leftHip), 0.1)
-    XCTAssertEqual(rotation(uncoiling, .rightShoulder, .leftShoulder), rotation(loaded, .rightShoulder, .leftShoulder), accuracy: 0.02)
+    let shouldersAtLoad = rotation(loaded,.rightShoulder,.leftShoulder)
+    XCTAssertLessThan(shouldersAtLoad,-1.48) // Close to parallel to the singles sideline.
+    let hipsOpening = rotation(uncoiling,.rightHip,.leftHip)-rotation(loaded,.rightHip,.leftHip)
+    let shouldersOpening = rotation(uncoiling,.rightShoulder,.leftShoulder)-shouldersAtLoad
+    XCTAssertGreaterThan(shouldersOpening,0.08)
+    XCTAssertGreaterThan(hipsOpening,shouldersOpening)
     XCTAssertGreaterThan(loaded[.strings].x, loaded[.rightShoulder].x)
     XCTAssertLessThan(finish[.strings].x, finish[.leftShoulder].x)
     XCTAssertGreaterThan(finish[.strings].y, hit.point.y)
+  }
+
+  func testBothForehandsSetTheElbowHighDropTheHeadAndWrapAfterExtension() throws {
+    for side in 0...1 {
+      let sign: Float = side == 0 ? 1 : -1
+      var game = PracticeEngine(settings:.init(local:true,surface:.hard,allCourtTraining:false))
+      game.phase = .live
+      game.players[side].pos = Vec(x:4.115,y:side == 0 ? 22.6 : PracticeEngine.length-22.6)
+      game.players[1-side].pos = Vec(x:4.115,y:side == 0 ? 1 : PracticeEngine.length-1)
+      for index in 0...1 { game.players[index].destination = game.players[index].pos }
+      var performance = CourtPerformance(game:game)
+      game.launch(1-side,aim:Vec(x:4.115+Double(sign)*2.65,y:side == 0 ? 21.5 : PracticeEngine.length-21.5),kind:.cross)
+      game.apply(.guidedMove(.receive),side:side)
+      for _ in 0..<420 {
+        game.step(tick,random:{0.8})
+        performance.update(game:game,dt:tick)
+        if game.flight?.hitter == side && (game.flight?.elapsed ?? 0) > 0.34 { break }
+      }
+      let clip = performance.replay, hit = try XCTUnwrap(clip.strikes.last)
+      XCTAssertEqual(hit.hitter,side)
+      func pose(_ time: Double) throws -> AthletePose {
+        let frame = try XCTUnwrap(clip.frame(at:hit.time+time))
+        return side == 0 ? frame.near : frame.far
+      }
+      let set = try pose(-0.265), low = try pose(-0.085), contact = try pose(0)
+      let through = try pose(0.065), finish = try pose(0.245)
+      let shoulders = simd_normalize(set[.rightShoulder]-set[.leftShoulder])
+      XCTAssertGreaterThan(abs(shoulders.z),0.96)
+      let upper = simd_normalize(set[.rightElbow]-set[.rightShoulder])
+      XCTAssertLessThan(abs(upper.y),0.24)
+      XCTAssertGreaterThan((set[.strings].z-set[.rightShoulder].z)*sign,0.5)
+      XCTAssertGreaterThan(set[.strings].y-set[.grip].y,0.20)
+      XCTAssertGreaterThan(set[.strings].y-low[.strings].y,0.8)
+      XCTAssertGreaterThan((contact[.rightHip].y-low[.rightHip].y),0.035)
+      XCTAssertLessThan(simd_distance(contact[.strings],hit.point),0.0001)
+      // The head must keep moving into and out of contact on a full drive.
+      let before = try pose(-1.0/60), after = try pose(1.0/60)
+      XCTAssertGreaterThan(60*simd_distance(before[.strings],contact[.strings]),8.0)
+      XCTAssertGreaterThan(60*simd_distance(contact[.strings],after[.strings]),8.0)
+      XCTAssertGreaterThan((contact[.strings].z-through[.strings].z)*sign,0.08)
+      XCTAssertGreaterThan(through[.strings].y,contact[.strings].y+0.16)
+      XCTAssertLessThan((finish[.grip].x-finish[.leftShoulder].x)*sign,0)
+      XCTAssertGreaterThan(finish[.grip].y,finish[.leftShoulder].y)
+    }
   }
 
   func testBothBackhandsCoilThenExtendThroughImpactAndFinishHigh() throws {

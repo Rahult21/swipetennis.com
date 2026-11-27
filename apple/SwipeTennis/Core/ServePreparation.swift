@@ -77,8 +77,7 @@ enum ServeGeometry {
   static func contact(from: Vec, landing: Vec, server: Int, number: Int = 1) -> Vec {
     let y = number == 2 ? (server == 0 ? 1.1 : PracticeEngine.length - 1.1)
       : (server == 0 ? -0.45 : PracticeEngine.length + 0.45)
-    let fraction = (y - from.y) / (landing.y - from.y)
-    return Vec(x: from.x + (landing.x - from.x) * fraction, y: y)
+    return landing.projected(from: serviceImpact(at: from, side: server, explosive: false).courtPosition, toDepth: y)
   }
 
   static func bounded(_ point: Vec, from: Vec, server: Int, fromRight: Bool) -> Vec {
@@ -88,10 +87,11 @@ enum ServeGeometry {
       ? clamp(point.y, serviceLine + 0.4, PracticeEngine.net - 1.3)
       : clamp(point.y, PracticeEngine.net + 1.3, PracticeEngine.length - serviceLine - 0.4)
     let returnY = server == 0 ? -0.45 : PracticeEngine.length + 0.45
-    let fraction = (returnY - from.y) / (y - from.y)
+    let origin = serviceImpact(at: from, side: server, explosive: false).courtPosition
+    let fraction = (returnY - origin.y) / (y - origin.y)
     // Keep even the most acute custom serve's yellow target within the playable runoff.
-    let reachableMin = from.x + (-1.15 - from.x) / fraction
-    let reachableMax = from.x + (PracticeEngine.width + 1.15 - from.x) / fraction
+    let reachableMin = origin.x + (-1.15 - origin.x) / fraction
+    let reachableMax = origin.x + (PracticeEngine.width + 1.15 - origin.x) / fraction
     return Vec(x: clamp(point.x,
       max(leftBox ? 0.4 : center + 0.22, reachableMin),
       min(leftBox ? center - 0.22 : PracticeEngine.width - 0.4, reachableMax)), y: y)
@@ -109,7 +109,8 @@ enum ServeGeometry {
     case .center: x = center + (leftBox ? -0.28 : 0.28)
     case .body:
       let contactY = server == 0 ? -0.45 : PracticeEngine.length + 0.45
-      x = from.x + (receiver.x - from.x) * (y - from.y) / (contactY - from.y)
+      let origin = serviceImpact(at: from, side: server, explosive: false).courtPosition
+      x = Vec(x:receiver.x,y:contactY).projected(from:origin,toDepth:y).x
     }
     return bounded(Vec(x: x, y: y), from: from, server: server, fromRight: fromRight)
   }

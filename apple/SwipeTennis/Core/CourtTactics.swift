@@ -129,7 +129,7 @@ extension PracticeEngine {
     }
     guard let flight, flight.hitter == side, flight.fault == nil,
       let window = contactWindow(1 - side) else { return nil }
-    return window.entry * flight.duration - flight.elapsed
+    return flight.time(at: window.entry) - flight.elapsed
   }
 
   func splitProgress(_ side: Int) -> Double? {

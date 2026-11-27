@@ -109,6 +109,7 @@ import SwiftUI
   private var replicaElapsed = 0.05
   private var replicaFlightFrom: Double?
   private var replicaFlightTo: Double?
+  private var replicaRunoff: ClosedRange<Double>?
   var publish: ((PracticeEngine) -> Void)?
   var publishCoachMiss: ((CoachMiss?) -> Void)?
   private var missPresentation = CoachMissPresentation()
@@ -145,7 +146,7 @@ import SwiftUI
   private let swipeTouch = SKShapeNode(circleOfRadius: 6)
   private let demoGesturePath = SKShapeNode()
   private let trail = SKShapeNode()
-  private var trails: [CGPoint] = []
+  private var trails: [CourtPoint3D] = []
   private var previousTime: TimeInterval = 0, accumulator = 0.0, publishAt = 0.0
   private var touchGestures: [UITouch: PracticeGesture] = [:]
   private var keyboardMoving = [false, false]
@@ -438,6 +439,10 @@ import SwiftUI
         }
       }
       if let from = replicaFlightFrom, let to = replicaFlightTo { engine.flight?.elapsed = from + (to - from) * t }
+      if let runoff = replicaRunoff {
+        engine.pointResolution?.elapsed = runoff.lowerBound+(runoff.upperBound-runoff.lowerBound)*t
+        engine.ball = engine.worldBall.courtPosition
+      }
       if !engine.showsPointResult { accumulator += dt }
       while accumulator >= PointReplay.tick {
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
@@ -447,12 +452,15 @@ import SwiftUI
       accumulator += dt
       while accumulator >= 1 / 120 {
         if controlledSide == nil && engine.acceptsCourtMovement && engine.demo?.demonstration != true { applyInputs() }
-        let oldContact = engine.contactSerial
+        let oldContact = engine.contactSerial, previousBounce = engine.bounceSerial
         engine.step(PointReplay.tick)
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
         if engine.contactSerial != oldContact {
           Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1, blocked:engine.flight?.contactQuality == .stretched || engine.flight?.contactQuality == .diving)
-          trails.removeAll()
+          trails.removeAll(keepingCapacity:true)
+          if let strike = engine.flight?.launchPoint { trails.append(strike) }
+        } else if !reduceMotion && previousBounce != engine.bounceSerial, let flight = engine.flight {
+          trails.append(flight.worldBall(at:0.8))
         }
         accumulator -= 1 / 120
       }
@@ -558,10 +566,13 @@ import SwiftUI
     replicaElapsed = 0
     replicaFlightFrom = old.contactSerial == value.contactSerial ? old.flight?.elapsed : nil
     replicaFlightTo = value.flight?.elapsed
+    if old.contactSerial == value.contactSerial, let end = value.pointResolution?.elapsed {
+      replicaRunoff = min(old.pointResolution?.elapsed ?? 0,end)...end
+    } else { replicaRunoff = nil }
     if old.phase.isPlaying && (value.phase == .point || value.phase == .finished) {
       Immersion.shared.applaudPoint()
     }
-    if old.phase != value.phase { trails.removeAll() }
+    if old.contactSerial != value.contactSerial || !value.phase.isPlaying && !value.isResolvingPoint { trails.removeAll() }
     if old.contactSerial != value.contactSerial { Immersion.shared.hit(x: perspectiveSide == 0 ? value.ball.x : PracticeEngine.width-value.ball.x, gain:value.flight?.power?.contactGain ?? 1, blocked:value.flight?.contactQuality == .stretched || value.flight?.contactQuality == .diving) }
     if old.bounceSerial != value.bounceSerial { Immersion.shared.hit(bounce: true, x: value.ball.x) }
     publish?(value)
@@ -607,7 +618,7 @@ import SwiftUI
       stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/Self.entranceDuration)),
         player:engine.players[perspectiveSide].pos,trackedX:cameraPlayerX,ball:frame.ball,
         contact:engine.contactGuide(perspectiveSide),recovery:engine.recoveryGuide(perspectiveSide),
-        style:style,freeze:!touchGestures.isEmpty || !serveTouches.isEmpty,reduceMotion:reduceMotion,time:animationTime)
+        style:style,freeze:engine.phase.isPlaying && (!touchGestures.isEmpty || !serveTouches.isEmpty),reduceMotion:reduceMotion,time:animationTime)
       stadium.draw(frame,angle:.neutral,reduceMotion:reduceMotion,powerBeat:nil,live:true)
     } else { positionPlayers() }
     actors.forEach { $0.isHidden = stadium != nil }
@@ -645,14 +656,25 @@ import SwiftUI
     let lift = max(0, ballNode.position.y - ground.y)
     ballNode.setScale(1 + min(0.3, lift / 150))
     let showingFlight = engine.phase == .live || engine.isResolvingPoint
-    if showingFlight && !reduceMotion {
-      trails.append(ballNode.position)
+    if showingFlight && !reduceMotion && trails.last != ball {
+      trails.append(ball)
       // Retain the complete fault path through its impact and rebound, until the result appears.
       let limit = engine.flight?.fault == nil ? 9 : 480
       if trails.count > limit { trails.removeFirst(trails.count - limit) }
     }
     let path = CGMutablePath()
-    path.addLines(between: trails)
+    // A camera move changes every screen coordinate, even those sampled
+    // earlier. A point behind the lens must also break the visible stroke.
+    var connected = false
+    for sample in trails where showingFlight && !reduceMotion {
+      let point: CGPoint
+      if let stadium {
+        guard let pixel = stadium.project(sample) else { connected = false; continue }
+        point = CGPoint(x:pixel.x,y:size.height-pixel.y)
+      } else { point = projectWorld(sample) }
+      if connected { path.addLine(to:point) } else { path.move(to:point) }
+      connected = true
+    }
     trail.path = path
     trail.isHidden = reduceMotion || !showingFlight
     faultRing.isHidden = engine.pointResolution?.showsMarker != true

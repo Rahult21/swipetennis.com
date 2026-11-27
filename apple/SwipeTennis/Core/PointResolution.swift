@@ -29,9 +29,9 @@ struct FaultImpact: Codable {
     guard ["net", "wide", "long"].contains(flight.fault ?? "") else { return nil }
     point = flight.landing
     isNet = flight.fault == "net"
-    let distance = max(0.001, flight.from.distance(to: flight.landing))
-    direction = Vec(x: (flight.landing.x - flight.from.x) / distance,
-      y: (flight.landing.y - flight.from.y) / distance)
+    let distance = max(0.001, flight.launchPosition.distance(to: flight.landing))
+    direction = Vec(x: (flight.landing.x - flight.launchPosition.x) / distance,
+      y: (flight.landing.y - flight.launchPosition.y) / distance)
     speed = distance / max(0.001, flight.duration * 0.8)
   }
 
@@ -43,9 +43,11 @@ struct FaultImpact: Codable {
       return (Vec(x: point.x + direction.x * recoil * 0.25,
         y: point.y - direction.y * recoil), max(0, height - 4.9 * t * t))
     }
-    let travel = min(speed * 0.35, 8) * 0.28 * (1 - exp(-t / 0.28))
+    let airborne = min(t,0.55)
+    let travel = min(speed*0.68,20)*(-expm1(-0.32*airborne)/0.32
+      + 0.53*exp(-0.32*airborne)*(-expm1(-2.8*(t-airborne)))/2.8)
     let bounce = clamp(t / 0.55, 0, 1)
-    return (Vec(x: point.x + direction.x * travel, y: point.y + direction.y * travel),
+    return (CourtRunoff.afterPlay(Vec(x: point.x + direction.x * travel, y: point.y + direction.y * travel)),
       0.6 * 4 * bounce * (1 - bounce))
   }
 }
@@ -76,7 +78,7 @@ extension PracticeEngine {
     guard showsAffirmation, var resolution = pointResolution else { return false }
     resolution.elapsed = resolution.duration
     pointResolution = resolution
-    if let impact = resolution.impact { ball = impact.ball(after: resolution.elapsed).position }
+    if flight != nil { ball = worldBall.courtPosition }
     return true
   }
 
@@ -84,7 +86,7 @@ extension PracticeEngine {
     guard var resolution = pointResolution, resolution.isWaiting else { return }
     resolution.elapsed = min(resolution.duration, resolution.elapsed + dt)
     pointResolution = resolution
-    if let impact = resolution.impact { ball = impact.ball(after: resolution.elapsed).position }
+    if flight != nil { ball = worldBall.courtPosition }
     updateFootwork(dt)
     if phase == .serveFault && !resolution.isWaiting { prepareSecondServe() }
   }

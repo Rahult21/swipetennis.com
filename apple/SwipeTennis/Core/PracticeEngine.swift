@@ -203,37 +203,11 @@ struct BallFlight: Codable {
   var dropReachable: Bool?
   var approachReply: ApproachReply?
   var progress: Double {
-    // Smashes rebound all the way past the baseline. Give that longer leg its own flight time.
-    if power == .overhead && elapsed > duration * 0.8 {
-      let reboundTime = max(duration * 0.2, landing.distance(to: contact) / 21)
-      return min(1, 0.8 + 0.2 * (elapsed - duration * 0.8) / reboundTime)
-    }
-    return min(1, elapsed / duration)
+    if elapsed <= 0.8*duration { return elapsed/duration }
+    return min(1,0.8+0.2*(elapsed-0.8*duration)/reboundDuration)
   }
-  var position: Vec {
-    let t = progress
-    if t < 0.8 {
-      return Vec(
-        x: from.x + (landing.x - from.x) * t / 0.8, y: from.y + (landing.y - from.y) * t / 0.8)
-    }
-    return Vec(
-      x: landing.x + (contact.x - landing.x) * (t - 0.8) / 0.2,
-      y: landing.y + (contact.y - landing.y) * (t - 0.8) / 0.2)
-  }
-  var height: Double {
-    if progress >= 0.8, let power {
-      let t = (progress - 0.8) / 0.2
-      if power == .overhead { return 5.5 * sin(t * .pi / 2) }
-      let rise = sin(t * .pi / 2) * 0.6
-      return power == .ace ? rise * 1.25 * (serveProfile?.kick ?? 1) : rise
-    }
-    if progress >= 0.8 && kind == .drop {
-      let bounce = (progress - 0.8) / 0.2
-      return 0.28 * 4 * bounce * (1 - bounce)
-    }
-    return progress < 0.8
-      ? sin(progress / 0.8 * .pi) * loft * 1.7 : sin((progress - 0.8) / 0.2 * .pi / 2) * (kind == .slice ? 0.35 : 0.6) * (serveProfile?.kick ?? 1)
-  }
+  var position: Vec { courtPosition(at: progress) }
+  var height: Double { altitude(at: progress) }
 }
 struct Coaching: Codable, Identifiable {
   var id = UUID()
@@ -451,6 +425,10 @@ struct PracticeEngine: Codable {
     trainingApproach: Bool = false, trainingReply: Bool = false
   ) {
     let from = players[side].pos
+    // The next flight leaves the exact 3D point reached by the incoming ball on this tick.
+    let impact = serve ? serviceImpact(at: from, side: side, explosive: queuedPower == .ace)
+      : flight.flatMap { $0.hitter != side ? $0.worldBall(at: $0.progress) : nil } ?? from.world(height: 0.93)
+    let origin = impact.courtPosition
     var landing = aim
     if fault == "wide" { landing.x = aim.x < 4.115 ? -0.5 : 8.73 }
     if fault == "long" {
@@ -459,13 +437,15 @@ struct PracticeEngine: Codable {
     }
     if fault == "net" {
       // Hit the mesh along the intended shot's line, not the far landing target's x position.
-      let depth = aim.y - from.y
-      let fraction = abs(depth) > 0.000001 ? clamp((Self.net - from.y) / depth, 0, 1) : 0
-      landing = Vec(x: from.x + (aim.x - from.x) * fraction, y: Self.net)
+      let depth = aim.y - origin.y
+      let fraction = abs(depth) > 0.000001 ? clamp((Self.net - origin.y) / depth, 0, 1) : 0
+      landing = Vec(x: origin.x + (aim.x - origin.x) * fraction, y: Self.net)
     }
-    var contact = Vec(
-      x: landing.x, y: landing.y + (side == 0 ? -1 : 1) * (kind == .drop ? 0.3 : kind == .angle ? 0.45 : 1.1))
-    if serve { contact = ServeGeometry.contact(from: from, landing: landing, server: side, number: serveNumber) }
+    // Yellow is a footwork target. The rendered ball continues along its
+    // incoming bearing and can meet the racket beside that stance.
+    let carry = kind == .drop ? 0.30 : kind == .angle ? 0.45 : 1.10
+    var contact = Vec(x: landing.x, y: landing.y+(side == 0 ? -carry : carry))
+    if serve { contact = ServeGeometry.contact(from:from,landing:landing,server:side,number:serveNumber) }
     let bot = side == 1 && !settings.local
     let pace = (bot ? settings.style.pace * settings.botSpeed : 1) * settings.surface.pace
     var loft =
@@ -507,9 +487,6 @@ struct PracticeEngine: Codable {
     let receiver = 1 - side
     let closeRun = (receiver == 0 || settings.local) && flight?.hitter == receiver
       && (followingApproach[receiver] || ((flight?.progress ?? 1) < 0.8 && advancingToNet(receiver)))
-    // The next flight leaves the exact 3D point reached by the incoming ball on this tick.
-    let impact = serve ? serviceImpact(at: from, side: side, explosive: queuedPower == .ace)
-      : flight.flatMap { $0.hitter != side ? $0.worldBall(at: $0.progress) : nil } ?? from.world(height: 0.93)
     let returnedShort = !serve && fault == nil && stroke != .volley && stroke != .overhead
       && flight.map { Self.isShortBall($0, receiving: side) } == true
     pointResolution = nil
@@ -519,7 +496,7 @@ struct PracticeEngine: Codable {
       serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind,
       stroke: serve ? .serve : stroke == .groundstroke ? kind.strokeStyle : stroke, trainingApproach: trainingApproach,
       trainingReply: trainingReply, returnedShortBall: returnedShort)
-    ball = from
+    ball = origin
     players[1 - side].settled = 0
     reactAt = time + (trainingApproach ? 0.08 : settings.botReaction)
     if side == 0 && fault == nil { readCareerShot(serve: serve, from: from, aim: landing) }
@@ -582,7 +559,7 @@ struct PracticeEngine: Codable {
       }
       let height = sin(t * .pi) * f.loft * 1.7
       if t > 0 && t < 0.95 && (f.loft < 2 || (t > 0.5 && height <= 1.7)) {
-        return Vec(x: f.from.x + (f.landing.x - f.from.x) * t, y: p.y)
+        return f.courtPosition(at:t*0.8)
       }
     }
     return f.contact
@@ -619,7 +596,7 @@ struct PracticeEngine: Codable {
       f.opponentError != .unreachable, f.dropReachable != false,
       let air = BallContactWindow.netOpportunity(flight: f, player: players[side].pos, side: side, after: f.progress),
       let stroke = air.netStroke, stroke.extended else { return }
-    let remaining = max(0, (air.entry - f.progress) * f.duration)
+    let remaining = max(0, f.time(at:air.entry) - f.elapsed)
     guard remaining <= (stroke == .jump ? 0.23 : 0.21) else { return }
     let target = f.worldBall(at: air.entry), from = players[side].pos
     let dx = Double(target.x) - from.x, dz = Double(target.z) - from.y
@@ -968,7 +945,7 @@ struct PracticeEngine: Codable {
     if let window = contactWindow(receiver, after: current.progress), window.netStroke != nil,
       progress + 0.000001 >= window.entry {
       let impact = min(progress, max(window.entry, window.exit))
-      flight!.elapsed = impact * f.duration
+      flight!.elapsed = f.time(at:impact)
       let hit = f.worldBall(at: impact)
       ball = Vec(x: Double(hit.x), y: Double(hit.z))
       returnBall(receiver, volley: window.volley, overhead: window.overhead, random: random)
@@ -985,7 +962,7 @@ struct PracticeEngine: Codable {
     }
     if let fault = f.fault, progress >= 0.8 {
       // Preserve the exact impact frame. Presentation continues independently after the point ends.
-      flight!.elapsed = f.duration * 0.8
+      flight!.elapsed = f.time(at:0.8)
       ball = f.landing
       if f.serve && f.serveNumber == 1 {
         phase = .serveFault

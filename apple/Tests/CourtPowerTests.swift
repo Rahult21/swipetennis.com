@@ -109,8 +109,8 @@ final class CourtPowerTests: XCTestCase {
       plain.launch(0, aim: shot.landing, kind: .cross, serve: true)
       XCTAssertEqual(shot.duration * 1.5, plain.flight!.duration, accuracy: 0.00001)
       var rebound = shot
-      rebound.elapsed = shot.duration * 0.92
-      plain.flight!.elapsed = plain.flight!.duration * 0.92
+      rebound.elapsed = shot.time(at:0.92)
+      plain.flight!.elapsed = plain.flight!.time(at:0.92)
       XCTAssertEqual(rebound.height, plain.flight!.height * 1.25, accuracy: 0.00001)
       reactions.append(shot.acknowledge)
       nextFrames(&game) { $0.phase == .point }
