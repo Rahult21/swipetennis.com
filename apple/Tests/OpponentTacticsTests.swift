@@ -48,7 +48,7 @@ final class OpponentTacticsTests: XCTestCase {
         clean += 1; since += 1
         if engine.showsGoldenContact(0) {
           shorts += 1; intervals.insert(since); since = 0
-          XCTAssertGreaterThanOrEqual(23.77-engine.flight!.contact.y, 5)
+          XCTAssertGreaterThanOrEqual(23.77-engine.flight!.landing.y, 5)
         }
       }
       XCTAssertEqual(Double(shorts)/Double(clean), level.shortBallChance, accuracy: 0.025)

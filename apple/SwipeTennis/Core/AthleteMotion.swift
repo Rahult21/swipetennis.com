@@ -318,7 +318,9 @@ struct AthleteMotion {
     let landingLoad = swing.style == .serve ? ramp(time, 0.28, 0.42) * (1 - ramp(time, 0.42, 0.56)) : 0
     let sinceSplit = Float(game.time - game.splitStarted[side])
     let splitLanding = readiness * ramp(sinceSplit, 0.125, 0.204) * (1 - ramp(sinceSplit, 0.204, 0.34))
-    let bend = depth * kneeLoad + 0.016 * rush + 0.065 * landingLoad + 0.075 * splitLanding
+    // Absorb the last adjustment step, then drive off that leg before contact.
+    let plantFlex: Float = fullForehand ? 0.025*(1-ramp(time,-0.15,-0.035)) : 0
+    let bend = (depth + plantFlex) * kneeLoad + 0.016 * rush + 0.065 * landingLoad + 0.075 * splitLanding
     let volleyStep = volley ? drive : 0
     let step = (forward * 0.36 + right * (sideOfBall * 0.15)) * volleyStep
     let stance = max(rush, kneeLoad)
@@ -1085,7 +1087,7 @@ extension AthletePose {
       ramp(t,a,b)*(1-ramp(t,c,d))
     }
     let load = beat(0.02,0.27,0.27,0.49)
-    let pump = beat(0.21,0.54,0.77,1.38)
+    let pump = beat(0.18,0.48,0.91,1.46)
     let settle = beat(0.42,0.85,1.15,1.91)
     let breath = sin(t*3.3)
     let raise = won ? pump : 0
@@ -1100,8 +1102,15 @@ extension AthletePose {
     p[.rightShoulder] = shoulder+chest.act([0.175,0,0])
     p[.leftShoe] = [-0.205,0.061,-0.075]; p[.rightShoe] = [0.177,0.061,0.08]
     p[.leftKnee] = hip+[-0.18,-0.43,-0.12]; p[.rightKnee] = hip+[0.15,-0.43,-0.09]
-    p[.leftElbow] = p[.leftShoulder]+chest.act([-0.09-0.045*raise,-0.24+0.14*raise,0.032-0.10*raise])
-    p[.leftHand] = p[.leftElbow]+chest.act([0.045-0.05*raise,-0.19+0.44*raise,-0.13-0.035*raise])
+    // Lift the free upper arm out from the ribs. Curl the forearm above
+    // the elbow and keep the knuckles beside the temple through the hold.
+    let upper = simd_quatf(from: simd_normalize(CourtPoint3D(-0.09,-0.24,0.032)),
+                           to: simd_normalize(CourtPoint3D(-0.23,0.04,-0.12)))
+    let fore = simd_quatf(from: simd_normalize(CourtPoint3D(0.045,-0.19,-0.13)),
+                          to: simd_normalize(CourtPoint3D(0.035,0.27,-0.045)))
+    let identity = simd_quatf(real: 1, imag: .zero)
+    p[.leftElbow] = p[.leftShoulder]+chest.act(simd_slerp(identity,upper,raise).act([-0.09,-0.24,0.032]))
+    p[.leftHand] = p[.leftElbow]+chest.act(simd_slerp(identity,fore,raise).act([0.045,-0.19,-0.13]))
     p[.rightElbow] = p[.rightShoulder]+chest.act([0.07,-0.23,0.055])
     p[.grip] = p[.rightElbow]+chest.act([0.02,-0.225,-0.145])
     let shaft = simd_normalize(chest.act([0.38,-0.89,-0.14]))

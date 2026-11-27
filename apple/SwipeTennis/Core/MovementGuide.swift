@@ -53,7 +53,7 @@ extension PracticeEngine {
       return from.distance(to: to) > 0.5
         ? MovementGuide(kind: .approach, from: from, to: to) : nil
     }
-    let to = Self.recovery(side, flight.contact)
+    let to = Self.recovery(side, players[1-side].pos)
     return from.distance(to: to) > 0.5
       ? MovementGuide(kind: .recover, from: from, to: to) : nil
   }
@@ -78,6 +78,7 @@ extension PracticeEngine {
       }
     }
     approachAvailable[side] = false
+    players[side].recoveryFlight = nil
     attacking[side] = true
     followingApproach[side] = true
     if side == 0 {

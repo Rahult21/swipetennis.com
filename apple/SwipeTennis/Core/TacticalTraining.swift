@@ -110,7 +110,7 @@ struct DecisionSnapshot {
     if BallContactWindow.inServiceBox(feet, side: receiver) || game.attacking[receiver] {
       return CourtTactics.netCoverage(side: receiver, opponentContact: opponent)
     }
-    return PracticeEngine.recovery(receiver, opponent)
+    return PracticeEngine.recovery(receiver, game.players[1-receiver].pos)
   }
 }
 

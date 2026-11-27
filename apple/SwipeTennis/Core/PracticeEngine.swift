@@ -173,6 +173,7 @@ struct CourtPlayer: Codable {
   var runPace: Double?
   var tappedLanding: Vec?
   var swipeDepth: Double?
+  var recoveryFlight: Int?
   var diveDecision: Int?
 }
 struct BallFlight: Codable {
@@ -292,7 +293,7 @@ struct PracticeEngine: Codable {
   }
   static func own(_ side: Int, _ p: Vec) -> Vec {
     Vec(
-      x: clamp(p.x, -1.6, 9.83), y: side == 0 ? clamp(p.y, 12.585, 26.27) : clamp(p.y, -2.5, 11.185)
+      x: clamp(p.x, -1.6, 9.83), y: side == 0 ? clamp(p.y, 12.585, CourtRunoff.depth.upperBound - 1) : clamp(p.y, CourtRunoff.depth.lowerBound + 1, 11.185)
     )
   }
   static func aim(_ side: Int, _ p: Vec) -> Vec {
@@ -304,10 +305,19 @@ struct PracticeEngine: Codable {
     min(p.x, 8.23 - p.x) < 0.85 || min(p.y, 23.77 - p.y) < 0.8
       || (abs(p.y - 11.885) < 5 && min(p.x, 8.23 - p.x) < 2)
   }
-  static func recovery(_ side: Int, _ contact: Vec) -> Vec {
+  static let bounceSpacing = 6 * 0.3048
+  static let recoveryDistance = length + 4 * 0.3048
+
+  static func receiveMark(landing: Vec, receiver: Int) -> Vec {
+    Vec(x: landing.x, y: landing.y + (receiver == 0 ? bounceSpacing : -bounceSpacing))
+  }
+
+  static func recovery(_ side: Int, _ opponent: Vec) -> Vec {
     let center = width / 2
-    let crosscourtOffset = clamp(center - contact.x, -recoveryOffsetLimit, recoveryOffsetLimit)
-    return Vec(x: center + crosscourtOffset, y: side == 0 ? length : 0)
+    let x = center + clamp(center - opponent.x, -recoveryOffsetLimit, recoveryOffsetLimit)
+    let dx = opponent.x - x
+    let depth = sqrt(max(0, recoveryDistance * recoveryDistance - dx * dx))
+    return own(side, Vec(x: x, y: opponent.y + (side == 0 ? depth : -depth)))
   }
   static func preset(_ side: Int, _ kind: ShotKind, _ p: Vec) -> Vec {
     var x = p.x < 4.115 ? 6.83 : 1.4
@@ -343,12 +353,14 @@ struct PracticeEngine: Codable {
     attacking[side] = false
     followingApproach[side] = false
     approachAvailable[side] = false
-    players[side].destination = Self.recovery(side, flight?.contact ?? players[1 - side].pos)
+    players[side].recoveryFlight = contactSerial
+    players[side].destination = Self.recovery(side, players[1-side].pos)
   }
   mutating func move(_ side: Int, to point: Vec) {
     guard side != 0 || queuedPower == nil else { return }
     guard phase != .serving || servePreparation?.server != side else { return }
     followingApproach[side] = false
+    players[side].recoveryFlight = nil
     players[side].destination = Self.own(side, point)
   }
   // Free steering can still chase an incoming ball or recover laterally after the bounce.
@@ -443,9 +455,7 @@ struct PracticeEngine: Codable {
     }
     // Yellow is a footwork target. The rendered ball continues along its
     // incoming bearing and can meet the racket beside that stance.
-    let carry = kind == .drop ? 0.30 : kind == .angle ? 0.45 : 1.10
-    var contact = Vec(x: landing.x, y: landing.y+(side == 0 ? -carry : carry))
-    if serve { contact = ServeGeometry.contact(from:from,landing:landing,server:side,number:serveNumber) }
+    let contact = Self.receiveMark(landing: landing, receiver: 1-side)
     let bot = side == 1 && !settings.local
     let pace = (bot ? settings.style.pace * settings.botSpeed : 1) * settings.surface.pace
     var loft =
@@ -506,17 +516,20 @@ struct PracticeEngine: Codable {
     dropGestureEpoch = [nil, nil]
     if bot {
       approach = settings.style == .volley || (settings.style == .allcourt && from.y > 3)
-      players[1].destination =
-        approach ? Vec(x: clamp(aim.x, 2, 6.23), y: 8) : Self.recovery(1, contact)
-      if settings.style == .retriever { players[1].destination.y = -1.7 }
+      let white = Self.recovery(1, players[0].pos)
+      // A baseline bot holds its court after sending the opponent forward.
+      // Otherwise it backpedals away from the overhead on the next reply.
+      let hold = Vec(x: white.x, y: settings.style == .retriever ? -1.7 : max(0,white.y))
+      players[1].destination = approach ? Vec(x: clamp(aim.x, 2, 6.23), y: 8) : hold
     }
-    if closeRun || followingApproach[receiver] {
+    let chasesOut = botChasesOut
+    if (closeRun || followingApproach[receiver]) && !chasesOut {
       // An opponent volley can close the approach window before there is a bounce.
       players[receiver].destination = players[receiver].pos
       players[receiver].velocity = .zero
     }
     if fault != nil {
-      for index in 0...1 {
+      for index in 0...1 where !(chasesOut && index == receiver) {
         players[index].destination = players[index].pos
         players[index].velocity = .zero
         followingApproach[index] = false
@@ -541,13 +554,16 @@ struct PracticeEngine: Codable {
     guard let f = flight else { return players[side].pos }
     let p = players[side].pos
     if let effort = players[side].netEffort, effort.serial == contactSerial { return effort.landing }
+    if f.kind == .drop, !attacking[side] { return f.contact }
     if attacking[side] || abs(p.y - Self.net) < 6.5 || f.isDefensiveLob,
       let overhead = BallContactWindow.overheadTarget(flight: f, side: side),
       f.progress <= overhead.progress
     {
       return overhead.point
     }
-    if (side == 0 ? p.y < 19 : p.y > 4.77) && !f.serve {
+    // Keep a groundstroke run aimed behind the bounce as the player moves
+    // through midcourt. Only an attacking player needs an airborne intercept.
+    if !f.serve && (attacking[side] || BallContactWindow.inServiceBox(p, side: side)) {
       let origin = f.worldBall(at: 0)
       let dy = f.landing.y - Double(origin.z)
       let t = abs(dy) > 0.001 ? (p.y - Double(origin.z)) / dy : -1
@@ -622,7 +638,7 @@ struct PracticeEngine: Codable {
     assist = nil
     if winner == 0 { awardPowerIfDue(random: random) }
     pointResolution = PointResolution(impact: flight.flatMap(FaultImpact.init), reaction: reaction)
-    for side in 0...1 where outBallChaseTarget(side) == nil {
+    for side in 0...1 where outBallChaseTarget(side) == nil && !(side == 1 && botChasesOut) {
       players[side].destination = players[side].pos
       players[side].velocity = .zero
       followingApproach[side] = false
@@ -655,7 +671,7 @@ struct PracticeEngine: Codable {
     if side == 1 && f.dropReachable == false { return }
     let p = players[side]
     let contact = volley ? ball : f.contact
-    let gap = p.pos.distance(to: contact)
+    let gap = f.serve && !volley ? min(p.pos.distance(to: contact), p.pos.distance(to: ball)) : p.pos.distance(to: contact)
     let speed = p.velocity.length
     let bot = side == 1 && !settings.local
     let easyBot = bot && settings.difficulty == .easy
@@ -859,6 +875,9 @@ struct PracticeEngine: Codable {
         if landing.progress >= 1 { landingSerial += 1 }
         continue
       }
+      if players[i].recoveryFlight == contactSerial, let white = recoveryGuide(i) {
+        players[i].destination = white
+      }
       var p = players[i]
       if let effort = p.netEffort {
         if time < effort.impactTime + effort.stroke.recovery {
@@ -932,8 +951,9 @@ struct PracticeEngine: Codable {
       prepareNetEffort(receiver, flight: current, dt: dt)
       attemptRunningDive(receiver, incoming: current)
     }
-    if current.power == nil && current.fault == nil && !settings.local && receiver == 1 && time >= reactAt {
-      players[1].destination = current.missedChaseTarget ?? Self.own(1, intercept(1))
+    if current.power == nil && !settings.local && receiver == 1 && time >= reactAt {
+      if botChasesOut { players[1].destination = Self.own(1, current.contact) }
+      else if current.fault == nil { players[1].destination = current.missedChaseTarget ?? Self.own(1, intercept(1)) }
     }
     updateFootwork(dt)
     updateCoachApproaches()
@@ -969,7 +989,7 @@ struct PracticeEngine: Codable {
         pointResolution = PointResolution(impact: FaultImpact(flight: f))
         coach.receiving = nil
         coach.firstServeWasWide = nil
-        for side in 0...1 where outBallChaseTarget(side) == nil {
+        for side in 0...1 where outBallChaseTarget(side) == nil && !(side == 1 && botChasesOut) {
           players[side].destination = players[side].pos
         }
         return
@@ -991,7 +1011,7 @@ struct PracticeEngine: Codable {
     }
     if progress < 1 { return }
     let gap = players[receiver].pos.distance(to: f.contact)
-    if (players[receiver].diveDecision == contactSerial && gap > Self.contactRadius) || gap > 1.35 || players[receiver].netEffort != nil || current.opponentError == .unreachable || current.dropReachable == false {
+    if f.serve || (players[receiver].diveDecision == contactSerial && gap > Self.contactRadius) || gap > 1.35 || players[receiver].netEffort != nil || current.opponentError == .unreachable || current.dropReachable == false {
       if receiver == 1 && !settings.local { opponentErrors.resetAfterMiss() }
       end(
         f.hitter,

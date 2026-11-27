@@ -75,7 +75,7 @@ final class AllCourtTests: XCTestCase {
     XCTAssertEqual(engine.players[0].destination, target)
     engine.recover(0)
     XCTAssertFalse(engine.attacking[0])
-    XCTAssertEqual(engine.players[0].destination.y, PracticeEngine.length)
+    XCTAssertEqual(engine.players[0].destination.distance(to: engine.players[1].pos), PracticeEngine.recoveryDistance, accuracy: 0.00001)
     XCTAssertLessThanOrEqual(
       abs(engine.players[0].destination.x - PracticeEngine.width / 2), 0.914401)
   }

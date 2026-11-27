@@ -256,6 +256,6 @@ extension PracticeEngine {
 
   func recoveryGuide(_ side: Int) -> Vec? {
     guard phase == .live, let flight, flight.hitter == side, flight.fault == nil else { return nil }
-    return Self.recovery(side, flight.contact)
+    return Self.recovery(side, players[1-side].pos)
   }
 }

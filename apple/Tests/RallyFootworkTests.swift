@@ -159,6 +159,7 @@ final class RallyFootworkTests: XCTestCase {
       for forward in [false, true] {
         var g = incoming(side: side, bot: side == 1)
         let direction = side == 0 ? -1.0 : 1.0
+        g.players[side].pos = g.flight!.contact
         if forward {
           g.players[side].pos.y -= 1.98 * direction
           g.players[side].velocity.y = 4.2 * direction
@@ -185,8 +186,8 @@ final class RallyFootworkTests: XCTestCase {
   }
 
   func testLateSwipeProducesARealLobAndOpponentRunsUnderIt() throws {
-    for (aim,delay) in [(Vec(x:0.865,y:22.1),0.675),(Vec(x:7.365,y:22.1),0.675),
-                        (Vec(x:4.5,y:16.9),0.525)] {
+    for (aim,delay) in [(Vec(x:0.865,y:21.37),0.675),(Vec(x:7.365,y:21.37),0.675),
+                        (Vec(x:4.5,y:16.17),0.525)] {
       var game = PracticeEngine(settings:.init(difficulty:.medium,style:.allcourt,surface:.hard,allCourtTraining:false))
       game.phase = .live
       game.players[0].pos = Vec(x:4.115,y:23.1)

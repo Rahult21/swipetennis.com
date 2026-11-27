@@ -85,6 +85,29 @@ final class PointResolutionTests: XCTestCase {
     }
   }
 
+  func testBotTracksWideAndLongShotsThroughTheOutBounce() throws {
+    for kind in ["wide", "long"] {
+      for serve in [false,true] {
+        var game = PracticeEngine(settings: .init())
+        game.phase = .live
+        game.players[1].pos = Vec(x: 7.1, y: -0.5)
+        game.players[1].destination = Vec(x: 4, y: 0)
+        game.players[1].velocity = Vec(x: -1, y: 0)
+        game.launch(0, aim: Vec(x: 1.2, y: serve ? 6.3 : 2), kind: .cross, fault: kind, serve: serve)
+        let start = game.players[1].pos, serial = game.contactSerial
+        XCTAssertEqual(game.players[1].velocity.x, -1)
+        reachImpact(&game)
+        let bounce = game.players[1].pos
+        XCTAssertGreaterThan(start.distance(to:bounce),0.3)
+        for _ in 0..<42 { game.step(1/120) }
+        XCTAssertGreaterThan(bounce.distance(to:game.players[1].pos),0.10)
+        XCTAssertEqual(game.contactSerial,serial)
+        XCTAssertEqual(game.phase,serve ? .serveFault : .point)
+        XCTAssertEqual(game.scoring.points,serve ? [0,0] : [0,1])
+      }
+    }
+  }
+
   func testRedMarkerLastsThreeTenthsAndPopupWaitsThreeQuartersAtEveryFrameRate() throws {
     for dt in [1.0 / 30, 1.0 / 60, 1.0 / 120] {
       for kind in ["net", "wide", "long"] {

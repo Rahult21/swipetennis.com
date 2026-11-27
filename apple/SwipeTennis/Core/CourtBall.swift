@@ -51,7 +51,11 @@ extension BallFlight {
   /// The return window ends here. Older saved flights sometimes stored an
   /// endpoint straight ahead of the bounce even on a diagonal shot.
   var reboundEnd: Vec {
-    if serve || power != nil { return landing.projected(from:launchPosition,toDepth:contact.y) }
+    if power != nil && power != .ace { return landing.projected(from:launchPosition,toDepth:contact.y) }
+    if serve {
+      let depth = hitter == 0 ? min(-0.45,contact.y) : max(PracticeEngine.length+0.45,contact.y)
+      return landing.projected(from:launchPosition,toDepth:depth)
+    }
     let dx = landing.x-launchPosition.x, dz = landing.y-launchPosition.y
     let distance = hypot(dx,dz)
     guard distance > 0.00001 else { return landing }

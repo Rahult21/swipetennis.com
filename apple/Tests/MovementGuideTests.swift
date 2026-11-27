@@ -45,7 +45,7 @@ final class MovementGuideTests: XCTestCase {
     XCTAssertEqual(engine.players[0].destination, PracticeEngine.own(0, engine.intercept(0)))
     engine.recover(0)
     XCTAssertFalse(engine.attacking[0])
-    XCTAssertEqual(engine.players[0].destination.y, PracticeEngine.length)
+    XCTAssertEqual(engine.players[0].destination.distance(to: engine.players[1].pos), PracticeEngine.recoveryDistance, accuracy: 0.00001)
   }
 
   func testCoachShowsEachMovementOnceAndNeverMoreThanThreeTimes() {

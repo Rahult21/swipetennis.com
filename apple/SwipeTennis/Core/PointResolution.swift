@@ -67,6 +67,10 @@ extension PracticeEngine {
       && ["wide", "long"].contains(flight?.fault ?? ""))
   }
 
+  var botChasesOut: Bool {
+    !settings.local && flight?.hitter == 0 && (flight?.fault == "wide" || flight?.fault == "long")
+  }
+
   func outBallChaseTarget(_ side: Int) -> Vec? {
     guard side == 0 || settings.local, acceptsCourtMovement,
       let flight, flight.hitter != side, ["wide", "long"].contains(flight.fault ?? "") else { return nil }
@@ -87,6 +91,11 @@ extension PracticeEngine {
     resolution.elapsed = min(resolution.duration, resolution.elapsed + dt)
     pointResolution = resolution
     if flight != nil { ball = worldBall.courtPosition }
+    if botChasesOut, let impact = resolution.impact {
+      // Follow the rebound for a few steps while it is still on screen.
+      let chase = impact.ball(after: min(PointResolution.resultDelay, resolution.elapsed + 0.14))
+      players[1].destination = Self.own(1, chase.position)
+    }
     updateFootwork(dt)
     if phase == .serveFault && !resolution.isWaiting { prepareSecondServe() }
   }

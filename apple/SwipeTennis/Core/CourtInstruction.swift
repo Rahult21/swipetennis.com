@@ -104,7 +104,7 @@ extension PracticeEngine {
     if flight.hitter == 0 {
       return CourtInstruction(
         title: "Recover to white",
-        detail: "Make a short swipe toward white. Your player runs all the way to the circle.",
+        detail: "Swipe toward white to recover. Its depth follows your opponent’s position.",
         symbol: "arrow.uturn.backward")
     }
     if movementGuide(0)?.kind == .receive {

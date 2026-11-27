@@ -405,7 +405,7 @@ extension PracticeEngine {
       demo?.stage = run.lesson.isFootwork ? .rallyRecovery
         : run.lesson == .approachVolley && run.stage == .receive ? .approachFlight : .finishFlight
       if run.lesson.isFootwork, let outgoing = flight {
-        demo?.recoveryTarget = Self.recovery(0, outgoing.contact)
+        demo?.recoveryTarget = Self.recovery(0, players[1].pos)
         demo?.recoveredAt = nil
         demo?.splitAfterRecovery = false
         applyDemoPace(trainingDuration: 3.8)
@@ -423,6 +423,7 @@ extension PracticeEngine {
   }
 
   mutating func updateDemoRecovery() {
+    if demo?.stage == .rallyRecovery, let white = recoveryGuide(0) { demo?.recoveryTarget = white }
     guard let run = demo, run.stage == .rallyRecovery, run.result == nil,
       let white = run.recoveryTarget, players[0].pos.distance(to: white) <= 0.55 else { return }
     if run.recoveredAt == nil { demo?.recoveredAt = time }

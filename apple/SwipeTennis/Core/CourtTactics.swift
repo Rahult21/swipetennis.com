@@ -101,16 +101,18 @@ extension PracticeEngine {
     if atBounce || serveSplit { players[side].splitForReturn = contactSerial + 1 }
     let planting = atBounce && advancingToNet(side)
     if planting {
+      players[side].recoveryFlight = nil
       players[side].destination = players[side].pos
       players[side].velocity = .zero
       followingApproach[side] = false
     }
     if atBounce {
       noteDemoSplit(side)
-      if side == 0, let white = coach.recovery?.white,
-        players[0].pos.distance(to: white) <= Self.contactRadius {
+      if side == 0 {
         updateCoachRecovery()
-        coach.noteRecoverySplit()
+        if let white = coach.recovery?.white, players[0].pos.distance(to: white) <= Self.contactRadius {
+          coach.noteRecoverySplit()
+        }
       }
     }
     guard planting || time - splitStarted[side] >= 0.28 else {

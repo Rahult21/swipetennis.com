@@ -74,19 +74,13 @@ enum ServeMotion {
 enum ServeGeometry {
   static let serviceLine = 5.485
 
-  static func contact(from: Vec, landing: Vec, server: Int, number: Int = 1) -> Vec {
-    let y = number == 2 ? (server == 0 ? 1.1 : PracticeEngine.length - 1.1)
-      : (server == 0 ? -0.45 : PracticeEngine.length + 0.45)
-    return landing.projected(from: serviceImpact(at: from, side: server, explosive: false).courtPosition, toDepth: y)
-  }
-
   static func bounded(_ point: Vec, from: Vec, server: Int, fromRight: Bool) -> Vec {
     let leftBox = (server == 0) == fromRight
     let center = PracticeEngine.width / 2
     let y = server == 0
       ? clamp(point.y, serviceLine + 0.4, PracticeEngine.net - 1.3)
       : clamp(point.y, PracticeEngine.net + 1.3, PracticeEngine.length - serviceLine - 0.4)
-    let returnY = server == 0 ? -0.45 : PracticeEngine.length + 0.45
+    let returnY = PracticeEngine.receiveMark(landing: Vec(x: center, y: y), receiver: 1-server).y
     let origin = serviceImpact(at: from, side: server, explosive: false).courtPosition
     let fraction = (returnY - origin.y) / (y - origin.y)
     // Keep even the most acute custom serve's yellow target within the playable runoff.
@@ -108,7 +102,7 @@ enum ServeGeometry {
     case .wide: x = leftBox ? 0.8 : PracticeEngine.width - 0.8
     case .center: x = center + (leftBox ? -0.28 : 0.28)
     case .body:
-      let contactY = server == 0 ? -0.45 : PracticeEngine.length + 0.45
+      let contactY = PracticeEngine.receiveMark(landing: Vec(x: center, y: y), receiver: 1-server).y
       let origin = serviceImpact(at: from, side: server, explosive: false).courtPosition
       x = Vec(x:receiver.x,y:contactY).projected(from:origin,toDepth:y).x
     }
@@ -197,8 +191,7 @@ extension PracticeEngine {
     // The live BallFlight then provides the same contact guide for both ends.
     guard !(settings.tournament && settings.local) else { return nil }
     guard phase == .serving, let servePreparation, servePreparation.server != side else { return nil }
-    return ServeGeometry.contact(from: players[servePreparation.server].pos,
-      landing: servePreparation.target, server: servePreparation.server, number: servePreparation.number)
+    return Self.receiveMark(landing: servePreparation.target, receiver: side)
   }
 
   mutating func stepServe(_ dt: Double, random: () -> Double = { Double.random(in: 0..<1) }) {

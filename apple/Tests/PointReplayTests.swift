@@ -148,7 +148,7 @@ final class PointReplayTests: XCTestCase {
     game.players[0].pos = Vec(x: 2.0, y: 23.4)
     game.players[0].destination = game.players[0].pos
     var motion = CourtPerformance(game: game)
-    game.launch(1, aim: Vec(x: 2.55, y: 22.3), kind: .cross)
+    game.launch(1, aim: Vec(x: 2.55, y: 23.4-PracticeEngine.bounceSpacing), kind: .cross)
     motion.update(game: game, dt: tick)
     for _ in 0..<600 {
       game.step(tick, random: { 0.99 })
@@ -238,7 +238,7 @@ final class PointReplayTests: XCTestCase {
       game.players[side].pos = Vec(x: x, y: depth)
       game.players[side].destination = game.players[side].pos
       var motion = CourtPerformance(game: game)
-      game.launch(1-side, aim: Vec(x: x-Double(sign)*0.58, y: depth-Double(sign)*1.1), kind: .cross)
+      game.launch(1-side, aim: Vec(x: x-Double(sign)*0.58, y: depth-Double(sign)*PracticeEngine.bounceSpacing), kind: .cross)
       motion.update(game: game, dt: tick)
       for _ in 0..<800 {
         game.step(tick, random: { 0.99 }); motion.update(game: game, dt: tick)

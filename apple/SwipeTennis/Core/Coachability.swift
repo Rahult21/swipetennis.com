@@ -73,7 +73,7 @@ struct CoachApproach: Codable {
 }
 
 struct CoachRecovery: Codable {
-  let white: Vec
+  var white: Vec
   let from: Vec
   var reachedWhite = false
   var splitAfterRecovery = false
@@ -198,7 +198,7 @@ extension PracticeEngine {
     guard demo == nil else { return }
     guard let f = flight else { return }
     if f.hitter == 0 {
-      coach.recovery = f.fault == nil ? CoachRecovery(white: Self.recovery(0, f.contact),
+      coach.recovery = f.fault == nil ? CoachRecovery(white: Self.recovery(0, players[1].pos),
         from: players[0].pos, exempt: f.stroke == .volley || f.stroke == .overhead
           || (attacking[0] && players[0].pos.y < Self.net + 5.5)) : nil
       updateCoachRecovery()
@@ -271,6 +271,7 @@ extension PracticeEngine {
   }
 
   mutating func updateCoachRecovery() {
+    if coach.recovery != nil, let white = recoveryGuide(0) { coach.recovery?.white = white }
     guard let recovery = coach.recovery else { return }
     if players[0].pos.distance(to: recovery.white) <= Self.contactRadius {
       coach.recovery?.reachedWhite = true

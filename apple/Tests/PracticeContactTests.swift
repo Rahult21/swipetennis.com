@@ -3,6 +3,24 @@ import XCTest
 @testable import TennisCore
 
 final class PracticeContactTests: XCTestCase {
+  func testGroundReceiveMarkIsSixFeetBeyondBounceOnBothEnds() throws {
+    for receiver in 0...1 {
+      for kind in [ShotKind.cross, .angle, .drop, .slice, .lob] {
+        var game = PracticeEngine(settings: .init(local:true))
+        game.phase = .live
+        let bounce = Vec(x:2.65,y:receiver == 0 ? 23.5 : 0.27)
+        game.launch(1-receiver, aim:bounce, kind:kind)
+        let mark = try XCTUnwrap(game.contactGuide(receiver))
+        XCTAssertEqual(mark.x,bounce.x)
+        XCTAssertEqual((mark.y-bounce.y)*(receiver == 0 ? 1 : -1),1.8288,accuracy:0.000001)
+        game.apply(.guidedMove(.receive),side:receiver)
+        XCTAssertEqual(game.players[receiver].destination,mark)
+        game.players[receiver].pos = mark
+        XCTAssertNotNil(game.contactWindow(receiver))
+      }
+    }
+  }
+
   func testMovingToYellowBehindBaselineProducesACleanReturnAtDifferentFrameRates() {
     for receiver in 0...1 {
       for dt in [1.0 / 120, 1.0 / 60, 1.0 / 30] {

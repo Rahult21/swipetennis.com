@@ -64,7 +64,8 @@ final class ServeTests: XCTestCase {
     var engine = humanServer()
     engine.chooseServe(.body, side: 0)
     let target = engine.servePreparation!.destination
-    let contact = ServeGeometry.contact(from: engine.players[0].pos, landing: target, server: 0)
+    let origin = serviceImpact(at: engine.players[0].pos, side: 0, explosive: false).courtPosition
+    let contact = target.projected(from: origin, toDepth: target.y-PracticeEngine.bounceSpacing)
     XCTAssertEqual(contact.x, engine.players[1].pos.x, accuracy: 0.00001)
     engine.move(1, to: Vec(x: 8, y: -0.5))
     advance(&engine, 1)
@@ -81,15 +82,48 @@ final class ServeTests: XCTestCase {
       XCTAssertLessThanOrEqual(engine.servePreparation!.target.distance(to: origin), 3.2 / 120 + 0.00001)
       for _ in 0..<250 {
         engine.step(1 / 120)
-        XCTAssertEqual(engine.contactGuide(1 - side), ServeGeometry.contact(from: engine.players[side].pos,
-          landing: engine.servePreparation!.target, server: side))
+        XCTAssertEqual(engine.contactGuide(1 - side), PracticeEngine.receiveMark(landing: engine.servePreparation!.target, receiver: 1-side))
       }
       let yellow = engine.contactGuide(1 - side)
       let blue = engine.servePreparation!.target
+      XCTAssertEqual(yellow!.x,blue.x)
+      XCTAssertEqual(abs(yellow!.y-blue.y),1.8288,accuracy:0.000001)
       engine.beginServe(side)
       advance(&engine, 0.95)
       XCTAssertEqual(engine.flight?.landing, blue)
       XCTAssertEqual(engine.flight?.contact, yellow)
+    }
+  }
+
+  func testWideServeIsPlayableAtYellowOrDeeperButCannotBeHitAfterItPasses() throws {
+    for side in 0...1 {
+      var setup = humanServer(side)
+      setup.chooseServe(.wide, side: side)
+      let blue = try XCTUnwrap(setup.servePreparation?.destination)
+      setup.phase = .live
+      setup.servePreparation = nil
+      setup.launch(side, aim: blue, kind: .cross, serve: true)
+      let flight = try XCTUnwrap(setup.flight)
+      let yellow = flight.contact
+      let receiver = 1-side
+      for feet in [yellow, flight.reboundEnd] {
+        var game = setup
+        game.players[receiver].pos = feet
+        game.players[receiver].destination = feet
+        let window = try XCTUnwrap(game.contactWindow(receiver))
+        game.flight?.elapsed = flight.time(at: window.entry)-0.001
+        game.step(1/120,random:{0.7})
+        XCTAssertEqual(game.flight?.hitter,receiver)
+        XCTAssertLessThan(try XCTUnwrap(game.flight?.strikeOrigin).courtPosition.distance(to:feet),1.3)
+      }
+      var late = setup
+      late.players[receiver].pos = yellow
+      late.players[receiver].destination = yellow
+      late.flight?.elapsed = flight.time(at: 0.998)
+      let serial = late.contactSerial
+      late.step(1/30,random:{0.7})
+      XCTAssertEqual(late.contactSerial,serial)
+      XCTAssertEqual(late.scoring.points[side],1)
     }
   }
 

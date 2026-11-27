@@ -19,14 +19,14 @@ final class PracticeDifficultyTests: XCTestCase {
       duration: 2, hitter: 1 - receiver, fault: nil, explanation: "", loft: 1)
   }
 
-  func testRecoveryIsCrosscourtOnBaselineWithinThreeFeet() {
+  func testRecoveryKeepsCourtPlusFourFeetAndThreeFootCrosscourtOffset() {
     let center = PracticeEngine.width / 2
     for side in 0...1 {
-      let baselineCenter = Vec(x: center, y: side == 0 ? PracticeEngine.length : 0)
       for x in [-0.5, 0, 2, center, 6, PracticeEngine.width, 9] {
-        let destination = PracticeEngine.recovery(side, Vec(x: x, y: side == 0 ? 1 : 23))
-        XCTAssertEqual(destination.y, baselineCenter.y)
-        XCTAssertLessThanOrEqual(destination.distance(to: baselineCenter), 0.9144 + 0.000001)
+        let opponent = Vec(x: x, y: side == 0 ? 1 : 23)
+        let destination = PracticeEngine.recovery(side, opponent)
+        XCTAssertEqual(destination.distance(to: opponent), 23.77 + 1.2192, accuracy: 0.000001)
+        XCTAssertLessThanOrEqual(abs(destination.x-center), 0.9144 + 0.000001)
         if x < center { XCTAssertGreaterThan(destination.x, center) }
         if x > center { XCTAssertLessThan(destination.x, center) }
         if x == center { XCTAssertEqual(destination.x, center) }
@@ -34,7 +34,7 @@ final class PracticeDifficultyTests: XCTestCase {
       let nearby = PracticeEngine.recovery(side, Vec(x: center + 0.3, y: 12))
       XCTAssertEqual(nearby.x, center - 0.3, accuracy: 0.000001)
       let wide = PracticeEngine.recovery(side, Vec(x: 0, y: 12))
-      XCTAssertEqual(wide.distance(to: baselineCenter), 0.9144, accuracy: 0.000001)
+      XCTAssertEqual(abs(wide.x-center), 0.9144, accuracy: 0.000001)
     }
   }
 
@@ -42,9 +42,42 @@ final class PracticeDifficultyTests: XCTestCase {
     var engine = PracticeEngine(settings: PracticeSettings())
     incomingBall(&engine, x: 7)
     engine.recover(0)
-    XCTAssertEqual(engine.players[0].destination.y, PracticeEngine.length)
+    XCTAssertEqual(engine.players[0].destination.distance(to: engine.players[1].pos), PracticeEngine.recoveryDistance, accuracy: 0.00001)
     XCTAssertEqual(
       engine.players[0].destination.x, PracticeEngine.width / 2 - 0.9144, accuracy: 0.000001)
+  }
+
+  func testWhiteTracksOpponentDepthAndOnlyAnExplicitRecoveryFollowsIt() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      let center = PracticeEngine.width/2
+      func atDepth(_ depth: Double) -> Vec {
+        Vec(x: center, y: side == 0 ? depth : PracticeEngine.length-depth)
+      }
+      game.players[1-side].pos = atDepth(0)
+      game.launch(side, aim: atDepth(2), kind: .cross)
+      game.recover(side)
+      for depth in [-3.5, -1.2192, 0, 4.0] {
+        game.players[1-side].pos = atDepth(depth)
+        game.players[1-side].destination = atDepth(depth)
+        game.updateFootwork(1/120)
+        let white = try XCTUnwrap(game.recoveryGuide(side))
+        XCTAssertEqual(white, game.players[side].destination)
+        XCTAssertEqual(white.distance(to: atDepth(depth)), 24.9892, accuracy: 0.000001)
+        XCTAssertEqual(white.y, atDepth(PracticeEngine.length+depth+1.2192).y, accuracy: 0.000001)
+        if side == 0 {
+          game.updateCoachRecovery()
+          XCTAssertEqual(game.coach.recovery?.white, white)
+        }
+      }
+      let manual = atDepth(PracticeEngine.length-2)
+      game.move(side,to:manual)
+      game.updateFootwork(1/120)
+      XCTAssertEqual(game.players[side].destination, manual)
+      XCTAssertEqual(PracticeEngine.recovery(side, atDepth(11)).y,
+        side == 0 ? CourtRunoff.depth.upperBound-1 : CourtRunoff.depth.lowerBound+1)
+    }
   }
 
   func testEasyAlwaysAimsCrosscourtAcrossAllStylesAndOpponentPositions() {

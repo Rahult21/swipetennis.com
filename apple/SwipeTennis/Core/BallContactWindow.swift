@@ -182,6 +182,21 @@ struct BallContactWindow {
   private static func groundstroke(flight: BallFlight, player: Vec) -> BallContactWindow? {
     // A moving player may pass close to the ball before reaching the guide. Let that player
     // finish positioning instead of forcing an early, off-balance return outside yellow.
+    if flight.serve, flight.power == nil {
+      // At yellow, account for the diagonal travel between bounce and swing.
+      // A receiver who stays deeper can also intercept the actual service path.
+      var reach = player
+      if player.distance(to: flight.contact) <= PracticeEngine.contactRadius + 0.000001 {
+        let onPath = flight.landing.projected(from: flight.launchPosition, toDepth: flight.contact.y)
+        reach.x += onPath.x-flight.contact.x
+      }
+      guard let segment = intersection(from: flight.landing, to: flight.reboundEnd,
+        player: reach, radius: PracticeEngine.contactRadius) else { return nil }
+      let entry = max(0.81,0.8+segment.lowerBound*0.2)
+      let exit = 0.8+segment.upperBound*0.2
+      guard entry <= exit else { return nil }
+      return Self(entry: entry, exit: exit, volley: false)
+    }
     guard player.distance(to: flight.contact) <= PracticeEngine.contactRadius + 0.000001 else {
       return nil
     }
