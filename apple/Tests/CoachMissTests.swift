@@ -16,7 +16,7 @@ final class CoachMissTests: XCTestCase {
       engine.flight!.elapsed = engine.flight!.duration * 0.8
       engine.beginSplit(0)
     }
-    engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+    engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
     return engine
   }
 
@@ -43,7 +43,7 @@ final class CoachMissTests: XCTestCase {
     var engine = receiving(recovered: false)
     engine.coach.finishRecoveryCycle()
     engine.launch(0, aim: Vec(x: 6, y: 2), kind: .cross)
-    engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+    engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
     engine.coach.finishRecoveryCycle()
     XCTAssertEqual(engine.coach.misses.count, 2)
     engine.end(0, reason: "Point", tip: "")

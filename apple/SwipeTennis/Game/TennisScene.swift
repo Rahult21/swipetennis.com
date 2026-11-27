@@ -9,7 +9,9 @@ import SwiftUI
   let scene: TennisScene
   private var inventoryKey: String?
   private var reactionKey: String?
-  init(engine: PracticeEngine) {
+  init(engine saved: PracticeEngine) {
+    var engine = saved
+    engine.restoreReceiveMark()
     snapshot = engine
     scene = TennisScene(settings: engine.settings)
     scene.engine = engine

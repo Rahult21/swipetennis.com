@@ -179,6 +179,7 @@ struct CourtPlayer: Codable {
 struct BallFlight: Codable {
   var from: Vec, landing: Vec, contact: Vec
   var strikeOrigin: CourtPoint3D?
+  var reboundDepth: Double?
   var elapsed = 0.0
   var duration: Double
   var hitter: Int
@@ -305,7 +306,24 @@ struct PracticeEngine: Codable {
     min(p.x, 8.23 - p.x) < 0.85 || min(p.y, 23.77 - p.y) < 0.8
       || (abs(p.y - 11.885) < 5 && min(p.x, 8.23 - p.x) < 2)
   }
-  static let bounceSpacing = 6 * 0.3048
+  // Saved rallies keep their original rebound, even when the footwork guide changes.
+  mutating func restoreReceiveMark() {
+    guard phase == .live, var shot = flight, shot.power == nil, shot.reboundDepth == nil else { return }
+    let receiver = 1 - shot.hitter
+    let previous = shot.contact
+    if shot.serve {
+      shot.contact = ServeGeometry.returnMark(through: shot.landing, from: shot.launchPosition, server: shot.hitter)
+    } else {
+      shot.reboundDepth = abs(previous.y - shot.landing.y)
+      shot.contact = Self.receiveMark(landing: shot.landing, receiver: receiver)
+    }
+    if players[receiver].destination == previous {
+      players[receiver].destination = Self.own(receiver, shot.contact)
+    }
+    flight = shot
+  }
+
+  static let bounceSpacing = 2.0
   static let recoveryDistance = length + 4 * 0.3048
 
   static func receiveMark(landing: Vec, receiver: Int) -> Vec {
@@ -455,7 +473,8 @@ struct PracticeEngine: Codable {
     }
     // Yellow is a footwork target. The rendered ball continues along its
     // incoming bearing and can meet the racket beside that stance.
-    let contact = Self.receiveMark(landing: landing, receiver: 1-side)
+    let contact = serve ? ServeGeometry.returnMark(through: landing, from: origin, server: side)
+      : Self.receiveMark(landing: landing, receiver: 1-side)
     let bot = side == 1 && !settings.local
     let pace = (bot ? settings.style.pace * settings.botSpeed : 1) * settings.surface.pace
     var loft =
@@ -501,7 +520,7 @@ struct PracticeEngine: Codable {
       && flight.map { Self.isShortBall($0, receiving: side) } == true
     pointResolution = nil
     flight = BallFlight(
-      from: from, landing: landing, contact: contact, strikeOrigin: impact, duration: duration, hitter: side,
+      from: from, landing: landing, contact: contact, strikeOrigin: impact, reboundDepth: serve ? nil : 1.83, duration: duration, hitter: side,
       fault: fault, explanation: explanation, loft: loft, serve: serve, serveNumber: serveNumber,
       serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind,
       stroke: serve ? .serve : stroke == .groundstroke ? kind.strokeStyle : stroke, trainingApproach: trainingApproach,
@@ -614,6 +633,13 @@ struct PracticeEngine: Codable {
       let stroke = air.netStroke, stroke.extended else { return }
     let remaining = max(0, f.time(at:air.entry) - f.elapsed)
     guard remaining <= (stroke == .jump ? 0.23 : 0.21) else { return }
+    if stroke == .dive, remaining > 0 {
+      // Let an approaching player run into an ordinary volley if there is still time.
+      let player = players[side]
+      let travel = min(remaining, player.pos.distance(to: player.destination) / max(0.001, player.velocity.length))
+      let feet = Vec(x: player.pos.x + player.velocity.x * travel, y: player.pos.y + player.velocity.y * travel)
+      if BallContactWindow.netOpportunity(flight: f, player: feet, side: side, after: f.progress)?.netStroke == .volley { return }
+    }
     let target = f.worldBall(at: air.entry), from = players[side].pos
     let dx = Double(target.x) - from.x, dz = Double(target.z) - from.y
     let travel = min(stroke == .dive ? 0.94 : 0.34, hypot(dx, dz) * 0.55, (remaining + 0.1) * 3.75)

@@ -18,7 +18,7 @@ final class RecoveryCoachTests: XCTestCase {
     }
     engine.flight!.elapsed = engine.flight!.duration * 0.8
     if split { engine.beginSplit(0) }
-    engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+    engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
     engine.coach.finishRecoveryCycle()
   }
 
@@ -73,7 +73,7 @@ final class RecoveryCoachTests: XCTestCase {
     engine.tapCourt(0, at: engine.coach.recovery!.white)
     XCTAssertTrue(engine.coach.recovery!.splitAfterRecovery)
     XCTAssertEqual(engine.tactics[0].splitSteps, 1)
-    engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+    engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
     engine.end(0, reason: "Point", tip: "")
     XCTAssertEqual(result(engine).map(\.points), [2])
   }
@@ -87,7 +87,7 @@ final class RecoveryCoachTests: XCTestCase {
         engine.players[0].destination = white
         engine.flight!.elapsed = engine.flight!.duration * 0.8
         if incoming {
-          engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+          engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
           engine.flight!.elapsed = engine.flight!.duration * 0.6
         }
         let target = [white, engine.contactGuide(0) ?? Vec(x: 2, y: 22),
@@ -95,7 +95,7 @@ final class RecoveryCoachTests: XCTestCase {
         engine.tapCourt(0, at: target)
         XCTAssertEqual(engine.coach.recovery!.splitAfterRecovery, !incoming)
         XCTAssertEqual(engine.tactics[0].splitSteps, 1)
-        if !incoming { engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross) }
+        if !incoming { engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross) }
         engine.end(0, reason: "Point", tip: "")
         XCTAssertEqual(result(engine).map(\.points), [incoming ? -1 : 2])
         XCTAssertEqual(engine.coach.misses.isEmpty, !incoming)
@@ -146,7 +146,7 @@ final class RecoveryCoachTests: XCTestCase {
     engine.time += 1
     engine.flight!.elapsed = engine.flight!.duration * 0.8
     engine.beginSplit(0)
-    engine.launch(1, aim: Vec(x: 2, y: 21.8), kind: .cross)
+    engine.launch(1, aim: Vec(x: 2, y: PracticeEngine.length - PracticeEngine.bounceSpacing - 0.25), kind: .cross)
     engine.end(1, reason: "Missed yellow despite good recovery", tip: "")
     XCTAssertEqual(result(engine).map(\.points), [2])
   }

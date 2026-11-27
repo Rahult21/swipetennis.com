@@ -168,7 +168,8 @@ final class PointReplayTests: XCTestCase {
     let waiting = try pose(-0.45), contact = try pose(0)
     XCTAssertGreaterThan(waiting[.leftHip].y - loaded[.leftHip].y, 0.13)
     XCTAssertGreaterThan(contact[.leftHip].y - loaded[.leftHip].y, 0.11)
-    XCTAssertEqual(finish[.leftHip].y, waiting[.leftHip].y, accuracy: 0.03)
+    // Compare recovery with the upright stance before the adjustment step.
+    XCTAssertEqual(finish[.leftHip].y, try pose(-0.70)[.leftHip].y, accuracy: 0.03)
     let upright = clip.frames.filter { $0.near[.leftHip].y >= waiting[.leftHip].y - 0.04 }
     XCTAssertGreaterThan(Double(upright.count) / Double(clip.frames.count), 0.75)
     XCTAssertGreaterThan(contact.heelPitch, loaded.heelPitch + 0.10)

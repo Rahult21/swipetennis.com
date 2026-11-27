@@ -195,7 +195,7 @@ final class CoachabilityTests: XCTestCase {
     XCTAssertEqual(coach.gameIndex, 2)
   }
 
-  func testFirstFaultDoesNotAwardPointAndSecondServeMovesYellowInside() {
+  func testFirstFaultDoesNotAwardPointAndSecondServeShowsYellowOnBaseline() {
     var engine = PracticeEngine(settings: .init(local: true))
     engine.start(random: { 0.5 })
     for _ in 0..<120 { engine.step(1 / 120, random: { 0.5 }) }
@@ -209,6 +209,6 @@ final class CoachabilityTests: XCTestCase {
     for _ in 0..<90 { engine.step(1 / 120, random: { 0.5 }) }
     XCTAssertEqual(engine.phase, .serving)
     XCTAssertEqual(engine.servePreparation?.number, 2)
-    XCTAssertLessThan(engine.contactGuide(0)!.y, PracticeEngine.length)
+    XCTAssertEqual(engine.contactGuide(0)!.y, PracticeEngine.length)
   }
 }

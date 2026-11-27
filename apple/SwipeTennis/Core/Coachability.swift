@@ -23,7 +23,7 @@ enum CoachRule: Int, Codable, CaseIterable, Identifiable {
     case .firstServeBody:
       return "Return a first serve right back at the server: reach yellow and swipe up from your player before contact."
     case .secondServeRise:
-      return "Swipe toward yellow early on a second serve. Return from inside the baseline and meet the ball on the rise."
+      return "Swipe toward yellow early on a second serve. Meet the ball at yellow or step inside the baseline to take it earlier."
     case .wideServeCross:
       return "Place your first serve wide, then hit the opponent’s return crosscourt with a diagonal shot swipe."
     case .changeDirectionApproach:
@@ -241,12 +241,11 @@ extension PracticeEngine {
           detail: !clean ? "Your first-serve return missed." : nil)
       }
       if incoming.serveNumber == 2 {
-        // The yellow second-serve guide already sits inside the baseline. Use the
-        // same reach tolerance as contact, including its back edge, without a
-        // separate hidden cutoff that rejects an otherwise clean automatic shot.
         let reachedYellow = players[0].pos.distance(to: f.contact) <= Self.contactRadius + 0.000001
+        let atBaselineMark = reachedYellow && f.contact.y <= Self.length
+        let steppedIn = players[0].pos.y < Self.length && players[0].pos.distance(to: ball) <= Self.contactRadius + 0.000001
         coach.record(.secondServeRise, opportunity: incoming.opportunity,
-          success: clean && reachedYellow && players[0].pos.y < Self.length,
+          success: clean && (atBaselineMark || steppedIn),
           time: time, detail: !clean ? "Your second-serve return missed." : nil)
       }
       if let wide = incoming.wideServe {

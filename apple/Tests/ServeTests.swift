@@ -65,7 +65,7 @@ final class ServeTests: XCTestCase {
     engine.chooseServe(.body, side: 0)
     let target = engine.servePreparation!.destination
     let origin = serviceImpact(at: engine.players[0].pos, side: 0, explosive: false).courtPosition
-    let contact = target.projected(from: origin, toDepth: target.y-PracticeEngine.bounceSpacing)
+    let contact = target.projected(from: origin, toDepth: 0)
     XCTAssertEqual(contact.x, engine.players[1].pos.x, accuracy: 0.00001)
     engine.move(1, to: Vec(x: 8, y: -0.5))
     advance(&engine, 1)
@@ -80,14 +80,16 @@ final class ServeTests: XCTestCase {
       engine.step(1 / 120)
       XCTAssertGreaterThan(engine.servePreparation!.target.distance(to: origin), 0)
       XCTAssertLessThanOrEqual(engine.servePreparation!.target.distance(to: origin), 3.2 / 120 + 0.00001)
+      let impact = serviceImpact(at: engine.players[side].pos, side: side, explosive: false).courtPosition
+      let baseline = side == 0 ? 0.0 : PracticeEngine.length
       for _ in 0..<250 {
         engine.step(1 / 120)
-        XCTAssertEqual(engine.contactGuide(1 - side), PracticeEngine.receiveMark(landing: engine.servePreparation!.target, receiver: 1-side))
+        XCTAssertEqual(engine.contactGuide(1 - side), engine.servePreparation!.target.projected(from: impact, toDepth: baseline))
       }
       let yellow = engine.contactGuide(1 - side)
       let blue = engine.servePreparation!.target
-      XCTAssertEqual(yellow!.x,blue.x)
-      XCTAssertEqual(abs(yellow!.y-blue.y),1.8288,accuracy:0.000001)
+      XCTAssertEqual(yellow!.y, baseline)
+      XCTAssertEqual(yellow!.x, blue.projected(from: impact, toDepth: baseline).x, accuracy: 0.000001)
       engine.beginServe(side)
       advance(&engine, 0.95)
       XCTAssertEqual(engine.flight?.landing, blue)
@@ -106,7 +108,7 @@ final class ServeTests: XCTestCase {
       let flight = try XCTUnwrap(setup.flight)
       let yellow = flight.contact
       let receiver = 1-side
-      for feet in [yellow, flight.reboundEnd] {
+      for feet in [yellow, flight.courtPosition(at: 0.88), flight.reboundEnd] {
         var game = setup
         game.players[receiver].pos = feet
         game.players[receiver].destination = feet
@@ -117,8 +119,9 @@ final class ServeTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(game.flight?.strikeOrigin).courtPosition.distance(to:feet),1.3)
       }
       var late = setup
-      late.players[receiver].pos = yellow
-      late.players[receiver].destination = yellow
+      let early = flight.courtPosition(at: 0.88)
+      late.players[receiver].pos = early
+      late.players[receiver].destination = early
       late.flight?.elapsed = flight.time(at: 0.998)
       let serial = late.contactSerial
       late.step(1/30,random:{0.7})

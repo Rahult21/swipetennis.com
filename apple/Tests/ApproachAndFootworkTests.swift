@@ -121,7 +121,7 @@ final class ApproachAndFootworkTests: XCTestCase {
         game.phase = .live
         let sign = side == 0 ? 1.0 : -1.0
         let y = side == 0 ? PracticeEngine.length-depth : depth
-        game.players[side].pos = Vec(x: 3,y: y+sign*1.1)
+        game.players[side].pos = Vec(x: 3,y: y+sign*PracticeEngine.bounceSpacing)
         game.players[side].destination = Vec(x: 3,y: y-sign)
         game.launch(1-side, aim: Vec(x: 3,y: y), kind: .cross)
         game.returnBall(side,volley: false,random: { 0.99 })

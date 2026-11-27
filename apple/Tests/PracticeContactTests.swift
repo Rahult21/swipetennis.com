@@ -3,7 +3,26 @@ import XCTest
 @testable import TennisCore
 
 final class PracticeContactTests: XCTestCase {
-  func testGroundReceiveMarkIsSixFeetBeyondBounceOnBothEnds() throws {
+  func testResumedLegacyFlightsUseTheCorrectMarkerAndKeepTheRebound() throws {
+    for serve in [false, true] {
+      var game = PracticeEngine(settings: .init(local:true))
+      game.phase = .live
+      game.launch(1, aim: Vec(x:3,y:serve ? 16 : 21), kind:.cross, serve:serve)
+      var legacy = try XCTUnwrap(game.flight)
+      legacy.reboundDepth = nil
+      legacy.contact = Vec(x:legacy.landing.x, y:legacy.landing.y + 1.8288)
+      game.flight = legacy
+      game.players[0].destination = legacy.contact
+      game = try JSONDecoder().decode(PracticeEngine.self,from:JSONEncoder().encode(game))
+      game.restoreReceiveMark()
+      let target = try XCTUnwrap(game.contactGuide(0))
+      XCTAssertEqual(target.y, serve ? PracticeEngine.length : 23)
+      XCTAssertEqual(game.players[0].destination,target)
+      XCTAssertEqual(game.flight?.reboundEnd,legacy.reboundEnd)
+    }
+  }
+
+  func testGroundReceiveMarkIsTwoMetresBeyondBounceOnBothEnds() throws {
     for receiver in 0...1 {
       for kind in [ShotKind.cross, .angle, .drop, .slice, .lob] {
         var game = PracticeEngine(settings: .init(local:true))
@@ -12,11 +31,19 @@ final class PracticeContactTests: XCTestCase {
         game.launch(1-receiver, aim:bounce, kind:kind)
         let mark = try XCTUnwrap(game.contactGuide(receiver))
         XCTAssertEqual(mark.x,bounce.x)
-        XCTAssertEqual((mark.y-bounce.y)*(receiver == 0 ? 1 : -1),1.8288,accuracy:0.000001)
+        XCTAssertEqual((mark.y-bounce.y)*(receiver == 0 ? 1 : -1),2.0,accuracy:0.000001)
         game.apply(.guidedMove(.receive),side:receiver)
         XCTAssertEqual(game.players[receiver].destination,mark)
         game.players[receiver].pos = mark
-        XCTAssertNotNil(game.contactWindow(receiver))
+        let window = try XCTUnwrap(game.contactWindow(receiver))
+        if kind == .cross || kind == .slice {
+          let flight = try XCTUnwrap(game.flight)
+          XCTAssertGreaterThan(window.entry,0.8)
+          XCTAssertGreaterThan(flight.altitude(at:window.entry),flight.altitude(at:window.entry-0.001))
+          game.flight?.elapsed = flight.time(at:window.entry)-0.001
+          game.step(1 / 120,random:{0.99})
+          XCTAssertEqual(game.flight?.hitter,receiver)
+        }
       }
     }
   }

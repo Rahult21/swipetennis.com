@@ -61,7 +61,9 @@ extension BallFlight {
     guard distance > 0.00001 else { return landing }
     // A short angle can travel almost parallel to the net. Limit the return
     // window by distance along the shot before it runs off the side of court.
-    let depth = abs(contact.y-landing.y)
+    // End the ordinary swing window slightly in front of the receiver’s feet.
+    // Placing a footwork marker farther back must not speed up the rebound.
+    let depth = reboundDepth ?? abs(contact.y-landing.y)
     let travel = min(depth*1.35,depth*distance/max(0.00001,abs(dz)))
     return Vec(x:landing.x+travel*dx/distance,y:landing.y+travel*dz/distance)
   }

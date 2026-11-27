@@ -57,7 +57,7 @@ final class RallyFootworkTests: XCTestCase {
     let p = Vec(x: 4.2, y: side == 0 ? 23.4 : 0.37)
     game.players[side].pos = p
     game.players[side].destination = p
-    game.launch(1-side, aim: Vec(x: p.x, y: p.y + (side == 0 ? -1.1 : 1.1)), kind: .cross)
+    game.launch(1-side, aim: Vec(x: p.x, y: p.y + (side == 0 ? -PracticeEngine.bounceSpacing : PracticeEngine.bounceSpacing)), kind: .cross)
     return game
   }
 

@@ -37,7 +37,7 @@ struct StrokeStudioClip {
       game.players[1].pos = Vec(x:4.115,y:1)
       for i in 0...1 { game.players[i].destination = game.players[i].pos }
       game.launch(1,aim:Vec(x:stroke == .chase ? 6.75 : 4.115+side*(net ? 0.68 : 0.43),
-                            y:net ? 20.8 : 21.5),kind:.cross)
+                            y:net ? 20.8 : game.players[0].pos.y - PracticeEngine.bounceSpacing + 0.72),kind:.cross)
       if stroke == .chase { game.apply(.guidedMove(.receive),side:0) }
       if stroke == .forehand { game.selectShotSwipe(Vec(x:-82,y:-124),side:0) }
       if stroke == .backhand { game.selectShotSwipe(Vec(x:29,y:-31),side:0) }
