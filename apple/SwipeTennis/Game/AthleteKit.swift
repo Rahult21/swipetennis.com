@@ -72,6 +72,9 @@ struct LockerRoom: View {
   private var appearance: [String] { [model, shirt, color, prop, skin, wristband, bottoms, String(skort)] }
   var body: some View {
     Form {
+      Section("Your player") {
+        Picker("Athlete", selection:$model) { ForEach(AthleteModel.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }.pickerStyle(.segmented)
+      }
       Section {
         Group {
           if visible {
@@ -86,7 +89,7 @@ struct LockerRoom: View {
                 .onEnded { orbit += Float($0.translation.width) * 0.012 })
           }
           .accessibilityElement(children: .ignore)
-          .accessibilityLabel("\(model), \(skin) skin, \(color) \(shirt), \(prop)")
+          .accessibilityLabel("\(model), \(skin) skin, \(color) \(shirt), \(skort ? "skort" : "shorts"), \(prop)")
           .accessibilityValue(previewReady ? angle.rawValue + " view" : "Loading")
           .accessibilityIdentifier("kitPreview")
           .onChange(of:appearance) { _,_ in previewReady = false }
@@ -95,12 +98,7 @@ struct LockerRoom: View {
         }.pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 8)
           .onChange(of: angle) { _, _ in orbit = 0 }
       }.listRowInsets(EdgeInsets())
-      Section {
-        NavigationLink { StrokeStudioView() } label: { Label("Stroke studio",systemImage:"figure.tennis") }
-          .accessibilityIdentifier("strokeStudio")
-      }
-      Section {
-        Picker("Athlete", selection:$model) { ForEach(AthleteModel.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }.pickerStyle(.segmented)
+      Section("Outfit") {
         Picker("Skin tone", selection: $skin) {
           ForEach(SkinTone.allCases, id: \.self) { tone in
             Label { Text(tone.rawValue) } icon: { Circle().fill(Color(uiColor:tone.tint)) }.tag(tone.rawValue)
@@ -109,6 +107,7 @@ struct LockerRoom: View {
         .accessibilityIdentifier("kitSkinTone")
         Picker("Shirt", selection:$shirt) { ForEach(TennisKit.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Bottoms",selection:$skort) { Text("Shorts").tag(false); Text("Skort").tag(true) }
+          .accessibilityIdentifier("kitBottoms")
         Picker("Color", selection:$color) { ForEach(KitColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Bottoms color",selection:$bottoms) { ForEach(KitBottomColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Wristbands", selection:$wristband) { ForEach(Wristband.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
@@ -117,7 +116,13 @@ struct LockerRoom: View {
       Section {
         Link("3D athlete asset credits",destination:URL(string:"https://www.makehumancommunity.org/")!)
       }
-    }.navigationTitle("Player & kit")
+    }.navigationTitle("Player & outfits")
+      .toolbar {
+        ToolbarItem(placement:.topBarTrailing) {
+          NavigationLink { StrokeStudioView() } label: { Label("Stroke studio",systemImage:"figure.tennis") }
+            .accessibilityIdentifier("strokeStudio")
+        }
+      }
       .onAppear { visible = true }
       .onDisappear { visible = false; previewReady = false }
   }

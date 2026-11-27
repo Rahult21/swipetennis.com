@@ -6,14 +6,22 @@ struct ReplayReview: Identifiable {
   let surface: CourtSurface
   let side: Int
   let venue: TennisVenue?
+  let winner: Int
+  let broadcast: PointBroadcast
   let automatic: Bool
   let stadium: CourtReplayView?
-  init(clip: PointReplay, surface: CourtSurface, side: Int = 0, venue: TennisVenue? = nil,
-       automatic: Bool = false, handshake: Bool = false, stadium: CourtReplayView? = nil) {
+  init(clip: PointReplay, game: PracticeEngine, side: Int = 0,
+       automatic: Bool = false, stadium: CourtReplayView? = nil) {
     self.stadium = stadium
-    var shot = clip.finishingShot
-    if handshake { shot.appendHandshake() }
-    self.clip = shot; self.surface = surface; self.side = side; self.venue = venue; self.automatic = automatic
+    winner = game.coach.records.last?.winner ?? game.scoring.winner ?? clip.strikes.last?.hitter ?? 0
+    var shot = clip.winningShot(for:winner)
+    broadcast = PointBroadcast(shot)
+    if game.phase == .finished && !automatic { shot.appendHandshake() }
+    self.clip = shot
+    surface = game.settings.surface
+    venue = game.settings.matchVenue
+    self.side = side
+    self.automatic = automatic
   }
 }
 
@@ -35,17 +43,18 @@ struct PointReplayView: View {
   init(review: ReplayReview) {
     self.review = review
     _offset = State(initialValue: 0)
-    _angle = State(initialValue: review.automatic ? .neutral : .you)
+
   }
   private var clock: TimeInterval { ProcessInfo.processInfo.systemUptime }
+  private var length: Double { review.automatic ? PointBroadcast.duration : review.clip.duration }
   private var cursor: Double {
-    let elapsed = offset + (anchor.map { max(0, clock - $0) * PointReplay.speed } ?? 0)
+    let elapsed = offset + (anchor.map { max(0, clock - $0) * (review.automatic ? 1 : PointReplay.speed) } ?? 0)
     if looping, let window = review.clip.contactWindow { return PointReplay.loopTime(elapsed,in:window) }
-    return min(review.clip.duration,elapsed)
+    return min(length,elapsed)
   }
   private func pause() { offset = cursor; anchor = nil }
   private func play() {
-    if offset >= review.clip.duration { offset = 0 }
+    if offset >= length { offset = 0 }
     playbackID += 1; anchor = clock
   }
   private func seek(_ value: Double) {
@@ -65,15 +74,17 @@ struct PointReplayView: View {
     NavigationStack {
       VStack(spacing: 0) {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
-          let time = cursor
+          let elapsed = cursor
+          let reacting = review.automatic && elapsed < PointBroadcast.reactionDuration
+          let time = review.automatic ? review.broadcast.sourceTime(at:elapsed) : elapsed
           ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
-            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, liveStadium:review.stadium) {
+            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, winner:review.winner, liveStadium:review.stadium) {
               ready = true
               if (review.automatic || !reduceMotion) && phase == .active { play() }
             }
-            .overlay { if !ready { ZStack { Color(uiColor: .systemBackground); ProgressView("Preparing replay") } } }
-            .accessibilityLabel("\(angle.rawValue) camera")
-            .onChange(of: time >= review.clip.duration) { _, ended in if ended { pause(); if review.automatic { dismiss() } } }
+            .overlay { if !ready { ProgressView().tint(.white).padding(14).background(.black.opacity(0.52),in:Circle()).accessibilityLabel("Preparing replay") } }
+            .accessibilityLabel(reacting ? "Both players’ reactions" : "\(angle.rawValue) camera")
+            .onChange(of: elapsed >= length) { _, ended in if ended { pause(); if review.automatic { dismiss() } } }
         }
         if !review.automatic {
         VStack(spacing: 10) {
@@ -139,10 +150,15 @@ struct PointReplayView: View {
         }.disabled(!ready).padding(.horizontal, 16).padding(.vertical, 10).background(.bar)
         }
       }
-      .navigationTitle("Point-ending shot").navigationBarTitleDisplayMode(.inline)
+      .navigationTitle(review.automatic ? "Point highlight" : "Point-ending shot").navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement:.topBarLeading) {
-          if review.automatic && ready { Text("0.5×").font(.subheadline.weight(.semibold).monospacedDigit()).accessibilityIdentifier("playingHighlight") }
+          if review.automatic && ready {
+            TimelineView(.animation(minimumInterval:0.1,paused:anchor == nil)) { _ in
+              Text(cursor < PointBroadcast.reactionDuration ? "Courtside" : "Player view")
+                .font(.subheadline.weight(.semibold)).accessibilityIdentifier("playingHighlight")
+            }
+          }
           else if let highlight {
             ShareLink(item:highlight,preview:SharePreview("SwipeTennis point",image:highlight)) {
               Label("Share highlight",systemImage:"square.and.arrow.up")

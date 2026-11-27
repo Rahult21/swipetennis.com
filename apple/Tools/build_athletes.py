@@ -92,6 +92,12 @@ def source_bone(name):
         return "neck"
     if stem.startswith(("spine","pelvis","root")):
         return "pelvis"
+    if stem == "orbicularis03": return "lidTop"+side
+    if stem == "orbicularis04": return "lidBottom"+side
+    if stem.startswith("tongue") or stem in ("jaw", "special04", "oris01", "oris02", "oris07") or (stem == "oris06" and side):
+        return "jaw"
+    if stem in ("oris03", "oris04", "oris05", "oris06"):
+        return "upperLip"
     return "head"
 
 
@@ -103,6 +109,30 @@ def combined(terms):
     best = sorted(((w, n) for n, w in result.items() if w > 0.0001),reverse=True)[:4]
     weight = sum(w for w, _ in best)
     return {n:w/weight for w,n in best} if best else {"pelvis":1.0}
+
+
+def joint_volume_weights(weights):
+    """At a bent seam, weight the common part to the halfway rotation.
+    Linear skinning otherwise pulls a cuff, shoulder or shorts crotch inward
+    along a chord. Both the kit and the underlying skin get identical seams.
+    """
+    values = dict(weights)
+    for side in "LR":
+        seams = [("deltoid", ("clav"+side, "chest"), "upperArm"+side),
+                 ("elbowCap", ("upperArm"+side,), "forearm"+side),
+                 ("hipCap", ("pelvis", "waist"), "thigh"+side),
+                 ("kneeCap", ("thigh"+side,), "shin"+side)]
+        for joint, proximal, distal in seams:
+            upstream = sum(values.get(key, 0) for key in proximal)
+            common = min(upstream, values.get(distal, 0))*0.85
+            if common < 0.001:
+                continue
+            for key in proximal:
+                if key in values:
+                    values[key] -= common*values[key]/upstream
+            values[distal] -= common
+            values[joint+side] = common*2
+    return combined([(1,values)])
 
 
 @dataclass
@@ -167,7 +197,7 @@ class Part:
             return tuple(x/length for x in n)
         indices, weights = [], []
         for vert in self.vertices:
-            items = [(bones.index(n),w) for n,w in vert.weights.items()]
+            items = [(bones.index(n),w) for n,w in joint_volume_weights(vert.weights).items()]
             items += [(0,0.)]*(4-len(items))
             for i, w in items:
                 indices.append(str(i)); weights.append(fmt(w))
@@ -215,7 +245,7 @@ class Athlete:
         def pivot(name):
             return world(average([self.points[i] for i in rig["joints"][rig["bones"][name]["head"]]]))
         self.anchors = {"root":(0.,0.,0.), "pelvis":pivot("root"),"chest":pivot("spine01"),"waist":pivot("spine03"),
-                        "neck":pivot("neck01"),"head":pivot("head")}
+                        "neck":pivot("neck01"),"head":pivot("head"), "jaw":pivot("jaw"), "upperLip":pivot("oris05")}
         for side in "LR":
             for key, bone in [("upperArm","upperarm01"),("forearm","lowerarm01"),("twist","lowerarm02"),("hand","wrist"),
                               ("clav","clavicle"),
@@ -235,6 +265,11 @@ class Athlete:
             self.anchors["palm"+side] = palm
             self.anchors["gripAxis"+side] = tuple(p+a-b for p,a,b in zip(palm,*knuckles))
         self.points = open_hand
+        for side in "LR":
+            self.anchors["lidTop"+side] = pivot("orbicularis03."+side)
+            self.anchors["lidBottom"+side] = pivot("orbicularis04."+side)
+            for seam, joint in [("deltoid","upperArm"),("elbowCap","forearm"),("hipCap","thigh"),("kneeCap","shin")]:
+                self.anchors[seam+side] = self.anchors[joint+side]
         self.anchors.update(digit_anchors)
         self.parts = {}
         self.archive = archive
@@ -282,6 +317,7 @@ class Athlete:
         if self.model=="male":
             sources += [("eyes/materials/brown_eye.png","AthleteEyes.jpg",256),
                         ("clothes/shoes05/shoes05_diffuse.png","CourtShoes.jpg",512),
+                        ("teeth/teeth_base/teeth.png","CourtTeeth.jpg",256),
                         ("clothes/male_casualsuit06/male_casualsuit06_ao.png","CourtKit.jpg",512),
                         ("clothes/male_casualsuit06/male_casualsuit06_normal.png","CourtKitNormal.jpg",512)]
         with TemporaryDirectory() as tmp:
@@ -342,6 +378,21 @@ class Athlete:
                 hangs = falls*rear if self.model=="female" else 0
                 tip = min(1,max(0,(self.anchors["tailTip"][1]+.031-y)/.081))
                 skinning.append({"head":1-hangs,"tailBase":hangs*(1-tip),"tailTip":hangs*tip})
+        if kind == "Teeth":
+            weights = [sum(w for key,w in v.items() if key == "jaw") for v in skinning]
+            adjacency = defaultdict(set)
+            for _,face in mesh.faces:
+                ids = [i for i,_ in face]
+                for i,j in zip(ids,ids[1:]+ids[:1]):
+                    adjacency[i].add(j); adjacency[j].add(i)
+            pending = set(adjacency)
+            while pending:
+                island = {pending.pop()}; queue = list(island)
+                while queue:
+                    fresh = adjacency[queue.pop()] & pending
+                    pending.difference_update(fresh); island.update(fresh); queue.extend(fresh)
+                bone = "jaw" if sum(weights[i] for i in island) > len(island)*0.5 else "head"
+                for i in island: skinning[i] = {bone:1.0}
         if kind == "Eyes":
             eye = ["eyeR" if world(p)[0]>0 else "eyeL" for p in mapped]
             for name in ["eyeL","eyeR"]:
@@ -402,6 +453,8 @@ class Athlete:
             x = normalize((axis[2],0,-axis[0]))
             z = (axis[1]*x[2]-axis[2]*x[1],axis[2]*x[0]-axis[0]*x[2],axis[0]*x[1]-axis[1]*x[0])
             skin = [world(v.position) for v in self.parts["Skin"].vertices if sum(v.weights.get(b+side,0) for b in ["hand","forearm","twist"])>0.82]
+            wrist_skin = [(world(v.position),v.weights) for v in self.parts["Skin"].vertices
+                          if math.dist(world(v.position),wrist) < 0.13]
             rows = []
             for distance,extra in [(0.034,.0007),(.037,.003),(.043,.003),(.048,.0024),(.066,.0024),(.073,.003),(.078,.0007)]:
                 section = []
@@ -417,7 +470,8 @@ class Athlete:
                 for i in range(40):
                     t = i*math.tau/40
                     p = tuple(w+d*distance+a*(cx+rx*math.cos(t))+b*(cz+rz*math.sin(t)) for w,d,a,b in zip(wrist,axis,x,z))
-                    ring.append(vertex(p,(i/40,distance),{"twist"+side:1}))
+                    nearest = min(wrist_skin,key=lambda v:math.dist(v[0],p))
+                    ring.append(vertex(p,(i/40,distance),nearest[1]))
                 rows.append(ring)
             strip("Wristband",rows)
         head = self.anchors["head"]
@@ -497,7 +551,7 @@ class Athlete:
         strip("CollarEdge",rows)
         # The two collar leaves fold forward and taper toward the placket.
         for sign in [-1,1]:
-            points = [(0.009,.005,-.068),(.066,.008,-.015),(.088,-.018,-.045),(.041,-.061,-.088)]
+            points = [(0.008,-.009,-.072),(.058,-.007,-.027),(.073,-.024,-.050),(.037,-.046,-.079)]
             self.emit("Collar",[vertex((x*sign,neck[1]+y,neck[2]+z),(x,y),{"chest":.65,"neck":.35}) for x,y,z in points])
 
     def build(self):
@@ -505,6 +559,7 @@ class Athlete:
         self.proxy("clothes","shoes05","Shoe")
         self.proxy("hair","short01" if self.model == "male" else "ponytail01","Hair")
         self.proxy("eyes","low-poly","Eyes")
+        self.proxy("teeth","teeth_base","Teeth")
         arm_axes = {}
         for side in "LR":
             shoulder, elbow = (self.anchors[joint+side] for joint in ("upperArm", "forearm"))

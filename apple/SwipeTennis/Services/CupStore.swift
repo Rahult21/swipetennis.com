@@ -278,5 +278,5 @@ private struct CupMessage: Decodable {
   }
   func suspend() { active = false; reconnectTask?.cancel(); stopConnection() }
   func resume() { active = true; retries = 0; connect() }
-  func close() { suspend(); scene.onCupFrame = nil; scene.onCupInput = nil }
+  func close() { suspend(); scene.discardReplay(); scene.onCupFrame = nil; scene.onCupInput = nil }
 }

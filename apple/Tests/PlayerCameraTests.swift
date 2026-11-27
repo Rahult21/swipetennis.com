@@ -3,6 +3,23 @@ import simd
 @testable import TennisCore
 
 final class PlayerCameraTests: XCTestCase {
+  func testPlayerViewContainsRacketAndFeetThroughWidePortraitFollowThrough() throws {
+    let aspect: Float = 0.46
+    for shot in [StudioStroke.forehand,.backhand,.serve,.volley] {
+      let clip = try XCTUnwrap(StrokeStudioClip(shot))
+      for k in 0...36 {
+        let frame = try XCTUnwrap(clip.frame(clip.duration*Double(k)/36))
+        let pose = frame.near
+        let hip = (pose[.leftHip]+pose[.rightHip])*0.5
+        let camera = PlayerCamera(eye:hip+[-0.88,1.4,3.65],target:hip+[-1.2,-0.2,-6.8],verticalFOV:58)
+          .including(frame.ball,aspect:aspect).including(pose,aspect:aspect)
+        for joint: BodyJoint in [.head,.leftHand,.grip,.strings,.racketEdge,.leftShoe,.rightShoe] {
+          let p = camera.projected(pose[joint],aspect:aspect)
+          XCTAssertLessThan(max(abs(p.x),abs(p.y)),1,"\(shot) at sample \(k), \(joint)")
+        }
+      }
+    }
+  }
   func testHandshakeOrbitReturnsOverTheStandsAndReduceMotionHoldsTheClasp() {
     for aspect: Float in [0.43,0.68,1.2,2.15] {
       let last = MatchCeremony.camera(seconds:MatchCeremony.duration,aspect:aspect,reduceMotion:false)

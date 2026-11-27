@@ -197,11 +197,38 @@ final class SwipeTennisUITests: XCTestCase {
     }
   }
 
+  func testPracticeFinishesBothReactionsAndPlayerReplayAutomatically() throws {
+    XCUIDevice.shared.orientation = .portrait
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1","YES"]
+    app.launch()
+    app.buttons["playPractice"].tap()
+    let quick = app.buttons["quickGuestPlay"]
+    if quick.exists { quick.tap() } else { app.buttons["takeCourt"].tap() }
+    let start = app.buttons["startPractice"]
+    XCTAssertTrue(start.waitForExistence(timeout:20))
+    start.tap()
+    let panel = app.staticTexts["playingHighlight"]
+    XCTAssertTrue(panel.waitForExistence(timeout:70))
+    let result = app.buttons["nextPracticePoint"]
+    XCTAssertTrue(result.waitForExistence(timeout:15))
+    XCTAssertFalse(app.buttons["Skip"].exists)
+    app.buttons["replayPracticePoint"].tap()
+    let contact = app.buttons["freezeContact"]
+    XCTAssertTrue(contact.waitForExistence(timeout:20))
+    contact.tap()
+    let capture = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+    capture.name = "Player-view replay at contact"; capture.lifetime = .keepAlways; add(capture)
+    app.buttons["Done"].tap()
+    result.tap()
+    XCTAssertFalse(app.buttons["replayPracticePoint"].exists)
+  }
+
   func testLockerRoomChangesKitAndKeepsItWhenReopened() {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1", "YES"]
     app.launch()
-    let locker = app.buttons["Player & kit"]
+    let locker = app.buttons["playerOutfits"]
     XCTAssertTrue(locker.waitForExistence(timeout: 10))
     locker.tap()
     let woman = app.buttons["Woman"]
@@ -220,15 +247,22 @@ final class SwipeTennisUITests: XCTestCase {
     let sideReady = NSPredicate(format:"value == %@", "Side view")
     expectation(for:sideReady,evaluatedWith:preview)
     waitForExpectations(timeout:18)
-    app.buttons["Back"].tap()
-    XCTAssertTrue(app.buttons["Back"].isSelected)
-    app.buttons["Front"].tap()
+    app.segmentedControls.buttons["Back"].tap()
+    XCTAssertTrue(app.segmentedControls.buttons["Back"].isSelected)
+    app.segmentedControls.buttons["Front"].tap()
     let skin = app.buttons["kitSkinTone"]
+    if !skin.isHittable { app.swipeUp() }
     skin.tap()
     let choices = ["Porcelain", "Espresso"]
     let tone = choices.first { !preview.label.contains($0) }!
     app.buttons[tone].tap()
     XCTAssertTrue(preview.label.contains(tone))
+    let bottoms = app.buttons["kitBottoms"]
+    if !bottoms.isHittable { app.swipeUp() }
+    bottoms.tap()
+    app.buttons["Skort"].tap()
+    for _ in 0..<3 where !preview.isHittable { app.swipeDown() }
+    XCTAssertTrue(preview.label.contains("skort"))
     let front = NSPredicate(format:"value == %@", "Front view")
     expectation(for:front,evaluatedWith:preview)
     waitForExpectations(timeout:18)
@@ -244,7 +278,7 @@ final class SwipeTennisUITests: XCTestCase {
                            "-kitShirt","Polo","-kitBottomColor","White","-kitProp","None","-kitSkin","Honey","-kitSkort","NO"]
     XCUIDevice.shared.orientation = .portrait
     app.launch()
-    app.buttons["Player & kit"].tap()
+    app.buttons["playerOutfits"].tap()
     app.buttons["strokeStudio"].tap()
     let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
     let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
@@ -287,7 +321,7 @@ final class SwipeTennisUITests: XCTestCase {
     app.launchArguments = ["-watchedQuickStartV1","YES"]
     XCUIDevice.shared.orientation = .portrait
     app.launch()
-    app.buttons["Player & kit"].tap()
+    app.buttons["playerOutfits"].tap()
     func capture(_ name: String) {
       let photo = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
       photo.name = name; photo.lifetime = .keepAlways; add(photo)
@@ -343,7 +377,7 @@ final class SwipeTennisUITests: XCTestCase {
     app.launchArguments = ["-watchedQuickStartV1","YES"]
     XCUIDevice.shared.orientation = .portrait
     app.launch()
-    app.buttons["Player & kit"].tap()
+    app.buttons["playerOutfits"].tap()
     app.buttons["strokeStudio"].tap()
     let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
     let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
@@ -379,7 +413,7 @@ final class SwipeTennisUITests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
     defer { XCUIDevice.shared.orientation = .portrait }
     app.launch()
-    app.buttons["Player & kit"].tap()
+    app.buttons["playerOutfits"].tap()
     app.buttons["strokeStudio"].tap()
     let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
     let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)

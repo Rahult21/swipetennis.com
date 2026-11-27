@@ -1,3 +1,4 @@
+import CoreImage
 import Combine
 import RealityKit
 import SwiftUI
@@ -17,11 +18,14 @@ enum ReplayAngle: String, CaseIterable {
   let playbackID: Int
   let reduceMotion: Bool
   var automatic = false
+  var reactionTime: Double?
+  var winner = 0
   var liveStadium: CourtReplayView?
   let onReady: () -> Void
 
   final class Stage: UIView {
     let stadium: CourtReplayView
+    var panels: PointReactionPanels?
     weak var liveHost: UIView?
 
     init(stadium: CourtReplayView) {
@@ -37,17 +41,32 @@ enum ReplayAngle: String, CaseIterable {
     override func layoutSubviews() {
       super.layoutSubviews()
       stadium.frame = bounds
+      panels?.frame = bounds
     }
   }
 
   func makeUIView(context: Context) -> Stage {
     let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide))
-    stage.stadium.whenRendering(onReady)
+    if automatic {
+      let panels = PointReactionPanels(localSide:localSide,winner:winner,venue:venue ?? .standard(surface))
+      stage.panels = panels; stage.addSubview(panels)
+      if let first = replay.frame(at:seconds) {
+        stage.stadium.draw(first,angle:angle,reduceMotion:reduceMotion,powerBeat:nil,time:seconds)
+      }
+      var pending = panels.portraits.count
+      for portrait in panels.portraits {
+        portrait.whenDrawn { [weak stage] in
+          pending -= 1
+          if pending == 0, stage?.window != nil { onReady() }
+        }
+      }
+    } else { stage.stadium.whenRendering(onReady) }
     return stage
   }
 
   static func dismantleUIView(_ stage: Stage, coordinator: ()) {
     let stadium = stage.stadium
+    stadium.isHidden = false
     stadium.finishReview()
     if let host = stage.liveHost {
       host.insertSubview(stadium, at: 0)
@@ -58,6 +77,16 @@ enum ReplayAngle: String, CaseIterable {
 
   func updateUIView(_ stage: Stage, context: Context) {
     let view = stage.stadium
+    if let time = reactionTime, let panels = stage.panels {
+      if time > 0 { view.isHidden = true }
+      panels.draw(at:time)
+      return
+    }
+    if let panels = stage.panels {
+      view.isHidden = false
+      panels.removeFromSuperview()
+      stage.panels = nil
+    }
     guard let frame = replay.frame(at: seconds) else { return }
     let beat = replay.strikes.last.flatMap { strike in
       strike.power.map { _ in seconds - strike.time }
@@ -703,6 +732,9 @@ enum ReplayAngle: String, CaseIterable {
     } else if !reduceMotion && (angle != .neutral || (beat ?? 0) >= 0) {
       replayCamera = replayCamera.including(frame.ball,aspect:aspect)
     }
+    if angle != .neutral && !handshake && !reduceMotion {
+      replayCamera = replayCamera.including(angle == .you ? frame.near : frame.far,aspect:aspect)
+    }
     camera.look(at:replayCamera.target,from:replayCamera.eye,relativeTo:nil)
     if let ceremony {
       let shot = MatchCeremony.camera(seconds:ceremony,aspect:Float(bounds.width/max(1,bounds.height)),reduceMotion:reduceMotion)
@@ -714,4 +746,130 @@ enum ReplayAngle: String, CaseIterable {
     let radius = max(0.034,min(0.079,simd_distance(replayCamera.eye,frame.ball)*0.0023))
     ball.scale = .init(repeating: radius)
   }
+}
+
+/// Two tightly framed cameras share the match kits and cached meshes. Portrait
+/// uses stacked shots; landscape puts the cameras side by side. There is no
+/// camera flight from one baseline to the other during this two-second cut.
+@MainActor final class PointReactionPanels: UIView {
+  let portraits: [PointReactionPortrait]
+  private let stack = UIStackView()
+  init(localSide: Int, winner: Int, venue: TennisVenue) {
+    portraits = [localSide,1-localSide].map { PointReactionPortrait(side:$0,localSide:localSide,winner:winner,venue:venue) }
+    super.init(frame:.zero)
+    backgroundColor = UIColor(white:0.09,alpha:1)
+    stack.distribution = .fillEqually
+    stack.spacing = 2
+    addSubview(stack)
+    for (i,portrait) in portraits.enumerated() {
+      let tile = UIView()
+      tile.clipsToBounds = true
+      tile.addSubview(portrait)
+      portrait.translatesAutoresizingMaskIntoConstraints = false
+      NSLayoutConstraint.activate([portrait.leadingAnchor.constraint(equalTo:tile.leadingAnchor),portrait.trailingAnchor.constraint(equalTo:tile.trailingAnchor),
+        portrait.topAnchor.constraint(equalTo:tile.topAnchor),portrait.bottomAnchor.constraint(equalTo:tile.bottomAnchor)])
+      let label = UILabel()
+      label.text = i == 0 ? "You" : "Opponent"
+      label.textColor = .white
+      label.font = .preferredFont(forTextStyle:.headline)
+      label.layer.shadowColor = UIColor.black.cgColor; label.layer.shadowOpacity = 0.9
+      label.layer.shadowRadius = 3; label.layer.shadowOffset = .init(width:0,height:1)
+      tile.addSubview(label); label.translatesAutoresizingMaskIntoConstraints = false
+      NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo:tile.leadingAnchor,constant:14),
+                                    label.bottomAnchor.constraint(equalTo:tile.bottomAnchor,constant:-10)])
+      stack.addArrangedSubview(tile)
+    }
+    accessibilityIdentifier = "pointReactionPanels"
+  }
+  required init?(coder: NSCoder) { fatalError() }
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    stack.axis = bounds.width > bounds.height ? .horizontal : .vertical
+    stack.frame = bounds
+  }
+  func draw(at time: Double) { portraits.forEach { $0.draw(at:time) } }
+}
+
+@MainActor final class PointReactionPortrait: ARView {
+  private let camera = PerspectiveCamera()
+  private let athlete: ReplayAthlete
+  private let won: Bool
+  private var warmup: Cancellable?
+  /// Wait for both on-screen drawables without synchronously reading back
+  /// three Metal textures on the first frame of every point.
+  func whenDrawn(_ ready: @escaping () -> Void) {
+    var updates = 0
+    warmup = scene.subscribe(to:SceneEvents.Update.self) { [weak self] _ in
+      Task { @MainActor in
+        guard let self, self.warmup != nil, self.window != nil, self.bounds.width > 0 else { return }
+        updates += 1
+        if updates >= 2 { self.warmup?.cancel(); self.warmup = nil; ready() }
+      }
+    }
+  }
+  init(side: Int, localSide: Int, winner: Int, venue: TennisVenue) {
+    won = side == winner
+    athlete = ReplayAthlete(side:side,sphere:.generateSphere(radius:1),shadow:ModelEntity(),localSide:localSide,poseSide:0)
+    super.init(frame:.zero,cameraMode:.nonAR,automaticallyConfigureSession:false)
+    isUserInteractionEnabled = false
+    renderOptions.formUnion([.disableGroundingShadows,.disableMotionBlur,.disableDepthOfField,.disableCameraGrain])
+    contentScaleFactor = min(2,UIScreen.main.scale)
+    let setting = venue == .night ? UIColor(red:0.065,green:0.09,blue:0.17,alpha:1) : UIColor(red:0.27,green:0.36,blue:0.39,alpha:1)
+    environment.background = .color(setting)
+    let stage = AnchorEntity(world:.zero)
+    scene.addAnchor(stage); stage.addChild(athlete.root); stage.addChild(camera)
+    if let texture = Self.gallery {
+      var material = UnlitMaterial()
+      material.color = .init(tint:venue == .night ? UIColor(white:0.69,alpha:1) : .white,texture:.init(texture))
+      let seats = ModelEntity(mesh:.generatePlane(width:8,height:3),materials:[material])
+      seats.position = [0,1.58,1.95]
+      seats.orientation = simd_quatf(angle:.pi,axis:[0,1,0])
+      stage.addChild(seats)
+    }
+    let key = DirectionalLight()
+    key.light.intensity = 2400; key.light.color = UIColor(red:1,green:0.94,blue:0.87,alpha:1)
+    key.look(at:[0,1.45,0],from:[-2,4,-3],relativeTo:nil); stage.addChild(key)
+    let fill = DirectionalLight(); fill.light.intensity = 940
+    fill.light.color = UIColor(red:0.83,green:0.91,blue:1,alpha:1)
+    fill.look(at:[0,1.45,0],from:[2,2,-1],relativeTo:nil); stage.addChild(fill)
+    if #available(iOS 18, *) { camera.camera.fieldOfViewOrientation = .vertical }
+    draw(at:0)
+  }
+  required init(frame: CGRect) { fatalError() }
+  required init?(coder: NSCoder) { fatalError() }
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let aspect = Float(bounds.width/max(1,bounds.height))
+    let distance: Float = max(1.53,1.76/max(0.48,aspect))
+    camera.camera.fieldOfViewInDegrees = 32
+    camera.look(at:[won ? -0.10 : 0,1.44,0],from:[won ? -0.27 : 0.22,1.53,-distance],relativeTo:nil)
+  }
+  func draw(at time: Double) { athlete.draw(.pointReaction(won:won,at:time)) }
+
+  /// Bake a shallow-focus view from the same spectators as the match. Reuse
+  /// this one texture in both cameras instead of drawing two extra stadiums.
+  private static let gallery: TextureResource? = {
+    guard let atlas = UIImage(named:"grandstand-spectators")?.cgImage else { return nil }
+    let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+    let size = CGSize(width:512,height:192)
+    let baked = UIGraphicsImageRenderer(size:size,format:fmt).image { ctx in
+      UIColor(red:0.12,green:0.19,blue:0.21,alpha:1).setFill(); ctx.fill(CGRect(origin:.zero,size:size))
+      for row in 0..<5 {
+        let y = row*34-10
+        UIColor(white:0.25+CGFloat(row)*0.012,alpha:1).setFill()
+        ctx.fill(CGRect(x:0,y:y+29,width:512,height:7))
+        for col in -1..<17 {
+          let variant = (col+1+row*7)%12
+          let w = atlas.width/12, h = atlas.height/24
+          if let cell = atlas.cropping(to:CGRect(x:variant*w,y:h*8,width:w,height:h)) {
+            UIImage(cgImage:cell).draw(in:CGRect(x:col*34+row%2*16,y:y,width:36,height:43))
+          }
+        }
+      }
+    }
+    guard let image = CIImage(image:baked) else { return nil }
+    let blur = image.clampedToExtent().applyingFilter("CIGaussianBlur",parameters:[kCIInputRadiusKey:3.2])
+    guard let cg = CIContext().createCGImage(blur,from:image.extent) else { return nil }
+    return try? TextureResource.generate(from:cg,options:.init(semantic:.color))
+  }()
 }

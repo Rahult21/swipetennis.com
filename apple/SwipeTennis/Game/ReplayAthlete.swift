@@ -12,11 +12,11 @@ import UIKit
   private let stamp: ModelEntity
   private let footShadows: [ModelEntity]
 
-  init(side: Int, sphere: MeshResource, shadow: ModelEntity, localSide: Int = 0) {
+  init(side: Int, sphere: MeshResource, shadow: ModelEntity, localSide: Int = 0, poseSide: Int? = nil) {
     let kit = AthleteKit.current(side:side,localSide:localSide)
-    athlete = AnatomicalAthlete(kit:kit,side:side)
+    athlete = AnatomicalAthlete(kit:kit,side:poseSide ?? side)
     usesAnatomicalMesh = athlete != nil
-    fallback = athlete == nil ? PrimitiveAthlete(kit:kit,side:side,sphere:sphere) : nil
+    fallback = athlete == nil ? PrimitiveAthlete(kit:kit,side:poseSide ?? side,sphere:sphere) : nil
     self.side = side
     stamp = shadow
     footShadows = [shadow.clone(recursive:true),shadow.clone(recursive:true)]
@@ -32,10 +32,10 @@ import UIKit
     fallback?.draw(p,handshake:handshake)
     let shaft = simd_normalize(p[.strings]-p[.grip]), width = simd_normalize(p[.racketEdge]-p[.strings])
     let normal = simd_normalize(simd_cross(width,shaft))
-    racket.position = p[.grip]
+    racket.position = athlete?.palms[1] ?? p[.grip]
     racket.orientation = simd_quatf(simd_float3x3(columns:(simd_cross(shaft,normal),shaft,normal)))
     if handshake {
-      racket.position = p[.leftHand]
+      racket.position = athlete?.palms[0] ?? p[.leftHand]
       let axis = p.handshakeRacketAxis
       let across = simd_normalize(p[.rightHip]-p[.leftHip])
       let edge = simd_normalize(across-axis*simd_dot(across,axis))

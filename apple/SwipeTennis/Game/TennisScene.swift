@@ -583,6 +583,8 @@ import SwiftUI
     else { input.apply(to: &engine, side: side) }
   }
 
+  func discardReplay() { performance.discardReplay() }
+
   func resetRallyPresentation() {
     Immersion.shared.endApplause()
     swipeCoach.dismiss()

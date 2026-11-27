@@ -12,6 +12,11 @@ struct AthletePose {
   var heelPitch: Float = 0
   var footRoll = SIMD2<Float>.zero
   var fingerCurl = SIMD2<Float>(0.30,0.92)
+  var airborneReach: Float = 0
+  var reactionFist: Float = 0
+  var blink: Float = 0
+  var jawOpen: Float = 0
+  var lipRound: Float = 0
   var supportGrip: Float = 0
   var shoeYaw = SIMD2<Float>.zero
   /// Player-relative yaw and pitch of the gaze, stored with each replay sample.
@@ -23,6 +28,11 @@ struct AthletePose {
 
   func blended(to other: Self, by fraction: Float) -> Self {
     var result = self
+    result.airborneReach += (other.airborneReach-airborneReach)*fraction
+    result.reactionFist += (other.reactionFist-reactionFist)*fraction
+    result.blink += (other.blink-blink)*fraction
+    result.jawOpen += (other.jawOpen-jawOpen)*fraction
+    result.lipRound += (other.lipRound-lipRound)*fraction
     result.gaze += (other.gaze - gaze) * fraction
     result.shoeYaw += (other.shoeYaw - shoeYaw) * fraction
     result.hairSway += (other.hairSway-hairSway)*fraction
@@ -318,6 +328,9 @@ struct AthleteMotion {
     let recoveryRun = game.phase == .live && game.flight?.hitter == side && !game.followingApproach[side] && abs(player.velocity.x) > 0.9
     let captured = capture.step(speed:speed,remaining:player.pos.distance(to:player.destination),recovering:recoveryRun,dt:Float(dt))
     var pose = AthletePose()
+    if swing.style == .serve || swing.style == .overhead {
+      pose.airborneReach = ramp(leap,0.008,0.055)*ramp(time,-0.16,-0.032)*(1-ramp(time,0.035,0.18))
+    }
     pose.heelPitch = receiver.heel + readiness * 0.015 + 0.045 * rush + (swing.style == .groundstroke ? 0.195 : 0.17) * pushOff
     let ankleHeight = 0.06 + 0.14 * sin(pose.heelPitch) + hop + leap
     let splitWidth = 0.05 * ramp(sinceSplit, 0.02, 0.155) * (1 - ramp(sinceSplit, 0.24, 0.4)) * readiness
@@ -1029,5 +1042,49 @@ extension AthletePose {
     self[.rightElbow] = hinge(self[.rightShoulder],self[.grip],length:0.34,bend:across*0.43-forward)
     self[.leftElbow] = hinge(self[.leftShoulder],self[.leftHand],length:0.34,bend:-across*0.43-forward)
     fingerCurl = [0.92,0.25+0.35*reach]
+  }
+}
+
+extension AthletePose {
+  /// A courtside camera sees the whole face and the non-racket fist. Build the
+  /// gesture in player space so either end and either kit use the same anatomy.
+  static func pointReaction(won: Bool, at seconds: Double) -> Self {
+    let t = Float(max(0,min(2,seconds)))
+    func beat(_ a: Float,_ b: Float,_ c: Float,_ d: Float) -> Float {
+      ramp(t,a,b)*(1-ramp(t,c,d))
+    }
+    let load = beat(0.02,0.27,0.27,0.49)
+    let pump = beat(0.21,0.54,0.77,1.38)
+    let settle = beat(0.42,0.85,1.15,1.91)
+    let breath = sin(t*3.3)
+    let raise = won ? pump : 0
+    var p = Self()
+    let hips = simd_quatf(angle:won ? -0.14+raise*0.14 : 0.12,axis:[0,1,0])
+    let turn = won ? -0.18+0.40*raise : 0.15-0.11*settle
+    let chest = simd_quatf(angle:turn,axis:[0,1,0])*simd_quatf(angle:(won ? load*0.08 : settle*0.07),axis:[1,0,0])
+    let hip = CourtPoint3D(won ? load*0.024-raise*0.035 : settle*0.026,0.92+(won ? -load*0.045+raise*0.028 : 0),0)
+    let shoulder = hip+chest.act([0,0.49+breath*0.006,-0.038])
+    p[.leftHip] = hip+hips.act([-0.10,0,0]); p[.rightHip] = hip+hips.act([0.10,0,0])
+    p[.leftShoulder] = shoulder+chest.act([-0.175,raise*0.035,0])
+    p[.rightShoulder] = shoulder+chest.act([0.175,0,0])
+    p[.leftShoe] = [-0.205,0.061,-0.075]; p[.rightShoe] = [0.177,0.061,0.08]
+    p[.leftKnee] = hip+[-0.18,-0.43,-0.12]; p[.rightKnee] = hip+[0.15,-0.43,-0.09]
+    p[.leftElbow] = p[.leftShoulder]+chest.act([-0.09-0.045*raise,-0.24+0.14*raise,0.032-0.10*raise])
+    p[.leftHand] = p[.leftElbow]+chest.act([0.045-0.05*raise,-0.19+0.44*raise,-0.13-0.035*raise])
+    p[.rightElbow] = p[.rightShoulder]+chest.act([0.07,-0.23,0.055])
+    p[.grip] = p[.rightElbow]+chest.act([0.02,-0.225,-0.145])
+    let shaft = simd_normalize(chest.act([0.38,-0.89,-0.14]))
+    let edge = simd_normalize(simd_cross(shaft,chest.act([0,0,-1])))
+    p[.strings] = p[.grip]+shaft*0.49; p[.racketEdge] = p[.strings]+edge*0.132
+    p[.head] = shoulder+chest.act([0,0.185,-0.02])
+    p.gaze = won ? [-0.14+raise*0.16,-load*0.13+raise*0.06] : [0.16-0.15*settle,-0.05-0.23*settle]
+    p.fingerCurl = [won ? 0.36+pump*0.64 : 0.27,0.86]
+    // “Come” opens into a vowel, closes at /m/, then opens again for “on”.
+    let first = beat(0.30,0.43,0.52,0.66), second = beat(0.70,0.85,1.04,1.26)
+    p.jawOpen = won ? first*0.72+second*0.94 : 0.08+settle*0.23
+    p.lipRound = won ? second : settle*0.25
+    p.blink = won ? beat(1.36,1.42,1.44,1.53) : beat(0.43,0.51,0.55,0.66)
+    p.reactionFist = won ? beat(0.09,0.31,1.03,1.42) : 0
+    return p
   }
 }

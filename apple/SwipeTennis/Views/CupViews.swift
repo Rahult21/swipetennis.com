@@ -263,6 +263,9 @@ struct CupMatchView: View {
   @State private var showCourtMenu = false
   @State private var leaving = false
   @State private var review: ReplayReview?
+  @State private var shownHighlight: UUID?
+  @State private var pendingHighlight: UUID?
+  private var highlightFinished: Bool { shownHighlight == game.feedback.id || !session.scene.performance.replay.canPlay }
   let title: String
   init(cup: QuickCup, match: CupMatch, identity: CoachIdentity, onCup: @escaping (QuickCup) -> Void) {
     title = match.title
@@ -281,7 +284,7 @@ struct CupMatchView: View {
         .accessibilityAction(named: "Down the line") { session.input(CupInput(kind: "shot", shot: .line)) }
         .accessibilityAction(named: "Lob") { session.input(CupInput(kind: "shot", shot: .lob)) }
         .accessibilityAction(named: "Approach the net") { session.input(CupInput(kind: "approach")) }
-      if let result = session.result {
+      if let result = session.result, highlightFinished {
         courtCard {
           Image(systemName: result.winnerID == gamePlayerID ? "trophy.fill" : "tennisball").font(.largeTitle)
           Text(result.winnerID == gamePlayerID ? "You win!" : "Match complete").font(.title2.bold())
@@ -301,7 +304,7 @@ struct CupMatchView: View {
           } else { Text("The rally starts when both players are connected.") }
           if session.error != nil { Button("Return to draw") { dismiss() }.buttonStyle(.bordered) }
         }
-      } else if game.phase == .ready || game.showsPointResult {
+      } else if game.phase == .ready || (game.showsPointResult && highlightFinished) {
         courtCard {
           Text(game.phase == .ready ? "Ready for the \(title.lowercased())?" : game.feedback.title).font(.title3.bold())
           if game.phase != .ready { Text(game.feedback.reason).font(.subheadline) }
@@ -349,13 +352,15 @@ struct CupMatchView: View {
     .onChange(of: showCourtMenu) { _, _ in session.scene.resetClock() }
     .onChange(of: session.result?.id) { _, result in if result != nil { showCourtMenu = false } }
     .accessibilityHidden(review != nil)
-    .onChange(of:game.showsPointResult) { _, visible in
-      if visible && session.scene.performance.replay.canPlay {
-        review = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
-          side:session.side,venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished,stadium:session.scene.stadium)
+    .onChange(of:game.showsPointResult, initial:true) { _, visible in
+      if visible && shownHighlight != game.feedback.id && review == nil && session.scene.performance.replay.canPlay {
+        pendingHighlight = game.feedback.id
+        review = ReplayReview(clip:session.scene.performance.replay,game:game,side:session.side,automatic:true,stadium:session.scene.stadium)
       }
     }
-    .sheet(item: $review) { PointReplayView(review:$0).presentationDetents([.large]) }
+    .sheet(item: $review, onDismiss: {
+        if let pendingHighlight { shownHighlight = pendingHighlight; self.pendingHighlight = nil }
+      }) { PointReplayView(review:$0).presentationDetents([.large]) }
     .background(TennisTheme.green).tint(TennisTheme.accent)
     .onAppear { session.scene.reduceMotion = reduceMotion; session.connect(); UIApplication.shared.isIdleTimerDisabled = true }
     .onDisappear { session.close(); UIApplication.shared.isIdleTimerDisabled = false }
@@ -372,7 +377,7 @@ struct CupMatchView: View {
   @ViewBuilder private var replayButton: some View {
     if !session.waitingForNext && session.scene.performance.replay.canPlay {
       Button("Replay point") {
-        review = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, side:session.side,venue:game.settings.matchVenue,handshake:game.phase == .finished,stadium:session.scene.stadium)
+        review = ReplayReview(clip:session.scene.performance.replay,game:game,side:session.side,stadium:session.scene.stadium)
       }.accessibilityIdentifier("replayCupPoint")
     }
   }

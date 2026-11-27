@@ -38,6 +38,7 @@ struct RecordedStrike {
   let gain: Double
   let power: CourtPower?
   var blocked = false
+  var fault = false
 }
 
 /// Only the active point is retained. All three cameras read the same fixed-step samples.
@@ -51,7 +52,9 @@ struct PointReplay {
   /// The final bounce belongs to this strike only if it happens after contact.
   var lastShotBounceTime: Double? {
     guard let hit = strikes.last else { return nil }
-    return bounceTimes.first { $0 >= hit.time }
+    // An on-the-rise return can share its sample with the incoming bounce.
+    // The outgoing ball has to travel before its own landing can be recorded.
+    return bounceTimes.first { $0 > hit.time + Self.tick*0.25 }
   }
   var contactWindow: ClosedRange<Double>? {
     guard let strike = strikes.last else { return nil }
@@ -99,24 +102,41 @@ struct PointReplay {
       }
       if !flight.serve { heights[flight.hitter] = ContactReading(frame: frame, hitter: flight.hitter, flight: flight) }
       strikes.append(RecordedStrike(time: duration, hitter: flight.hitter, point: frame.ball,
-        gain: flight.power?.contactGain ?? 1, power: flight.power, blocked: flight.contactQuality == .stretched || flight.contactQuality == .diving))
+        gain: flight.power?.contactGain ?? 1, power: flight.power, blocked: flight.contactQuality == .stretched || flight.contactQuality == .diving, fault:flight.fault != nil))
     }
   }
 
-  func suffix(from first: Int) -> Self {
+  func suffix(from first: Int, through end: Int? = nil) -> Self {
     var clip = Self()
     clip.decisions = decisions
     clip.heights = heights
     clip.serviceRetry = serviceRetry
-    clip.frames = Array(frames.dropFirst(first))
+    let limit = min(frames.count,end ?? frames.count)
+    clip.frames = Array(frames[first..<limit])
     let origin = Double(first) * Self.tick
-    clip.bounceTimes = bounceTimes.filter { $0 >= origin }.map { $0 - origin }
-    clip.strikes = strikes.filter { $0.time >= origin - 0.000001 }.map {
-      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, blocked: $0.blocked)
+    clip.bounceTimes = bounceTimes.filter { $0 >= origin && $0 < Double(limit)*Self.tick }.map { $0 - origin }
+    clip.strikes = strikes.filter { $0.time >= origin - 0.000001 && $0.time < Double(limit)*Self.tick - 0.000001 }.map {
+      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, blocked: $0.blocked, fault:$0.fault)
     }
-    clip.cuts = Set(cuts.filter { $0 >= first }.map { $0 - first })
+    clip.cuts = Set(cuts.filter { $0 >= first && $0 < limit }.map { $0 - first })
     return clip
   }
+
+  /// A forced error features the winner's preceding legal shot. On a double
+  /// fault there is no such stroke, so preserve the actual point-ending serve.
+  func winningShot(for winner: Int) -> Self {
+    guard let last = strikes.indices.last else { return self }
+    let segment = cuts.max() ?? 0
+    let since = Double(segment)*Self.tick
+    let index = strikes.indices.last { strikes[$0].time >= since && strikes[$0].hitter == winner && !strikes[$0].fault } ?? last
+    let hit = strikes[index]
+    let prior = index > 0 ? strikes[index-1].time+Self.tick : 0
+    let first = Int(ceil(max(since,prior,hit.time-(hit.power == .ace ? 1.05 : 0.55))/Self.tick))
+    let end = index < last ? Int((strikes[index+1].time/Self.tick).rounded()) : frames.count
+    return suffix(from:min(first,end-1),through:end)
+  }
+
+  mutating func discard() { self = Self() }
 
   func frame(at seconds: Double) -> RallyFrame? {
     guard !frames.isEmpty else { return nil }
@@ -147,6 +167,8 @@ struct CourtPerformance {
   private var mark: BounceImpression?
   private(set) var frame: RallyFrame?
   private(set) var replay = PointReplay()
+
+  mutating func discardReplay() { replay.discard() }
 
   init(game: PracticeEngine) {
     serial = game.contactSerial

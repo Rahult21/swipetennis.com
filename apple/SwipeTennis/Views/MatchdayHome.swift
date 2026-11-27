@@ -48,7 +48,7 @@ struct HomeView: View {
             icon(music && sound ? "speaker.wave.2" : "speaker.slash")
           }.accessibilityLabel("Lobby beat").accessibilityValue(music && sound ? "On" : "Off")
             .accessibilityIdentifier("lobbyBeat")
-          NavigationLink { LockerRoom() } label: { icon("tshirt") }.accessibilityLabel("Player & kit")
+
           NavigationLink { CoachLeaderboardView() } label: { icon("trophy") }.accessibilityLabel("Coachability leaderboard")
           NavigationLink { CoachAccountScreen() } label: { icon("person.crop.circle") }.accessibilityLabel("Apple account")
         }
@@ -67,6 +67,9 @@ struct HomeView: View {
                 actionCard("Quick match", "Seven-point tiebreak", nil, mint)
               }.accessibilityIdentifier("matchdayQuickMatch")
             }
+            NavigationLink { LockerRoom() } label: {
+              row("Player & outfits", "tshirt")
+            }.accessibilityIdentifier("playerOutfits")
             NavigationLink { PracticeSetupView() } label: {
               row("Play & practice setup", "slider.horizontal.3")
             }.accessibilityIdentifier("playPractice")

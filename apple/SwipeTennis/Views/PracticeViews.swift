@@ -73,7 +73,7 @@ struct PracticeSetupView: View {
         })) {
           ForEach(TennisVenue.allCases, id: \.self) { Text("\($0.rawValue) · \($0.surface.rawValue)").tag($0) }
         }.accessibilityIdentifier("chooseArena")
-        NavigationLink("Player & kit") { LockerRoom() }
+        NavigationLink("Player & outfits") { LockerRoom() }
         if !settings.local { Toggle("All-court training", isOn: $settings.allCourtTraining) }
       } header: { Text("Court") } footer: {
         Text("Swipe forward after your shot and before the far bounce to approach the net.")
@@ -142,6 +142,9 @@ struct PracticeGameView: View {
   @State private var showPointDetails = false
   @State private var training: TrainingExercise?
   @State private var replayReview: ReplayReview?
+  @State private var shownHighlight: UUID?
+  @State private var pendingHighlight: UUID?
+  private var highlightFinished: Bool { shownHighlight == game.feedback.id || !session.scene.performance.replay.canPlay }
   @EnvironmentObject private var career: SoloCareerStore
   @EnvironmentObject private var slot: PracticeMatchSlot
   @State private var confirmingExit = false
@@ -254,25 +257,27 @@ struct PracticeGameView: View {
       .background(Color.black.ignoresSafeArea()).statusBarHidden(true)
       .accessibilityHidden(game.showsPointResult && !session.paused)
       .overlay {
-        if game.showsPointResult && !session.paused {
+        if game.showsPointResult && !session.paused && highlightFinished {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
             onRetry: retrySeed == nil || game.coach.records.last?.winner != 1 || game.settings.local ? nil : { training = .retry },
             contact: session.scene.performance.replay.heights[0]?.label,
             onReplay: session.scene.performance.replay.canPlay ? {
-              replayReview = ReplayReview(clip: session.scene.performance.replay, surface: game.settings.surface, venue:game.settings.matchVenue, handshake:game.phase == .finished,stadium:session.scene.stadium)
+              replayReview = ReplayReview(clip:session.scene.performance.replay,game:game,stadium:session.scene.stadium)
             } : nil)
         }
       }
-      .onChange(of: game.showsPointResult) { _, visible in
-        if visible && replayReview == nil && session.scene.performance.replay.canPlay {
-          replayReview = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,
-            venue:game.settings.matchVenue,automatic:true,handshake:game.phase == .finished,stadium:session.scene.stadium)
+      .onChange(of: game.showsPointResult, initial:true) { _, visible in
+        if visible && shownHighlight != game.feedback.id && replayReview == nil && session.scene.performance.replay.canPlay {
+          pendingHighlight = game.feedback.id
+          replayReview = ReplayReview(clip:session.scene.performance.replay,game:game,automatic:true,stadium:session.scene.stadium)
         }
       }
       .fullScreenCover(item:$training) { mode in
         if let seed = retrySeed { TrainingCourtView(mode,surface:game.settings.surface,original:seed,comparison:game.feedback.title + " " + game.feedback.reason) }
       }
-      .sheet(item: $replayReview) { PointReplayView(review: $0).presentationDetents([.large]) }
+      .sheet(item: $replayReview, onDismiss: {
+        if let pendingHighlight { shownHighlight = pendingHighlight; self.pendingHighlight = nil }
+      }) { PointReplayView(review: $0).presentationDetents([.large]) }
       .sheet(isPresented: $showPointDetails) {
         NavigationStack {
           List {
@@ -345,6 +350,7 @@ struct PracticeGameView: View {
     do {
       if game.settings.clubEncounter != nil && game.phase == .finished {
         try career.checkpoint(session.scene.engine, owner: owner)
+        session.scene.discardReplay()
         dismiss()
         return
       }
@@ -384,6 +390,8 @@ struct PracticeGameView: View {
     do {
       if engine.settings.clubEncounter != nil || saving { try saveMatch(engine) }
       else { try slot.discard(engine.coach.sessionID, owner: owner) }
+      replayReview = nil
+      session.scene.discardReplay()
       dismiss()
     } catch { showSaveError(error) }
   }

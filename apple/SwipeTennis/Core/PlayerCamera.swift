@@ -70,6 +70,19 @@ struct PlayerCamera {
     return Self(eye:goal+view*(distance+(1-t)*2.8),target:goal,verticalFOV:fov)
   }
 
+  /// Keep the entire player-side swing inside a narrow portrait frame, even
+  /// when the follow-through and the outgoing ball occupy opposite edges.
+  func including(_ athlete: AthletePose, aspect: Float) -> Self {
+    var fit = self
+    for joint: BodyJoint in [.head,.leftElbow,.rightElbow,.leftHand,.grip,.leftShoe,.rightShoe,.strings,.racketEdge] {
+      var p = athlete[joint]
+      if joint == .head { p.y += 0.15 }
+      if joint == .strings { p += simd_normalize(p-athlete[.grip])*0.19 }
+      fit = fit.including(p,aspect:aspect,margin:1.16)
+    }
+    return fit
+  }
+
   /// Back up along the same optical axis when a ball would leave the frame.
   /// The lens, heading and player's eyeline stay steady as it travels past.
   func including(_ ball: CourtPoint3D, aspect: Float, margin: Float = 1.06) -> Self {
