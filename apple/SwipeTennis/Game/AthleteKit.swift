@@ -60,11 +60,16 @@ struct LockerRoom: View {
   @State private var orbit: Float = 0
   @GestureState private var drag: CGFloat = 0
   @State private var previewReady = false
+  @State private var visible = true
   private var appearance: [String] { [model, shirt, color, prop, skin, String(skort)] }
   var body: some View {
     Form {
       Section {
-        KitPreview(azimuth: angle.radians + orbit + Float(drag) * 0.012) { previewReady = true }
+        Group {
+          if visible {
+            KitPreview(azimuth:angle.radians+orbit+Float(drag)*0.012) { previewReady = true }
+          } else { Color.clear }
+        }
           .id(appearance).frame(height:220)
           .overlay {
             Rectangle().fill(.clear).contentShape(Rectangle())
@@ -83,6 +88,10 @@ struct LockerRoom: View {
           .onChange(of: angle) { _, _ in orbit = 0 }
       }.listRowInsets(EdgeInsets())
       Section {
+        NavigationLink { StrokeStudioView() } label: { Label("Stroke studio",systemImage:"figure.tennis") }
+          .accessibilityIdentifier("strokeStudio")
+      }
+      Section {
         Picker("Athlete", selection:$model) { ForEach(AthleteModel.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }.pickerStyle(.segmented)
         Picker("Skin tone", selection: $skin) {
           ForEach(SkinTone.allCases, id: \.self) { tone in
@@ -95,6 +104,11 @@ struct LockerRoom: View {
         Picker("Color", selection:$color) { ForEach(KitColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Headwear", selection:$prop) { ForEach(KitProp.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
       }
+      Section {
+        Link("3D athlete asset credits",destination:URL(string:"https://www.makehumancommunity.org/")!)
+      }
     }.navigationTitle("Player & kit")
+      .onAppear { visible = true }
+      .onDisappear { visible = false; previewReady = false }
   }
 }

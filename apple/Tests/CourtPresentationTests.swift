@@ -95,3 +95,43 @@ final class CourtPresentationTests: XCTestCase {
     XCTAssertEqual(restored.streak,1)
   }
 }
+
+extension CourtPresentationTests {
+  func testStudioUsesActualContactsAndPreservesNaturalReach() throws {
+    for stroke in StudioStroke.allCases {
+      let clip = try XCTUnwrap(StrokeStudioClip(stroke),stroke.rawValue)
+      let contact = try XCTUnwrap(clip.frame(clip.contactTime))
+      XCTAssertGreaterThan(clip.duration,0.85,stroke.rawValue)
+      XCTAssertEqual(simd_distance(contact.near[.strings],contact.ball),0,accuracy:0.001,stroke.rawValue)
+      for t in stride(from:0.0,through:clip.duration,by:PointReplay.tick) {
+        let f = try XCTUnwrap(clip.frame(t))
+        for p in [f.near,f.far] {
+          XCTAssertLessThanOrEqual(simd_distance(p[.rightShoulder],p[.grip]),0.681,stroke.rawValue)
+          XCTAssertLessThanOrEqual(simd_distance(p[.leftShoulder],p[.leftHand]),0.681,stroke.rawValue)
+          XCTAssertEqual(simd_distance(p[.strings],p[.grip]),0.49,accuracy:0.001,stroke.rawValue)
+        }
+      }
+    }
+  }
+  func testServeDropsTheHeadOfTheRacketThenExtendsThroughTheToss() throws {
+    let clip = try XCTUnwrap(StrokeStudioClip(.serve))
+    func pose(_ relative: Double) throws -> AthletePose { try XCTUnwrap(clip.frame(clip.contactTime+relative)).near }
+    let loaded = try pose(-0.30), dropped = try pose(-0.145), hit = try pose(0), finish = try pose(0.17)
+    XCTAssertGreaterThan(loaded[.strings].y,loaded[.grip].y+0.24)
+    XCTAssertLessThan(dropped[.strings].y,dropped[.grip].y-0.25)
+    XCTAssertGreaterThan(hit[.strings].y,hit[.grip].y+0.35)
+    let elbow = hit[.rightElbow]
+    let angle = acos(simd_dot(simd_normalize(hit[.rightShoulder]-elbow),simd_normalize(hit[.grip]-elbow)))
+    XCTAssertGreaterThan(angle,145*Float.pi/180)
+    XCTAssertGreaterThan(hit[.leftShoe].y,0.13)
+    XCTAssertLessThan(hit[.leftShoe].y,0.30)
+    XCTAssertGreaterThan(finish[.rightShoe].y,finish[.leftShoe].y+0.10)
+    XCTAssertGreaterThan(loaded.shoeYaw.y,loaded.shoeYaw.x+0.35)
+    for kind: CapturedStroke.Kind in [.serve,.smash,.forehand,.backhand,.volley] {
+      let sample = try XCTUnwrap(CapturedStroke.sample(kind,at:-0.1))
+      XCTAssertGreaterThan(simd_length(sample.elbow),0.04)
+      XCTAssertTrue(sample.chestYaw.isFinite)
+    }
+  }
+
+}

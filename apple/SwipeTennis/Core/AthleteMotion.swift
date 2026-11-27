@@ -9,6 +9,7 @@ enum BodyJoint: Int, CaseIterable {
 struct AthletePose {
   private var joints = Array(repeating: CourtPoint3D.zero, count: BodyJoint.allCases.count)
   var heelPitch: Float = 0
+  var shoeYaw = SIMD2<Float>.zero
   /// Player-relative yaw and pitch of the gaze, stored with each replay sample.
   var gaze = SIMD2<Float>.zero
   subscript(_ joint: BodyJoint) -> CourtPoint3D {
@@ -19,8 +20,23 @@ struct AthletePose {
   func blended(to other: Self, by fraction: Float) -> Self {
     var result = self
     result.gaze += (other.gaze - gaze) * fraction
+    result.shoeYaw += (other.shoeYaw - shoeYaw) * fraction
     result.heelPitch += (other.heelPitch - heelPitch) * fraction
     for joint in BodyJoint.allCases { result[joint] += (other[joint] - self[joint]) * fraction }
+    // The racket is a rigid object between samples, including slow-motion scrubbing.
+    // Blend its orientation as one frame around the already interpolated hand.
+    func rotation(_ p: Self) -> simd_quatf? {
+      let shaft = p[.strings]-p[.grip], width = p[.racketEdge]-p[.strings]
+      let normal = simd_cross(width,shaft)
+      guard simd_length_squared(normal) > 0.000001 else { return nil }
+      let y = simd_normalize(shaft), z = simd_normalize(normal)
+      return simd_quatf(simd_float3x3(columns:(simd_cross(y,z),y,z)))
+    }
+    if let a = rotation(self), let b = rotation(other) {
+      let q = simd_slerp(a,b,fraction)
+      result[.strings] = result[.grip] + q.act([0,0.49,0])
+      result[.racketEdge] = result[.strings] + q.act([0.132,0,0])
+    }
     return result
   }
 }
@@ -117,6 +133,16 @@ struct AthleteMotion {
     let volley = swing.style == .volley
     let forehand = swing.style == .groundstroke && swing.stance == .forehand
     let backhand = swing.stance == .backhand && (swing.style == .groundstroke || swing.style == .lob)
+    let captureKind: CapturedStroke.Kind
+    switch swing.style {
+    case .serve: captureKind = .serve
+    case .overhead: captureKind = .smash
+    case .volley: captureKind = .volley
+    default: captureKind = backhand ? .backhand : .forehand
+    }
+    let motionWeight = ramp(time,-0.79,-0.47) * (1 - ramp(time,0.27,0.58))
+    let measured = motionWeight > 0 && !blocked ? CapturedStroke.sample(captureKind,at:time) : nil
+    func relative(_ v: CourtPoint3D) -> CourtPoint3D { right*v.x + up*v.y + forward*v.z }
     let readiness: Float
     switch game.phase {
     case .ready: readiness = 0
@@ -145,13 +171,14 @@ struct AthleteMotion {
     let actionScale: Float = reduceMotion ? 0.72 : 1
     let dive = effort?.stroke == .dive ? ramp(effortTime, windup, 0) * (1 - ramp(effortTime, 0.11, 0.55)) * actionScale : 0
     let reachDirection = effort.map { unit(CourtPoint3D($0.target.x - Float($0.from.x), 0, $0.target.z - Float($0.from.y)), fallback: right) } ?? right
-    let jumpTime = activePower == .overhead ? time : effortTime
-    let jumping = effort?.stroke == .jump || activePower == .overhead
+    let highOverhead = swing.style == .overhead && strike.y > 2.15 && (arrival != nil || elapsed != nil)
+    let jumpTime = activePower == .overhead || highOverhead ? time : effortTime
+    let jumping = effort?.stroke == .jump || activePower == .overhead || highOverhead
     let jump = jumping ? ramp(jumpTime, activePower == .overhead ? -0.24 : windup, 0)
       * (1 - ramp(jumpTime, 0.015, 0.28)) * actionScale : 0
-    let jumpHeight = activePower == .overhead ? Float(0.44) : min(0.49, max(0.18, (effort?.target.y ?? 2.7) - 2.52))
+    let jumpHeight = activePower == .overhead ? Float(0.44) : min(0.49, max(0.12, (effort?.target.y ?? strike.y) - 2.55))
     let leap = jumpHeight * jump + (reduceMotion ? 0 : Float(ServeMotion.jumpHeight(tossProgress: service?.tossProgress,
-      landingProgress: landing)) * (activePower == .ace ? 0.045 : 0.034))
+      landingProgress: landing)) * (activePower == .ace ? 0.026 : 0.013))
     // The racket can prepare early while the legs stay tall. Load just before the
     // forward swing, then extend through impact. A low volley needs a later release.
     let gather, extend, depth: Float
@@ -194,6 +221,16 @@ struct AthleteMotion {
     pose[.rightShoe] += right * splitWidth
     pose[.leftShoe] += (up * 0.18 - reachDirection * 0.45) * dive + forward * (0.19 * jump)
     pose[.rightShoe] += (up * 0.29 - reachDirection * 0.51) * dive + (up * 0.17 - forward * 0.24) * jump
+    if let measured, swing.style == .serve {
+      // Platform stance: the front shoe points toward the net post. The back
+      // foot trails, releases, and swings behind the hip as the front foot lands.
+      let weight = motionWeight * actionScale
+      let depth = min(0.42,max(-0.42,measured.rearFoot.z))
+      pose[.leftShoe] -= forward * depth * (0.42*weight)
+      pose[.rightShoe] += forward * depth * (0.58*weight)
+      pose[.rightShoe].y += max(0,min(0.19,measured.rearFoot.y))*weight
+      pose.shoeYaw = SIMD2<Float>(0.39,1.12)*weight
+    }
     if !reduceMotion {
       // Keep the support foot anchored. Retarget the captured crossover onto the airborne shoe.
       let movingRight = player.velocity.x*Double(sign) >= 0
@@ -237,9 +274,14 @@ struct AthleteMotion {
     pelvis += (reachDirection * 0.16 - up * 0.47) * dive
     // Lead the drive with the hips. On the serve, hold the tossing shoulder up until release.
     let powerCoil: Float = activePower == .rally ? (backhand ? 0.18 : -0.24) : activePower == .ace ? -0.35 : 0
-    let hips = axis(hipTurn + powerCoil * (1 - 1.6 * ramp(time,-0.20,0)) * coil + moveTurn * (1 - drive))
-    let shoulders = axis(chestTurn * (blocked ? 0.25 : planted ? 1.27 : 1) + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
+    var hips = axis(hipTurn + powerCoil * (1 - 1.6 * ramp(time,-0.20,0)) * coil + moveTurn * (1 - drive))
+    var shoulders = axis(chestTurn * (blocked ? 0.25 : planted ? 1.27 : 1) + powerCoil * (1 - 1.8 * ramp(time,-0.12,0.12)) * coil
       + moveTurn * (1 - (backhand ? coil : drive)))
+    if let measured, swing.style == .serve || swing.style == .overhead {
+      let blend = 0.83 * motionWeight
+      hips = unit(hips + (axis(max(-1.55,min(1.4,measured.hipYaw)))-hips)*blend,fallback:right)
+      shoulders = unit(shoulders + (axis(max(-1.80,min(1.52,measured.chestYaw)))-shoulders)*blend,fallback:right)
+    }
     if activePower == .rally { pelvis += forward * (0.095 * pushOff) }
     var wrongStep = CourtPoint3D.zero
     if side == 1, let winner = game.flight, winner.power != nil {
@@ -266,9 +308,13 @@ struct AthleteMotion {
     pose[.leftHip] = pelvis - hips * 0.14; pose[.rightHip] = pelvis + hips * 0.14
     let overheadLoad = swing.style == .serve || activePower == .overhead
     let tiltAmount: Float = activePower == .ace || activePower == .overhead ? 0.13 : 0.095
-    let shoulderTilt = overheadLoad ? tiltAmount * (ramp(time,-0.46,-0.20) - 1.70 * ramp(time,-0.15,0.015)) * finish : 0
-    pose[.leftShoulder] = chest - shoulders * 0.22 + up * shoulderTilt
-    pose[.rightShoulder] = chest + shoulders * 0.22 - up * shoulderTilt
+    var shoulderTilt = overheadLoad ? tiltAmount * (ramp(time,-0.46,-0.20) - 1.70 * ramp(time,-0.15,0.015)) * finish : 0
+    if let measured, overheadLoad {
+      shoulderTilt += (measured.tilt-shoulderTilt)*motionWeight*0.60
+    }
+    let halfWidth = sqrt(max(0.002,0.22*0.22-shoulderTilt*shoulderTilt))
+    pose[.leftShoulder] = chest - shoulders * halfWidth + up * shoulderTilt
+    pose[.rightShoulder] = chest + shoulders * halfWidth - up * shoulderTilt
     // Track the knees outward over the wider base as the feet plant for the shot.
     let kneeOut = right * (0.15 + 0.40 * kneeLoad)
     pose[.leftKnee] = hinge(pose[.leftHip], pose[.leftShoe], length: 0.47, bend: forward - kneeOut)
@@ -338,6 +384,23 @@ struct AthleteMotion {
       shaft -= up * low * (volley ? 1.65 : 0.92)
       shaft -= forward * lag * (volley ? 0.12 : 1.2)
       shaft += (-right * sideOfBall * 1.6 + up * 0.48) * ramp(time, 0, 0.18) * finish
+    } else if swing.style == .serve, let measured {
+      // The tracked wrist leads. The racket drops behind the back, then its
+      // long axis comes up on edge before the forearm turns the strings through.
+      let trophy = unit(right*0.26+up*0.91-forward*0.34,fallback:up)
+      let drop = unit(-right*0.28-up*0.92-forward*0.32,fallback:-up)
+      let extensionAxis = unit(up*0.98+right*0.12+forward*0.15,fallback:up)
+      let finishAxis = unit(-right*0.68-up*0.70+forward*0.23,fallback:-up)
+      let descend = ramp(time,-0.33,-0.145)
+      shaft = trophy+(drop-trophy)*descend
+      shaft += (extensionAxis-shaft)*ramp(time,-0.135,-0.004)
+      shaft += (finishAxis-shaft)*ramp(time,0.025,0.235)
+      shaft = unit(shaft,fallback:up)
+      let palm = pose[.rightShoulder]+relative(measured.hand)*0.665
+      let capturedStrings = palm+shaft*0.49
+      strings = ready+(capturedStrings-ready)*motionWeight
+      let lock = ramp(time,-0.11,0)*(1-ramp(time,0,0.19))
+      strings += (strike-strings)*lock
     } else {
       let existing = swing.pose
       let position = existing.racketCentre
@@ -397,12 +460,72 @@ struct AthleteMotion {
     }
     if hit { strings = hitPoint }
     shaft = unit(shaft, fallback: up)
+    // The grip is half a metre behind the strings. Reorient it toward a reachable
+    // wrist before asking the shoulder to reach. The recorded impact stays fixed.
+    let armReach: Float = 0.68, handleToStrings: Float = 0.49
+    let twoHands = backhand && swing.pose.supportHandOnGrip && !blocked && rest < 0.05
+    func makeRoom(at shoulder: BodyJoint, handle: Float) {
+      let ray = strings-pose[shoulder], distance = simd_length(ray)
+      let extra = distance-armReach-handle
+      guard extra > 0 else { return }
+      let direction = ray/distance
+      let reach = direction * (hit ? extra : min(0.13,extra))
+      // Reach with the trunk. Once the spine is inclined, move the base
+      // with it so the distance between the rib cage and pelvis stays human.
+      let spine = chest+reach-pelvis
+      let baseShift = spine - unit(spine,fallback:up)*min(simd_length(spine),0.536)
+      for joint: BodyJoint in [.leftHip,.rightHip,.leftKnee,.rightKnee,.leftShoe,.rightShoe] {
+        pose[joint] += baseShift
+      }
+      pelvis += baseShift; chest += reach
+      for joint: BodyJoint in [.leftShoulder,.rightShoulder,.head] { pose[joint] += reach }
+      if !hit { strings -= direction * max(0,extra-simd_length(reach)) }
+    }
+    func limitWrist(at shoulder: BodyJoint, handle: Float, length: Float, minimum: Bool = false) {
+      let ray = strings-pose[shoulder], distance = simd_length(ray)
+      let wristDistance = simd_length(ray-shaft*handle)
+      guard distance > 0.001, minimum ? wristDistance < length : wristDistance > length else { return }
+      let line = ray/distance
+      let cosine = max(-1,min(1,(distance*distance+handle*handle-length*length)/(2*distance*handle)))
+      let planar = unit(shaft-line*simd_dot(shaft,line),fallback:unit(simd_cross(line,right),fallback:forward))
+      shaft = unit(line*cosine+planar*sqrt(max(0,1-cosine*cosine)),fallback:line)
+    }
+    makeRoom(at:.rightShoulder,handle:handleToStrings)
+    if twoHands {
+      makeRoom(at:.leftShoulder,handle:handleToStrings-0.095)
+      // Both wrists share a handle. Project the shaft onto the intersection
+      // of their reach cones before placing the two palms.
+      for _ in 0..<3 {
+        limitWrist(at:.rightShoulder,handle:handleToStrings,length:armReach)
+        limitWrist(at:.leftShoulder,handle:handleToStrings-0.095,length:armReach)
+      }
+    }
+    if swing.style == .serve {
+      let extensionWeight = ramp(time,-0.085,-0.004)*(1-ramp(time,0.018,0.11))
+      limitWrist(at:.rightShoulder,handle:handleToStrings,length:0.654*extensionWeight,minimum:true)
+    }
+    limitWrist(at:.rightShoulder,handle:handleToStrings,length:armReach)
     pose[.strings] = strings
     pose[.grip] = strings - shaft * 0.49
-    let across = unit(simd_cross(shaft, forward + up * (volley ? 0.22 : 0.08)), fallback: right)
+    var across = unit(simd_cross(shaft, forward + up * (volley ? 0.22 : 0.08)), fallback: right)
+    if swing.style == .serve || swing.style == .overhead {
+      // Approach the ball edge-first; square the string bed at impact.
+      let roll = (-0.91 * (1-ramp(time,-0.09,0)) + 0.76*ramp(time,0,0.115))*motionWeight
+      across = simd_quatf(angle:roll,axis:shaft).act(across)
+    }
     pose[.racketEdge] = strings + across * 0.132
     var offHand = pose[.leftShoulder] - shoulders * (0.18 + drive * 0.12) + forward * 0.23 - up * 0.18
+    if let measured, !backhand && swing.style != .serve && swing.style != .overhead {
+      offHand += (pose[.leftShoulder]+relative(measured.support)*0.62-offHand)*motionWeight*0.65
+    }
     if swing.pose.supportHandOnGrip { offHand = pose[.grip] + shaft * 0.095 }
+    if rush > 0.12 && !reduceMotion && !waiting && !jumping && dive == 0 {
+      // The free arm counterbalances the opposite shoe when chasing a wide ball.
+      let chase = rush*(1-load*finish)*(1-rest)
+      let stride = min(1,max(-1,simd_dot(pose[.rightShoe]-pose[.leftShoe],forward)/0.48))
+      let pumping = pose[.leftShoulder]-up*(0.36+stride*0.07)-right*0.10+forward*(0.12-stride*0.22)
+      offHand += (pumping-offHand)*chase
+    }
     if dive > 0 { offHand += (chest - up * 0.32 - reachDirection * 0.20 - offHand) * dive }
     offHand += (local(-0.29, 0.85, 0.06) - offHand) * rest
     if let service {
@@ -416,9 +539,20 @@ struct AthleteMotion {
       offHand += (chest - shoulders * 0.11 + forward * 0.13 - offHand) * tuck
     } else if swing.style == .overhead && arrival != nil { offHand = local(-0.29, 1.9, 0.19) }
     if side == 0 && game.flight?.acknowledge == true && game.isResolvingPoint { offHand = local(-0.24, 2.03, 0.12) }
+    let freeReach = offHand-pose[.leftShoulder]
+    if simd_length_squared(freeReach) > armReach*armReach {
+      offHand = pose[.leftShoulder]+unit(freeReach,fallback:forward)*armReach
+    }
     pose[.leftHand] = offHand
-    pose[.rightElbow] = hinge(pose[.rightShoulder], pose[.grip], length: 0.34, bend: right - up * 0.5 - forward)
-    pose[.leftElbow] = hinge(pose[.leftShoulder], offHand, length: 0.34, bend: -right - up * 0.5 - forward)
+    var rightPole = unit(right-up*0.5-forward,fallback:right)
+    var leftPole = unit(-right-up*0.5-forward,fallback:-right)
+    if let measured {
+      let blend = motionWeight*0.87
+      rightPole += (unit(relative(measured.elbow),fallback:rightPole)-rightPole)*blend
+      leftPole += (unit(relative(measured.supportElbow),fallback:leftPole)-leftPole)*blend
+    }
+    pose[.rightElbow] = hinge(pose[.rightShoulder], pose[.grip], length: 0.34, bend: rightPole)
+    pose[.leftElbow] = hinge(pose[.leftShoulder], offHand, length: 0.34, bend: leftPole)
     if let reaction, !reduceMotion {
       let t = ramp(Float(game.pointResolution?.elapsed ?? 0), 0.12, 0.4)
       if side == 0 && reaction.affirmation != nil && game.flight?.acknowledge != true {

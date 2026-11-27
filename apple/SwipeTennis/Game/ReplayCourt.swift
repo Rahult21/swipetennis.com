@@ -89,6 +89,7 @@ enum ReplayAngle: String, CaseIterable {
   private let ball: ModelEntity
   private let shadow: ModelEntity
   private let players: [ReplayAthlete]
+  var hasFittedPlayers: Bool { players.allSatisfy(\.usesAnatomicalMesh) }
   let powerTrail: [ModelEntity]
   private var firstFrame: Cancellable?
   private var checkingFrame = false
@@ -115,6 +116,7 @@ enum ReplayAngle: String, CaseIterable {
     shadow = stamp
     players = [0, 1].map { ReplayAthlete(side: $0, sphere: sphere, shadow: stamp.clone(recursive: true), localSide:localSide) }
     super.init(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
+    renderOptions.insert(.disableGroundingShadows)
     isUserInteractionEnabled = false
     environment.background = .color(UIColor(red: 0.66, green: 0.79, blue: 0.85, alpha: 1))
     if #available(iOS 18.0, *) { camera.camera.fieldOfViewOrientation = .vertical }
@@ -150,6 +152,11 @@ enum ReplayAngle: String, CaseIterable {
       court.addChild(scenery)
       box([4,-0.055,24],[14,0.1,12],UIColor(red:0.18,green:0.28,blue:0.28,alpha:1))
       environment.background = .color(UIColor(red:0.70,green:0.78,blue:0.77,alpha:1))
+      let fill = DirectionalLight()
+      fill.light.intensity = 950
+      fill.light.color = UIColor(red:1,green:0.94,blue:0.88,alpha:1)
+      fill.look(at:[4,1,24],from:[6,5,19],relativeTo:nil)
+      court.addChild(fill)
       players[1].root.isEnabled = false
     } else {
       let guides = UserDefaults.standard.object(forKey: "guides") as? Bool ?? true
@@ -169,7 +176,9 @@ enum ReplayAngle: String, CaseIterable {
   @MainActor required dynamic init(frame frameRect: CGRect) { fatalError("Use init(surface:)") }
   @MainActor required dynamic init?(coder decoder: NSCoder) { fatalError("Use init(surface:)") }
 
-  func whenRendering(_ ready: @escaping () -> Void) {
+  func whenRendering(_ ready: @escaping () -> Void) { whenFrameIsReady { _ in ready() } }
+
+  func whenFrameIsReady(_ ready: @escaping (UIImage) -> Void) {
     let id = UUID()
     readinessID = id
     checkingFrame = false
@@ -181,10 +190,10 @@ enum ReplayAngle: String, CaseIterable {
         self.snapshot(saveToHDR: false) { [weak self] image in
           Task { @MainActor in
             guard let self, self.readinessID == id else { return }
-            if let frame = image?.cgImage, Self.hasCourtPixels(frame) {
+            if let image, let frame = image.cgImage, Self.hasCourtPixels(frame) {
               self.firstFrame?.cancel()
               self.firstFrame = nil
-              ready()
+              ready(image)
             } else {
               // RealityKit can deliver scene updates while its drawable still contains only sky.
               try? await Task.sleep(for: .milliseconds(100))
@@ -429,6 +438,22 @@ enum ReplayAngle: String, CaseIterable {
     let target = CourtPoint3D(4.115, 0.98, 24.6)
     let eye = target + CourtPoint3D(3.42 * sin(azimuth), 0.26, -3.42 * cos(azimuth))
     camera.look(at:target,from:eye,relativeTo:nil)
+  }
+
+  func drawStudio(_ frame: RallyFrame, origin: CourtPoint3D, azimuth: Float, serve: Bool) {
+    let centre = CourtPoint3D(origin.x,0,origin.z)
+    players[0].draw(frame.near); players[1].draw(frame.far)
+    ball.position = frame.ball
+    ball.scale = .init(repeating:0.034)
+    ball.isEnabled = true
+    shadow.isEnabled = true
+    shadow.position = [frame.ball.x,0.009,frame.ball.z]
+    shadow.scale = [0.18,1,0.13]
+    let height: Float = serve ? 1.52 : 1.10
+    let target = centre + CourtPoint3D(0,height,0)
+    camera.camera.fieldOfViewInDegrees = 38
+    let distance: Float = serve ? 4.95 : 3.9
+    camera.look(at:target,from:target+[distance*sin(azimuth),0.25,-distance*cos(azimuth)],relativeTo:nil)
   }
 
   func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?, handshake: Bool = false, featuredStrike: RecordedStrike? = nil, time: Double = 0, live: Bool = false) {

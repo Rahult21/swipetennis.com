@@ -1,13 +1,63 @@
 import RealityKit
 import UIKit
 
-/// A skinned tennis kit assembled on the same joint landmarks drawn on the live court.
+/// A single rig drives match play, the three replay cameras and the locker room.
 @MainActor final class ReplayAthlete {
   let root = Entity()
-  private let torso = Entity(), hips = Entity(), face = Entity(), racket = Entity()
+  let usesAnatomicalMesh: Bool
+  private let athlete: AnatomicalAthlete?
+  private let fallback: PrimitiveAthlete?
+  private let racket: Entity
+  private let side: Int
+  private let stamp: ModelEntity
+  private let footShadows: [ModelEntity]
+
+  init(side: Int, sphere: MeshResource, shadow: ModelEntity, localSide: Int = 0) {
+    let kit = AthleteKit.current(side:side,localSide:localSide)
+    athlete = AnatomicalAthlete(kit:kit,side:side)
+    usesAnatomicalMesh = athlete != nil
+    fallback = athlete == nil ? PrimitiveAthlete(kit:kit,side:side,sphere:sphere) : nil
+    self.side = side
+    stamp = shadow
+    footShadows = [shadow.clone(recursive:true),shadow.clone(recursive:true)]
+    racket = CourtRacket.make(color:kit.color)
+    if let athlete { root.addChild(athlete.entity) }
+    if let fallback { root.addChild(fallback.root) }
+    root.addChild(racket); root.addChild(stamp)
+    footShadows.forEach { root.addChild($0) }
+  }
+
+  func draw(_ p: AthletePose, handshake: Bool = false) {
+    athlete?.pose(p,handshake:handshake)
+    fallback?.draw(p,handshake:handshake)
+    let shaft = simd_normalize(p[.strings]-p[.grip]), width = simd_normalize(p[.racketEdge]-p[.strings])
+    let normal = simd_normalize(simd_cross(width,shaft))
+    racket.position = p[.grip]
+    racket.orientation = simd_quatf(simd_float3x3(columns:(simd_cross(shaft,normal),shaft,normal)))
+    if handshake {
+      racket.position = p[.leftHand]
+      racket.orientation = simd_quatf(angle:side == 0 ? 2.72 : -2.72,axis:[0,0,1])
+    }
+    let hip = (p[.leftHip]+p[.rightHip])*0.5
+    for (i, shadow) in footShadows.enumerated() {
+      let foot = p[i == 0 ? .leftShoe : .rightShoe]
+      let contact = max(0,1-max(0,foot.y-0.06)/0.35)
+      shadow.isEnabled = contact > 0.03
+      shadow.position = [foot.x,0.011,foot.z]
+      shadow.scale = [0.28*contact,1,0.42*contact]
+    }
+    stamp.position = [hip.x,0.008,hip.z]; stamp.scale = [0.96,1,0.65]
+  }
+}
+
+/// Kept for a device that fails to import the bundled USD. It allocates no
+/// meshes or streaming buffers when the anatomical model loads successfully.
+@MainActor private final class PrimitiveAthlete {
+  let root = Entity()
+  private let torso = Entity(), hips = Entity(), face = Entity()
   private let skin: SimpleMaterial, fabric: SimpleMaterial
-  private let shorts = SimpleMaterial(color: UIColor(red: 0.10, green: 0.15, blue: 0.19, alpha: 1), roughness: 0.9, isMetallic: false)
-  private let white = SimpleMaterial(color: .white, roughness: 0.87, isMetallic: false)
+  private let shorts = SimpleMaterial(color:UIColor(red:0.10,green:0.15,blue:0.19,alpha:1),roughness:0.9,isMetallic:false)
+  private let white = SimpleMaterial(color:.white,roughness:0.87,isMetallic:false)
   private let garment: ReplayShorts
   private let sphere: MeshResource
   private let kit: AthleteKit
@@ -15,16 +65,13 @@ import UIKit
   private var pupils: [Entity] = []
   private var limbs: [ModelEntity] = []
   private var shoes: [Entity] = []
-  private let stamp: ModelEntity
 
-  init(side: Int, sphere: MeshResource, shadow: ModelEntity, localSide: Int = 0) {
-    let kit = AthleteKit.current(side: side, localSide: localSide)
-    self.kit = kit
-    self.side = side; self.sphere = sphere; stamp = shadow
-    skin = SimpleMaterial(color: kit.skinTone.tint, roughness: 0.85, isMetallic: false)
-    fabric = SimpleMaterial(color: kit.color.tint, roughness: 0.92, isMetallic: false)
-    garment = ReplayShorts(material: shorts)
-    for part in [torso, hips, face, racket, stamp, garment.model] { root.addChild(part) }
+  init(kit: AthleteKit, side: Int, sphere: MeshResource) {
+    self.kit = kit; self.side = side; self.sphere = sphere
+    skin = SimpleMaterial(color:kit.skinTone.tint,roughness:0.85,isMetallic:false)
+    fabric = SimpleMaterial(color:kit.color.tint,roughness:0.92,isMetallic:false)
+    garment = ReplayShorts(material:shorts)
+    for part in [torso, hips, face, garment.model] { root.addChild(part) }
     if kit.skort {
       hips.addChild(ModelEntity(mesh:Self.profile([[0.248,-0.235,0.168],[0.241,-0.20,0.162],[0.19,-0.02,0.134],[0.166,0.06,0.113]]),materials:[fabric]))
     }
@@ -100,29 +147,6 @@ import UIKit
       }
       shoe.addChild(laces.model(color: .white))
     }
-    let frame = ReplayMeshLines()
-    var previous = CourtPoint3D(0, 0.49 + 0.175, 0)
-    for i in 1...48 {
-      let t = Float(i) * 2 * .pi / 48
-      let next = CourtPoint3D(sin(t) * 0.132, 0.49 + cos(t) * 0.175, 0)
-      frame.line(previous, next, radius: 0.010); previous = next
-    }
-    frame.line([0, 0.14, 0], [-0.075, 0.343, 0], radius: 0.008)
-    frame.line([0, 0.14, 0], [0.075, 0.343, 0], radius: 0.008)
-    racket.addChild(frame.model(color: side == 0 ? .systemIndigo : .darkGray))
-    let mesh = ReplayMeshLines()
-    for i in -6...6 {
-      let x = Float(i) * 0.018
-      let reach = 0.17 * sqrt(1 - x*x / (0.132*0.132))
-      mesh.line([x, 0.49-reach, 0], [x, 0.49+reach, 0], radius: 0.0014)
-    }
-    for i in -8...8 {
-      let y = Float(i) * 0.019
-      let reach = 0.132 * sqrt(1 - y*y / (0.175*0.175))
-      mesh.line([-reach, 0.49+y, 0], [reach, 0.49+y, 0], radius: 0.0014)
-    }
-    racket.addChild(mesh.model(color: .white))
-    ellipsoid(racket, [0, 0.058, 0], [0.018, 0.11, 0.019], white)
   }
 
   /// UVs wrap the torso from the side seam. The knit, shoulder panels and hems turn with the shirt.
@@ -201,7 +225,7 @@ import UIKit
     node.orientation = simd_quatf(from: [0, 1, 0], to: d / length)
   }
 
-  func draw(_ p: AthletePose, handshake: Bool = false) {
+  func draw(_ p: AthletePose, handshake: Bool) {
     garment.draw(p)
     let hip = (p[.leftHip] + p[.rightHip]) / 2
     let shoulder = (p[.leftShoulder] + p[.rightShoulder]) / 2
@@ -220,15 +244,6 @@ import UIKit
     for (index, pupil) in pupils.enumerated() {
       pupil.position.x = (index == 0 ? -0.039 : 0.039) + gaze.x * 0.0035
       pupil.position.y = 0.008 + gaze.y * 0.003
-    }
-    let shaft = simd_normalize(p[.strings] - p[.grip])
-    let width = simd_normalize(p[.racketEdge] - p[.strings])
-    let normal = simd_normalize(simd_cross(width, shaft))
-    racket.position = p[.grip]
-    racket.orientation = simd_quatf(simd_float3x3(columns: (simd_cross(shaft, normal), shaft, normal)))
-    if handshake {
-      racket.position = p[.leftHand]
-      racket.orientation = simd_quatf(angle: side == 0 ? 2.72 : -2.72, axis:[0,0,1])
     }
     for i in 0..<2 {
       let h = p[i == 0 ? .leftHip : .rightHip], k = p[i == 0 ? .leftKnee : .rightKnee]
@@ -250,7 +265,6 @@ import UIKit
       let yaw = simd_quatf(angle: atan2(-hipAxis.z, hipAxis.x), axis: [0,1,0])
       shoes[i].orientation = simd_slerp(facing, yaw, 0.32) * simd_quatf(angle: -p.heelPitch, axis: [1,0,0])
     }
-    stamp.position = [hip.x, 0.008, hip.z]; stamp.scale = [0.96, 1, 0.65]
   }
 }
 

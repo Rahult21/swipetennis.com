@@ -168,6 +168,7 @@ struct TrainingCourtView: View {
             if practiceRecord.attempts > 0 {
               Section("Practice record on this device") {
                 LabeledContent("Completed attempts", value:String(practiceRecord.attempts))
+                  .accessibilityIdentifier("practiceCompletedAttempts")
                 LabeledContent(exercise == .servePlusOne ? "Planned lanes hit" : "Points won",
                                value:String(practiceRecord.successes))
                 LabeledContent("Best streak", value:String(practiceRecord.bestStreak))

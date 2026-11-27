@@ -38,7 +38,7 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(app.staticTexts["Last attempt"].waitForExistence(timeout:5))
     app.buttons["Done"].tap()
     net.tap()
-    let attempts = app.staticTexts["Completed attempts"]
+    let attempts = app.descendants(matching:.any)["practiceCompletedAttempts"].firstMatch
     for _ in 0..<4 where !attempts.isHittable { app.swipeUp() }
     XCTAssertTrue(attempts.isHittable)
   }
@@ -67,6 +67,9 @@ final class SwipeTennisUITests: XCTestCase {
       let start = app.buttons["startPractice"]
       XCTAssertTrue(start.waitForExistence(timeout:15))
       start.tap()
+      let skip = app.buttons["Skip"]
+      XCTAssertTrue(skip.waitForExistence(timeout:75))
+      if skip.isHittable { skip.tap() }
       let replay = app.buttons["replayPracticePoint"]
       XCTAssertTrue(replay.waitForExistence(timeout:75))
       replay.tap()
@@ -125,6 +128,62 @@ final class SwipeTennisUITests: XCTestCase {
     photo.name = "Player-kit"
     photo.lifetime = .keepAlways
     add(photo)
+  }
+
+  func testStrokeStudioShowsBothAthletesAtContactAndFinish() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1","YES"]
+    XCUIDevice.shared.orientation = .portrait
+    app.launch()
+    app.buttons["Player & kit"].tap()
+    func capture(_ name: String) {
+      let photo = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+      photo.name = name; photo.lifetime = .keepAlways; add(photo)
+    }
+    for model in ["Man","Woman"] {
+      let athlete = app.buttons[model]
+      if !athlete.isHittable { app.swipeUp() }
+      athlete.tap()
+      let studio = app.buttons["strokeStudio"]
+      if !studio.isHittable { app.swipeDown() }
+      studio.tap()
+      let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
+      XCTAssertTrue(court.waitForExistence(timeout:12))
+      let rendered = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
+      XCTAssertEqual(XCTWaiter.wait(for:[rendered],timeout:30),.completed)
+      func waitForFrame(_ key: String) {
+        let drawn = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@",key),object:court)
+        XCTAssertEqual(XCTWaiter.wait(for:[drawn],timeout:20),.completed,key)
+        XCTAssertTrue(app.buttons["Share pose"].exists)
+        // Check the displayed Metal surface, not just the offscreen snapshot.
+        let image = court.screenshot().image.cgImage!
+        var rgb = [UInt8](repeating:0,count:24*24*4)
+        let nonSky = rgb.withUnsafeMutableBytes { bytes -> Int in
+          guard let buffer = CGContext(data:bytes.baseAddress,width:24,height:24,bitsPerComponent:8,bytesPerRow:96,
+              space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue) else { return 0 }
+          buffer.draw(image,in:CGRect(x:0,y:0,width:24,height:24))
+          let pixels = bytes.bindMemory(to:UInt8.self)
+          return stride(from:0,to:pixels.count,by:4).filter { pixels[$0]<125 && pixels[$0+1]<165 }.count
+        }
+        XCTAssertGreaterThan(nonSky,40,"The actual court must be visible "+key)
+      }
+      app.buttons["Contact"].tap()
+      waitForFrame("Serve-Back-Contact")
+      capture(model+" serve at contact")
+      app.buttons["Side"].tap()
+      app.buttons["Load"].tap()
+      waitForFrame("Serve-Side-Load")
+      capture(model+" trophy from side")
+      for stroke in ["Forehand","Backhand","Volley"] {
+        app.buttons[stroke].tap()
+        app.buttons["Contact"].tap()
+        XCTAssertTrue(app.buttons["Play stroke"].exists)
+        app.buttons["Finish"].tap()
+        waitForFrame(stroke+"-Side-Finish")
+        capture(model+" "+stroke+" finish")
+      }
+      app.navigationBars.buttons.element(boundBy:0).tap()
+    }
   }
 
   func testCareerResumesAtSavedPointAfterQuickPlay() throws {

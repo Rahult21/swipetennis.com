@@ -52,4 +52,8 @@ struct KitPreview: UIViewRepresentable {
     return view
   }
   func updateUIView(_ view: CourtReplayView, context: Context) { view.portraitCamera(azimuth: azimuth) }
+  static func dismantleUIView(_ view: CourtReplayView, coordinator: ()) {
+    view.finishReview()
+    view.scene.anchors.removeAll()
+  }
 }
