@@ -260,6 +260,7 @@ struct CupMatchView: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var showCourtMenu = false
   @State private var leaving = false
   @State private var review: ReplayReview?
   let title: String
@@ -269,82 +270,84 @@ struct CupMatchView: View {
   }
   private var game: PracticeEngine { session.game }
   var body: some View {
-    VStack(spacing: 0) {
-      HStack {
-        Button { leaving = true } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel("Leave cup match")
-        Spacer()
-        VStack(spacing: 2) {
-          Text(title).font(.headline)
-          Text(session.connection).font(.caption)
+    ZStack {
+      LiveCourt(scene: session.scene, paused: showCourtMenu && !game.settings.local).ignoresSafeArea()
+        .accessibilityLabel("Tournament court. \(game.scoreSummary)")
+        .accessibilityAction(named: "Move to contact") { session.input(CupInput(kind: "receive")) }
+        .accessibilityAction(named: "Recover") { session.input(CupInput(kind: "recover")) }
+        .accessibilityAction(named: "Split step") { session.input(CupInput(kind: "split")) }
+        .accessibilityAction(named: "Serve") { session.input(CupInput(kind: "serve")) }
+        .accessibilityAction(named: "Crosscourt") { session.input(CupInput(kind: "shot", shot: .cross)) }
+        .accessibilityAction(named: "Down the line") { session.input(CupInput(kind: "shot", shot: .line)) }
+        .accessibilityAction(named: "Lob") { session.input(CupInput(kind: "shot", shot: .lob)) }
+        .accessibilityAction(named: "Approach the net") { session.input(CupInput(kind: "approach")) }
+      if let result = session.result {
+        courtCard {
+          Image(systemName: result.winnerID == gamePlayerID ? "trophy.fill" : "tennisball").font(.largeTitle)
+          Text(result.winnerID == gamePlayerID ? "You win!" : "Match complete").font(.title2.bold())
+          Text("\(result.score[session.side])–\(result.score[1 - session.side])\(result.reason == "disconnect" ? " · Disconnection" : result.reason == "forfeit" ? " · Forfeit" : "")")
+          if let change = result.ratingChanges?.first(where: { $0.userID == gamePlayerID }) {
+            Text(change.summary).font(.headline)
+          } else if !game.settings.local { Text("AI match · ST unchanged").font(.subheadline) }
+          replayButton
+          Button("Return to draw") { dismiss() }.buttonStyle(.borderedProminent)
         }
-        Spacer()
-        Image(systemName: "trophy").frame(width: 44, height: 44)
-      }.foregroundStyle(.white).padding(.horizontal, 8)
-      HStack {
-        scorePlayer(session.side)
-        Spacer()
-        Text("First to 7").font(.caption).foregroundStyle(.white.opacity(0.75))
-        Spacer()
-        scorePlayer(1 - session.side)
-      }.padding(.horizontal, 20).padding(.bottom, 10)
-      ZStack {
-        LiveCourt(scene:session.scene)
-          .accessibilityLabel("Tournament court. \(game.scoreSummary)")
-          .accessibilityAction(named: "Move to contact") { session.input(CupInput(kind: "receive")) }
-          .accessibilityAction(named: "Recover") { session.input(CupInput(kind: "recover")) }
-          .accessibilityAction(named: "Split step") { session.input(CupInput(kind: "split")) }
-          .accessibilityAction(named: "Serve") { session.input(CupInput(kind: "serve")) }
-          .accessibilityAction(named: "Crosscourt") { session.input(CupInput(kind: "shot", shot: .cross)) }
-          .accessibilityAction(named: "Down the line") { session.input(CupInput(kind: "shot", shot: .line)) }
-          .accessibilityAction(named: "Lob") { session.input(CupInput(kind: "shot", shot: .lob)) }
-          .accessibilityAction(named: "Approach the net") { session.input(CupInput(kind: "approach")) }
-        if let result = session.result {
-          courtCard {
-            Image(systemName: result.winnerID == gamePlayerID ? "trophy.fill" : "tennisball").font(.largeTitle)
-            Text(result.winnerID == gamePlayerID ? "You win!" : "Match complete").font(.title2.bold())
-            Text("\(result.score[session.side])–\(result.score[1 - session.side])\(result.reason == "disconnect" ? " · Disconnection" : result.reason == "forfeit" ? " · Forfeit" : "")")
-            if let change = result.ratingChanges?.first(where: { $0.userID == gamePlayerID }) {
-              Text(change.summary).font(.headline)
-            } else if !game.settings.local { Text("AI match · ST unchanged").font(.subheadline) }
-            replayButton
-            Button("Return to draw") { dismiss() }.buttonStyle(.borderedProminent)
-          }
-        } else if !session.ready {
-          courtCard {
-            ProgressView().tint(TennisTheme.accent)
-            Text(session.connection).font(.headline)
-            if let deadline = session.reconnectDeadline {
-              Text("Join or reconnect by \(deadline.formatted(date: .omitted, time: .standard)).")
-            } else { Text("The rally starts when both players are connected.") }
-            if session.error != nil { Button("Return to draw") { dismiss() }.buttonStyle(.bordered) }
-          }
-        } else if game.phase == .ready || game.showsPointResult {
-          courtCard {
-            Text(game.phase == .ready ? "Ready for the \(title.lowercased())?" : game.feedback.title).font(.title3.bold())
-            if game.phase != .ready { Text(game.feedback.reason).font(.subheadline) }
-            Text(game.phase == .ready ? "Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot." : game.scoreSummary)
-              .font(.subheadline).foregroundStyle(.secondary)
-            if game.phase == .point && game.showsPointResult { replayButton }
-            Button(session.waitingForNext ? "Waiting for opponent…" : game.phase == .ready ? "I'm ready to play" : "Next point") { session.next() }
-              .buttonStyle(.borderedProminent).disabled(session.waitingForNext || game.phase == .finished)
-          }
+      } else if !session.ready {
+        courtCard {
+          ProgressView().tint(TennisTheme.accent)
+          Text(session.connection).font(.headline)
+          if let deadline = session.reconnectDeadline {
+            Text("Join or reconnect by \(deadline.formatted(date: .omitted, time: .standard)).")
+          } else { Text("The rally starts when both players are connected.") }
+          if session.error != nil { Button("Return to draw") { dismiss() }.buttonStyle(.bordered) }
+        }
+      } else if game.phase == .ready || game.showsPointResult {
+        courtCard {
+          Text(game.phase == .ready ? "Ready for the \(title.lowercased())?" : game.feedback.title).font(.title3.bold())
+          if game.phase != .ready { Text(game.feedback.reason).font(.subheadline) }
+          Text(game.phase == .ready ? "Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot." : game.scoreSummary)
+            .font(.subheadline).foregroundStyle(.secondary)
+          if game.phase == .point && game.showsPointResult { replayButton }
+          Button(session.waitingForNext ? "Waiting for opponent…" : game.phase == .ready ? "I'm ready to play" : "Next point") { session.next() }
+            .buttonStyle(.borderedProminent).disabled(session.waitingForNext || game.phase == .finished)
         }
       }
-      if let error = session.error { Text(error).font(.subheadline).foregroundStyle(.white).padding(10) }
-      if game.phase == .serving && game.scoring.server == session.side && session.ready {
+      if session.ready && session.result == nil && !showCourtMenu,
+         game.phase == .serving && game.scoring.server == session.side, let serve = game.servePreparation, serve.canTune {
         HStack {
-          Button("Serve") { session.input(CupInput(kind: "serve")) }.buttonStyle(.borderedProminent)
-          if let serve = game.servePreparation, serve.canTune {
-            Menu("Speed: \(serve.profile.speed.label)") {
-              ForEach(ServeLevel.allCases, id: \.self) { value in Button(value.label) { session.input(CupInput(kind: "serveTune", speed: value)) } }
-            }
-            Menu("Spin: \(serve.profile.spin.label)") {
-              ForEach(ServeLevel.allCases, id: \.self) { value in Button(value.label) { session.input(CupInput(kind: "serveTune", spin: value)) } }
-            }
-          } else { Text("Aim with blue, then serve.").font(.subheadline).foregroundStyle(.white) }
-        }.padding(8)
-      } else { Text("\(game.name(game.scoring.server)) serving · Win by two").font(.caption).foregroundStyle(.white).padding(8) }
-    }
+          ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime, editable: true) {
+            session.input(CupInput(kind: "serveTune", speed: $0))
+          }.frame(maxWidth: 130)
+          Spacer(minLength: 40)
+          ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint, editable: true) {
+            session.input(CupInput(kind: "serveTune", spin: $0))
+          }.frame(maxWidth: 130)
+        }.padding(.horizontal, 12).frame(maxHeight: .infinity, alignment: .bottom)
+      }
+      if !showCourtMenu && session.result == nil {
+        Button { showCourtMenu = true } label: { CourtControlIcon(symbol: game.settings.local ? "ellipsis" : "pause.fill") }
+          .buttonStyle(.plain).accessibilityLabel(game.settings.local ? "Cup match menu" : "Pause cup match")
+          .padding(.top, 2).padding(.trailing, 6)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+      }
+      if showCourtMenu {
+        Color.black.opacity(0.32).ignoresSafeArea().onTapGesture { showCourtMenu = false }
+        courtCard {
+          Text(title).font(.headline)
+          Text(game.scoreSummary).font(.title3.bold()).monospacedDigit()
+          Text(game.settings.local ? "Live match · " + session.connection : "Match paused").font(.caption)
+          Button(game.settings.local ? "Return to court" : "Resume match") { showCourtMenu = false }
+            .buttonStyle(.borderedProminent)
+          Button("Leave cup match") { leaving = true }
+        }.accessibilityAddTraits(.isModal)
+      }
+      if let error = session.error, session.ready {
+        Text(error).font(.caption).padding(8).background(.regularMaterial, in: Capsule())
+          .frame(maxHeight: .infinity, alignment: .bottom).allowsHitTesting(false)
+      }
+    }.statusBarHidden(true)
+    .onChange(of: showCourtMenu) { _, _ in session.scene.resetClock() }
+    .onChange(of: session.result?.id) { _, result in if result != nil { showCourtMenu = false } }
     .accessibilityHidden(review != nil)
     .onChange(of:game.showsPointResult) { _, visible in
       if visible && session.scene.performance.replay.canPlay {
@@ -374,12 +377,6 @@ struct CupMatchView: View {
     }
   }
   private var gamePlayerID: String? { session.result?.playerIDs[session.side] }
-  private func scorePlayer(_ side: Int) -> some View {
-    VStack(spacing: 4) {
-      Text(game.name(side)).font(.subheadline).lineLimit(1)
-      Text("\(game.scoring.points[side])").font(.title.bold()).monospacedDigit()
-    }.foregroundStyle(.white).frame(maxWidth: .infinity)
-  }
   private func courtCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
     VStack(spacing: 16, content: content).multilineTextAlignment(.center)
       .padding(24).frame(maxWidth: 340)

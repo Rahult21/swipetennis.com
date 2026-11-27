@@ -572,6 +572,7 @@ enum ReplayAngle: String, CaseIterable {
   }
 
   private var liveFrame: PlayerCamera?
+  private var previousIntro: Float = 0
   private var previousAspect: Float = 0
   private var previousDraw = 0.0
   func liveCamera(side: Int, intro: Float, player: Vec, trackedX: Float, ball: CourtPoint3D,
@@ -582,15 +583,20 @@ enum ReplayAngle: String, CaseIterable {
     let rotated = abs(aspect-previousAspect)>0.04
     let requested = PlayerCamera.frame(side:side,player:player,trackedX:trackedX,receiver:contact,recovery:recovery,
       ball:ball,aspect:aspect,intro:intro,reduceMotion:reduceMotion,style:style)
-    if let last = liveFrame, !rotated, !reduceMotion && previousDraw <= time {
-      if !freeze {
+    if !freeze || rotated || liveFrame == nil {
+      if let last = liveFrame, intro >= 1, previousIntro >= 1,
+         !rotated, !reduceMotion, previousDraw <= time {
         let backingUp = simd_distance(requested.eye,requested.target)>simd_distance(last.eye,last.target)
         let k = Float(1-exp(-max(0,min(0.1,time-previousDraw))*(backingUp ? 11 : 4.2)))
         liveFrame = PlayerCamera(eye:last.eye+(requested.eye-last.eye)*k,target:last.target+(requested.target-last.target)*k,
                                  verticalFOV:last.verticalFOV+(requested.verticalFOV-last.verticalFOV)*k)
+      } else {
+        // The entrance supplies its own eased flight. Following it with the
+        // tracking lag leaves the court overhead into the first serve.
+        liveFrame = requested
       }
-    } else { liveFrame = requested }
-    previousDraw = time; previousAspect = aspect
+    }
+    previousDraw = time; previousAspect = aspect; previousIntro = intro
     if let frame = liveFrame {
       camera.camera.fieldOfViewInDegrees = frame.verticalFOV
       camera.look(at:frame.target,from:frame.eye,relativeTo:nil)

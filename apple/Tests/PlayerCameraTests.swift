@@ -51,6 +51,20 @@ final class PlayerCameraTests: XCTestCase {
       } }
     } }
   }
+  func testPortraitReturnFramesTheTwoBaselinesAndNearAthlete() {
+    let aspect: Float = 0.46
+    for end in 0...1 {
+      let near = Vec(x: end == 0 ? 6.2 : 2.03, y: end == 0 ? 24.7 : -0.93)
+      let camera = PlayerCamera.frame(side:end,player:near,trackedX:Float(near.x),receiver:near,recovery:nil,
+        ball:near.world(),aspect:aspect,intro:1,reduceMotion:false,style:.baseline)
+      let feet = camera.projected(near.world(),aspect:aspect)
+      let far = camera.projected([4.115,0,end == 0 ? 0 : 23.77],aspect:aspect)
+      XCTAssertLessThan(feet.y,-0.50)
+      XCTAssertGreaterThan(far.y,0.44)
+      XCTAssertGreaterThan(far.y-feet.y,0.99)
+    }
+  }
+
   func testBaselineViewMakesTheNearPlayerLargerAndReduceMotionKeepsItsWideFrame() {
     let feet = Vec(x:4.115,y:24.3)
     func view(_ kind: MatchViewpoint, motion: Bool = false) -> PlayerCamera {

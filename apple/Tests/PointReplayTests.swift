@@ -231,7 +231,8 @@ final class PointReplayTests: XCTestCase {
     game.start()
     game.servePreparation!.elapsed = 0.4
     let ready = snapshot()
-    XCTAssertEqual(ready[.head].y, idle[.head].y, accuracy: 0.02)
+    XCTAssertLessThan(ready[.head].y, idle[.head].y - 0.03, "The receiver cushions the opening hop")
+    XCTAssertEqual(ReceiverFootwork.pose(game: game, side: game.scoring.server, reduceMotion: false).hips, .zero)
     XCTAssertLessThan(ready.heelPitch, 0.03)
     game.phase = .live
     game.players[0].pos.y = PracticeEngine.net + 2

@@ -13,6 +13,10 @@ import UIKit
     case eyeL, eyeR, toeL, toeR, heelL, heelR
     case waist, clavL, clavR, twistL, twistR, tailBase, tailTip
   }
+  struct SoleContact {
+    let toe, heel: SIMD3<Float>
+  }
+  private(set) var soles = Array(repeating: SoleContact(toe: .zero, heel: .zero), count: 2)
   let entity: ModelEntity
   private let rest: [SIMD3<Float>]
   private let bindRotation: [simd_quatf]
@@ -24,6 +28,7 @@ import UIKit
     let bend: Float
   }
   private let fingers: [Finger]
+  private let arms, legs: [LimbGeometry]
   private let shoulderMid, hipMid: SIMD3<Float>
   private let side: Int
   private static var models: [String:ModelEntity] = [:]
@@ -62,6 +67,14 @@ import UIKit
     fingers = fingerRig
     shoulderMid = (rest[keys[.upperArmL]!] + rest[keys[.upperArmR]!]) * 0.5
     hipMid = (rest[keys[.thighL]!] + rest[keys[.thighR]!]) * 0.5
+    let joints = rest
+    let stature = 0.49 / (shoulderMid.y - hipMid.y)
+    func chain(_ start: Joint, _ middle: Joint, _ end: Joint) -> LimbGeometry {
+      LimbGeometry(upper: simd_distance(joints[keys[start]!],joints[keys[middle]!])*stature,
+                   lower: simd_distance(joints[keys[middle]!],joints[keys[end]!])*stature)
+    }
+    arms = [chain(.upperArmL,.forearmL,.handL), chain(.upperArmR,.forearmR,.handR)]
+    legs = [chain(.thighL,.shinL,.footL), chain(.thighR,.shinR,.footR)]
     if var component = copy.model {
       // iOS 17 exposes the original mesh child names but not Material.name.
       let parts = copy.children.map(\.name).filter { $0 != "Rig" }
@@ -158,8 +171,12 @@ import UIKit
       let src = rotation.act(pole.rest), dst = pole.pose
       let x = src-axis*simd_dot(src,axis), y = dst-axis*simd_dot(dst,axis)
       if min(simd_length_squared(x),simd_length_squared(y))>0.0007 {
-        let twist = atan2(simd_dot(axis,simd_cross(x,y)),simd_dot(x,y))
-        rotation = simd_quatf(angle:max(-1.12,min(1.12,twist)),axis:axis)*rotation
+        let from = simd_normalize(x), to = simd_normalize(y)
+        // A nearly straight limb carries little roll information. Suppress
+        // that correction gradually, including when the bend planes oppose.
+        let confidence = min(1, simd_length(y) / 0.115)
+        let twist = atan2(simd_dot(axis,simd_cross(from,to)),max(0.40,simd_dot(from,to)))
+        rotation = simd_quatf(angle:twist*confidence,axis:axis)*rotation
       }
     }
     set(joint,at:a,rotation:rotation)
@@ -218,11 +235,12 @@ import UIKit
       let foot: Joint = right ? .footR : .footL
       let palmJoint: Joint = right ? .palmR : .palmL
       let across: Joint = right ? .gripAxisR : .gripAxisL
-      let e = p[right ? .rightElbow : .leftElbow]
+      let index = right ? 1 : 0
+      let elbowGuide = p[right ? .rightElbow : .leftElbow]
       let clav: Joint = right ? .clavR : .clavL
       let pivot = shoulder+chest.act(anchor(clav)-shoulderMid)
       let socket = shoulder+chest.act(anchor(upper)-shoulderMid)
-      let arm = simd_normalize(e-socket)
+      let arm = simd_normalize(elbowGuide-socket)
       // The shoulder blade rises with an overhead arm and glides forward on
       // a two-handed drive. The shirt collar follows the collarbone weights.
       let elevation = max(0,simd_dot(arm,up)+0.12)
@@ -236,28 +254,54 @@ import UIKit
       let offset = anchor(hand)-anchor(palmJoint)
       // Align the knuckles with the forearm when the hand is free. Using the
       // bind-pose forearm alone leaves the wrist cocked as the running arm swings.
-      let palmDirection = simd_normalize(palm-e)
+      let palmDirection = simd_normalize(palm-elbowGuide)
       let restHand = simd_normalize(anchor(palmJoint)-anchor(hand))
       let natural = simd_quatf(from:chest.act(restHand),to:palmDirection)*chest
-      var handRotation = natural
-      let separation = simd_distance(palm,p[.grip])
-      let attachment: Float = handshake ? (right ? 0 : 1) : right ? 1 : min(1,max(0,(0.19-separation)/0.085))
-      if attachment > 0 {
+      let attachment: Float = handshake ? (right ? 0 : 1) : right ? 1 : p.supportGrip
+      let bend = chest.act([right ? 0.6 : -0.6,-0.6,0.5])
+      func orientHand(elbow: SIMD3<Float>) -> simd_quatf {
+        let alongArm = simd_normalize(palm-elbow)
+        let open = simd_quatf(from:natural.act(restHand),to:alongArm)*natural
+        guard attachment > 0 else { return open }
         let handle = handshake ? p.handshakeRacketAxis : simd_normalize(p[.strings]-p[.grip])
-        let gripAxis = simd_normalize(anchor(across)-anchor(palmJoint))
-        let aligned = simd_quatf(from:natural.act(gripAxis),to:handle)*natural
+        let knuckles = simd_normalize(anchor(across)-anchor(palmJoint))
+        // A tennis handle crosses the palm diagonally. Let that diagonal
+        // vary between the knuckle line and the heel of the hand as the
+        // racket lays back, without moving the grip off the handle.
+        let diagonal = max(-0.44,min(0.44,simd_dot(handle,alongArm)-simd_dot(knuckles,restHand)))
+        let gripAxis = simd_normalize(knuckles+restHand*diagonal)
         let bind = handBasis(gripAxis,towardWrist:offset)
-        let neutral = aligned.act(bind.act([1,0,0]))
-        let wrist = e-palm
-        let wanted = wrist-handle*simd_dot(wrist,handle)
-        // Let the forearm roll toward the elbow. The sine response vanishes
-        // at a straight wrist instead of turning the hand inside out.
-        let roll = simd_dot(simd_cross(neutral,wanted),handle)/max(0.16,simd_length(wanted))
-        let gripRotation = simd_quatf(angle:0.93*roll,axis:handle)*aligned
-        let fraction = attachment*attachment*(3-2*attachment)
-        handRotation = simd_slerp(natural,gripRotation,fraction)
+        let aligned = simd_quatf(from:open.act(gripAxis),to:handle)*open
+        let wrist = elbow-palm
+        let projected = wrist-handle*simd_dot(wrist,handle)
+        let confidence = min(1,simd_length(projected)/0.14)
+        let facing = simd_slerp(aligned,handBasis(handle,towardWrist:projected)*bind.inverse,
+                                 confidence*confidence*(3-2*confidence))
+        let held = simd_slerp(open,facing,attachment*attachment*(3-2*attachment))
+        // At the deepest racket drop and a low volley, let the handle sit
+        // farther across the fingers before forcing a retroflexed wrist.
+        // The wrist is behind the palm by |offset|. The sine rule converts
+        // the wrist limit to an angle measured from the elbow to the palm.
+        let limit: Float = 1.13
+        let lever = max(0.001,simd_distance(palm,elbow))
+        let allowed = max(0,limit-asin(min(1,simd_length(offset)*sin(limit)/lever)))
+        let palmAxis = held.act(restHand)
+        let turn = simd_quatf(from:palmAxis,to:alongArm)
+        guard turn.angle > allowed, turn.angle > 0.001 else { return held }
+        return simd_slerp(simd_quatf(real:1,imag:.zero),turn,1-allowed/turn.angle)*held
       }
-      let wristPoint = palm+handRotation.act(offset)
+      // The offset from the grip centre to the wrist changes with pronation.
+      // Resolve it against the retargeted elbow, then keep that palm fixed.
+      let palmChain = LimbGeometry(upper: arms[index].upper, lower: arms[index].lower+simd_length(offset))
+      let freeElbow = palmChain.hinge(from:s,to:palm,guide:elbowGuide,fallback:bend)
+      var handRotation = orientHand(elbow:freeElbow)
+      var wristPoint = palm+handRotation.act(offset)
+      if attachment > 0 {
+        let provisional = arms[index].hinge(from:s,to:wristPoint,guide:elbowGuide,fallback:bend)
+        handRotation = orientHand(elbow:provisional)
+        wristPoint = palm+handRotation.act(offset)
+      }
+      let e = arms[index].hinge(from:s,to:wristPoint,guide:elbowGuide,fallback:bend)
       _ = align(upper,end:fore,from:s,to:e,base:chest,
                 pole:(anchor(hand)-anchor(fore),wristPoint-e))
       let proximal = align(fore,end:hand,from:e,to:wristPoint,base:chest)
@@ -271,7 +315,7 @@ import UIKit
       let sleeve = simd_quatf(angle:max(-1.48,min(1.48,roll))*t,axis:axis)*proximal
       set(twist,at:e+(wristPoint-e)*t,rotation:sleeve)
       set(hand,at:wristPoint,rotation:handRotation)
-      let h = hip+hips.act(anchor(thigh)-hipMid), k = p[right ? .rightKnee : .leftKnee]
+      let h = hip+hips.act(anchor(thigh)-hipMid)
       let feet = footFacing * simd_quatf(angle:p.shoeYaw[right ? 1 : 0],axis:[0,1,0])
         * simd_quatf(angle:-p.heelPitch-p.footRoll[right ? 1 : 0],axis:[1,0,0])
       let shoe = p[right ? .rightShoe : .leftShoe]
@@ -281,9 +325,12 @@ import UIKit
       var ankle = shoe + footFacing.act(toe) - feet.act(toe)
       let lift = max(0,shoe.y-0.06-0.14*sin(p.heelPitch))
       ankle.y = lift-min(feet.act(toe).y,feet.act(heel).y)
+      let k = legs[index].hinge(from: h, to: ankle, guide: p[right ? .rightKnee : .leftKnee],
+                                fallback: feet.act([right ? 0.12 : -0.12,0,-1]))
       _ = align(thigh,end:shin,from:h,to:k,base:hips,pole:(anchor(foot)-anchor(shin),ankle-k))
       _ = align(shin,end:foot,from:k,to:ankle,base:hips)
       set(foot,at:ankle,rotation:feet)
+      soles[index] = SoleContact(toe: ankle+feet.act(toe), heel: ankle+feet.act(heel))
     }
     for finger in fingers {
       let curl = p.fingerCurl[finger.side]

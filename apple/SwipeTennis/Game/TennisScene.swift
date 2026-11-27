@@ -92,7 +92,9 @@ import SwiftUI
 @MainActor final class TennisScene: SKScene {
   var engine: PracticeEngine
   weak var stadium: CourtReplayView?
+  private static let entranceDuration = 1.45
   private var entrance: Double = 0
+  var isIntroducingCourt: Bool { !reduceMotion && entrance < Self.entranceDuration }
   private var cameraPlayerX: Float = 4.115
   private let matchCamera = MatchViewpoint(rawValue:UserDefaults.standard.string(forKey:"matchViewpoint") ?? "") ?? .baseline
   private var aimPreview: (side: Int, epoch: Int?, point: Vec)?
@@ -411,10 +413,12 @@ import SwiftUI
     }
     let dt = previousTime == 0 ? 0 : min(0.1, currentTime - previousTime)
     previousTime = currentTime
-    if engine.phase != .ready && entrance < 1.45 {
+    if engine.phase != .ready && entrance < Self.entranceDuration {
       entrance += dt
       // Give a new solo match its establishing shot before the first serve clock runs.
       if !reduceMotion && engine.phase == .serving && engine.demo == nil && controlledSide == nil && onCupFrame == nil {
+        // Advance the camera independently while the service clock is held.
+        animationTime += dt
         render()
         return
       }
@@ -538,7 +542,7 @@ import SwiftUI
     }
   }
   func restorePresentation() {
-    entrance = engine.phase == .ready ? 0 : 1.45
+    entrance = engine.phase == .ready ? 0 : Self.entranceDuration
     resetRallyPresentation()
     missPresentation.restore(from: engine.coach)
   }
@@ -600,7 +604,7 @@ import SwiftUI
     if let stadium, !stadium.isReviewing, let frame = performance.frame {
       let sharedScreen = engine.settings.local && controlledSide == nil
       let style: MatchViewpoint = sharedScreen || engine.demo != nil ? .wide : matchCamera
-      stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/1.45)),
+      stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/Self.entranceDuration)),
         player:engine.players[perspectiveSide].pos,trackedX:cameraPlayerX,ball:frame.ball,
         contact:engine.contactGuide(perspectiveSide),recovery:engine.recoveryGuide(perspectiveSide),
         style:style,freeze:!touchGestures.isEmpty || !serveTouches.isEmpty,reduceMotion:reduceMotion,time:animationTime)

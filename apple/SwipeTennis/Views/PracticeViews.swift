@@ -138,10 +138,7 @@ struct PracticeGameView: View {
   @Environment(\.dismiss) var dismiss
   @Environment(\.scenePhase) var scenePhase
   @Environment(\.accessibilityReduceMotion) var reduceMotion
-  @Environment(\.verticalSizeClass) private var courtHeight
   @StateObject private var session: PracticeSession
-  @State private var showCoach = false
-  @State private var resumeAfterGuide = false
   @State private var showPointDetails = false
   @State private var training: TrainingExercise?
   @State private var replayReview: ReplayReview?
@@ -158,109 +155,106 @@ struct PracticeGameView: View {
     _session = StateObject(wrappedValue: PracticeSession(engine: match.engine))
   }
   var game: PracticeEngine { session.snapshot }
-  private var courtView: some View {
+  private var movementControls: some View {
     LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil)
-    .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
-    .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
-    .accessibilityAction(named: "Move to contact") {
-      session.scene.engine.tapCourt(0, at: session.scene.engine.intercept(0))
-    }
-    .accessibilityAction(named: "Recover") { session.scene.engine.recover(0) }
-    .accessibilityAction(named: "Approach the net") { session.scene.engine.followShot(0) }
-    .accessibilityAction(named: "Split step") { session.scene.engine.beginSplit(0) }
-    .accessibilityAction(named: "Serve") {
-      session.scene.engine.requestServe(session.scene.engine.scoring.server)
-      session.snapshot = session.scene.engine
-    }
-    .accessibilityAction(named: "Serve wide") { session.scene.engine.chooseServe(.wide, side: 0) }
-    .accessibilityAction(named: "Serve center") { session.scene.engine.chooseServe(.center, side: 0) }
-    .accessibilityAction(named: "Serve body") { session.scene.engine.chooseServe(.body, side: 0) }
+      .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : "On court")
+      .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
+      .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
+      .accessibilityAction(named: "Move to contact") {
+        session.scene.engine.tapCourt(0, at: session.scene.engine.intercept(0))
+      }
+      .accessibilityAction(named: "Recover") { session.scene.engine.recover(0) }
+      .accessibilityAction(named: "Approach the net") { session.scene.engine.followShot(0) }
+      .accessibilityAction(named: "Split step") { session.scene.engine.beginSplit(0) }
+      .accessibilityAction(named: "Serve") {
+        session.scene.engine.requestServe(session.scene.engine.scoring.server)
+        session.snapshot = session.scene.engine
+      }
+      .accessibilityAction(named: "Serve wide") { session.scene.engine.chooseServe(.wide, side: 0) }
+      .accessibilityAction(named: "Serve center") { session.scene.engine.chooseServe(.center, side: 0) }
+      .accessibilityAction(named: "Serve body") { session.scene.engine.chooseServe(.body, side: 0) }
+  }
+  private var courtView: some View {
+    movementControls.accessibilityIdentifier("livePracticeCourt")
+      .accessibilityAction(named: "Down the line") { session.scene.engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0) }
+      .accessibilityAction(named: "Crosscourt") {
+        session.scene.engine.selectShotSwipe(Vec(x: game.players[0].pos.x < PracticeEngine.width / 2 ? 35 : -35, y: -35), side: 0)
+      }
+      .accessibilityAction(named: "Short angle") {
+        session.scene.engine.selectShotSwipe(Vec(x: game.players[0].pos.x < PracticeEngine.width / 2 ? 40 : -40, y: 0), side: 0)
+      }
+      .accessibilityAction(named: "Lob") { session.scene.engine.selectShotSwipe(Vec(x: 0, y: 40), side: 0) }
+      .accessibilityAction(named: "Drop shot") {
+        if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .drop) }
+      }
+      .accessibilityAction(named: "Crosscourt slice") {
+        if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .slice) }
+      }
   }
   var body: some View {
-    let landscape = courtHeight == .compact
-    let layout = landscape ? AnyLayout(HStackLayout(spacing:0)) : AnyLayout(VStackLayout(spacing:0))
-    return VStack(spacing: 0) {
-      layout {
-        CourtBillboard(game: game, paused: session.paused, miss: session.coachMiss, onLeave: requestExit, onHelp: {
-          resumeAfterGuide = !session.paused
-          session.pause()
-          showCoach = true
-        }, onPause: {
-          if session.paused { session.resume() } else { session.pause() }
-        }).frame(width:landscape ? 180 : nil)
-        ZStack {
-          courtView
-          .accessibilityAction(named: "Down the line") { session.scene.engine.selectShotSwipe(Vec(x: 0, y: -40), side: 0) }
-          .accessibilityAction(named: "Crosscourt") {
-            session.scene.engine.selectShotSwipe(Vec(x: game.players[0].pos.x < PracticeEngine.width / 2 ? 35 : -35, y: -35), side: 0)
+    ZStack {
+      courtView.ignoresSafeArea()
+      if !session.paused, !session.scene.isIntroducingCourt, game.humanServing,
+         let serve = game.displayedServeGauges, serve.canTune {
+        GeometryReader { geometry in
+          // The outer thirds leave room for the athlete and racket on both service sides.
+          let width = min(144, geometry.size.width * 0.34)
+          HStack(spacing: 0) {
+            ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime,
+              editable: true) { setServe(speed: $0, side: serve.server) }
+              .frame(width: width)
+            Spacer(minLength: 0)
+            ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint,
+              editable: true) { setServe(spin: $0, side: serve.server) }
+              .frame(width: width)
           }
-          .accessibilityAction(named: "Short angle") {
-            session.scene.engine.selectShotSwipe(Vec(x: game.players[0].pos.x < PracticeEngine.width / 2 ? 40 : -40, y: 0), side: 0)
-          }
-          .accessibilityAction(named: "Lob") { session.scene.engine.selectShotSwipe(Vec(x: 0, y: 40), side: 0) }
-          .accessibilityAction(named: "Drop shot") {
-            if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .drop) }
-          }
-          .accessibilityAction(named: "Crosscourt slice") {
-            if session.scene.engine.canChooseShot(0) { session.scene.engine.choose(0, .slice) }
-          }
-          if !session.paused, let serve = game.displayedServeGauges {
-            GeometryReader { geometry in
-              // The outer thirds leave room for the athlete and racket on both service sides.
-              let width = min(144, geometry.size.width * 0.34)
-              let editable = game.humanServing && serve.canTune
-              HStack(spacing: 0) {
-                ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime,
-                  editable: editable) { setServe(speed: $0, side: serve.server) }
-                  .frame(width: width)
-                Spacer(minLength: 0)
-                ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint,
-                  editable: editable) { setServe(spin: $0, side: serve.server) }
-                  .frame(width: width)
-              }
-              .environment(\.layoutDirection, .leftToRight)
-              .padding(.horizontal, 12)
-              .rotationEffect(.degrees(serve.server == 1 && game.settings.local ? 180 : 0))
-              .frame(maxHeight: .infinity, alignment: serve.server == 0 ? .bottom : .top)
-              .allowsHitTesting(game.humanServing)
-            }
-          }
-          if let power = game.inventory.held, !game.settings.tournament, game.phase.isPlaying && !session.paused {
-            Button {
-              session.scene.engine.usePower()
-              session.scene.publish?(session.scene.engine)
-            } label: {
-              Image(systemName: game.inventory.armed == true ? "checkmark" : power.symbol)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.black)
-                .frame(width: 30, height: 30)
-                .background(Color.mint, in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1))
-                .frame(width: 44, height: 44).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).disabled(!game.canUsePower)
-            .accessibilityLabel(power.rawValue).accessibilityValue(game.inventory.armed == true ? "Armed" : "Ready")
-            .accessibilityHint(power.hint).accessibilityIdentifier("courtPower")
-            .padding(.trailing, 2).padding(.bottom, game.displayedServeGauges?.server == 0 ? 35 : 1)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-          }
-          if let event = game.coach.events.last, event.success, game.phase.isPlaying && game.time - game.coach.lastEventAt < 1.5 {
-            VStack {
-              Text("\(event.success ? "+2" : "−1") CP · \(event.rule.title)")
-                .font(.caption.weight(.semibold)).foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 7)
-                .background(event.success ? TennisTheme.green.opacity(0.94) : Color.black.opacity(0.8), in: Capsule())
-                .padding(.top, 8)
-              Spacer()
-            }.allowsHitTesting(false)
-          }
+          .environment(\.layoutDirection, .leftToRight)
+          .padding(.horizontal, 12)
+          .padding(serve.server == 0 ? .bottom : .top, serve.server == 0 ? 2 : 44)
+          .rotationEffect(.degrees(serve.server == 1 && game.settings.local ? 180 : 0))
+          .frame(maxHeight: .infinity, alignment: serve.server == 0 ? .bottom : .top)
         }
-      }.clipShape(RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 4).padding(.bottom, 4)
-    }.frame(maxWidth: 900).frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(TennisTheme.cream).foregroundStyle(TennisTheme.ink)
-      .accessibilityHidden(game.showsPointResult && !session.paused && !showCoach)
+      }
+      if let power = game.inventory.held, !game.settings.tournament, game.phase.isPlaying && !session.paused {
+        Button {
+          session.scene.engine.usePower()
+          session.scene.publish?(session.scene.engine)
+        } label: {
+          Image(systemName: game.inventory.armed == true ? "checkmark" : power.symbol)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(Color.black)
+            .frame(width: 30, height: 30)
+            .background(Color.mint, in: Circle())
+            .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1))
+            .frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).disabled(!game.canUsePower)
+        .accessibilityLabel(power.rawValue).accessibilityValue(game.inventory.armed == true ? "Armed" : "Ready")
+        .accessibilityHint(power.hint).accessibilityIdentifier("courtPower")
+        .padding(.trailing, 2).padding(.bottom, game.displayedServeGauges?.server == 0 ? 35 : 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+      }
+      if let event = game.coach.events.last, event.success, game.phase.isPlaying && game.time - game.coach.lastEventAt < 1.5 {
+        VStack {
+          Text("\(event.success ? "+2" : "−1") CP · \(event.rule.title)")
+            .font(.caption.weight(.semibold)).foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(event.success ? TennisTheme.green.opacity(0.94) : Color.black.opacity(0.8), in: Capsule())
+            .padding(.top, 8)
+          Spacer()
+        }.allowsHitTesting(false)
+      }
+      if !session.paused && game.phase != .ready && !game.showsPointResult {
+        Button { session.pause() } label: { CourtControlIcon(symbol: "pause.fill") }
+          .buttonStyle(.plain).accessibilityLabel("Pause practice")
+          .padding(.trailing, 6).padding(.top, 2)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+      }
+    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(Color.black.ignoresSafeArea()).statusBarHidden(true)
+      .accessibilityHidden(game.showsPointResult && !session.paused)
       .overlay {
-        if game.showsPointResult && !session.paused && !showCoach {
+        if game.showsPointResult && !session.paused {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
             onRetry: retrySeed == nil || game.coach.records.last?.winner != 1 || game.settings.local ? nil : { training = .retry },
             contact: session.scene.performance.replay.heights[0]?.label,
@@ -327,11 +321,8 @@ struct PracticeGameView: View {
         if paused && game.settings.clubEncounter != nil && saveError == nil { checkpoint() }
       }
       .onChange(of: game.inventory) { _, _ in checkpoint() }
-      .fullScreenCover(isPresented: $showCoach, onDismiss: {
-        if resumeAfterGuide && scenePhase == .active { session.resume() }
-      }) { CourtGuideView() }
       .sheet(isPresented: Binding(
-        get: { !showCoach && ((game.phase == .ready && (!startImmediately || saveError != nil)) || session.paused) },
+        get: { ((game.phase == .ready && (!startImmediately || saveError != nil)) || session.paused) },
         set: { shown in if !shown && session.paused && !confirmingExit { session.resume() } }
       )) {
         PracticeSessionSheet(session: session, confirmingExit: confirmingExit, saveError: saveError,
@@ -379,7 +370,7 @@ struct PracticeGameView: View {
     session.pause()
   }
   private func requestExit() {
-    resumeAfterCancel = game.phase != .ready && !session.paused
+    resumeAfterCancel = game.phase != .ready
     if resumeAfterCancel { session.pause() }
     confirmingExit = true
   }
@@ -398,7 +389,7 @@ struct PracticeGameView: View {
   }
 }
 
-private struct ServeGauge: View {
+struct ServeGauge: View {
   let title: String
   let level: ServeLevel
   let tint: Color
@@ -533,7 +524,11 @@ struct PracticeSessionSheet: View {
               Button("How to play", systemImage: "questionmark.circle") { showGuide = true }
               Spacer()
               Button("Leave court", systemImage: "door.left.hand.open", action: onLeave)
+                .accessibilityLabel("Leave practice")
             }.font(.subheadline.weight(.medium)).buttonStyle(.borderless).frame(minHeight: 44)
+          }
+          if session.paused && !confirmingExit && game.phase != .ready {
+            PausedCourtCoach(game: game, miss: session.coachMiss)
           }
         }.padding(.horizontal,20).padding(.vertical,10)
       }.background(Color(uiColor: .systemGroupedBackground)).navigationTitle(title).navigationBarTitleDisplayMode(.inline)

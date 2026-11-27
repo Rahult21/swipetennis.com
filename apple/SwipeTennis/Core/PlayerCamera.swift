@@ -22,9 +22,16 @@ struct PlayerCamera {
     let baseline = style == .baseline && !reduceMotion
     let amount = baseline ? t*t*(3-2*t) : 0
     let own = player.world()
-    let closeTarget = CourtPoint3D(0.86*trackedX+0.14*4.115,0.95,own.z-sign*(5.7+1.6*wide))
+    // Frame the playable lane between the receiver and the next target. A
+    // portrait camera pointed only at the player has to retreat far behind
+    // the baseline to keep a crosscourt return in view.
+    let trackingWeight = 0.68 + 0.16*wide
+    let nextX = Float((receiver ?? recovery ?? player).x)
+    let lookAcross = max(-1.55,min(1.55,(nextX-own.x)*0.30))*(1-0.8*wide)
+    let focusX = 4.115+(trackedX-4.115)*trackingWeight+lookAcross
+    let closeTarget = CourtPoint3D(focusX,0.78,own.z-sign*(6.8+0.7*wide))
     let goal = broadcastTarget+(closeTarget-broadcastTarget)*amount
-    let closeDir = simd_normalize(CourtPoint3D(0,0.365+0.05*wide,sign))
+    let closeDir = simd_normalize(CourtPoint3D(0,0.535-0.06*wide,sign))
     let view = simd_normalize(direction+(closeDir-direction)*amount)
     let fov = (53+5*wide)*(1-amount)+(45+3*wide)*amount
     let xAxis = simd_normalize(simd_cross([0,1,0],view)), yAxis = simd_cross(view,xAxis)
@@ -49,7 +56,7 @@ struct PlayerCamera {
         include(own+[dx,3.12,0],margin:1.12)
       }
       let far = side == 0 ? Float(-1.1) : 24.87
-      for x: Float in [-1,9.23] { include([x,1.95,far],margin:1.08) }
+      for x: Float in [-0.42,8.65] { include([x,1.95,far],margin:1.08) }
       for point in [receiver,recovery].compactMap({$0}) {
         for dx: Float in [-0.82,0.82] { include(point.world()+[dx,0,sign*0.45],margin:1.13) }
       }

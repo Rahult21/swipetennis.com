@@ -44,10 +44,21 @@ import UIKit
     let hip = (p[.leftHip]+p[.rightHip])*0.5
     for (i, shadow) in footShadows.enumerated() {
       let foot = p[i == 0 ? .leftShoe : .rightShoe]
-      let contact = max(0,1-max(0,foot.y-0.06)/0.35)
+      var center = foot, height = max(0,foot.y-0.06), length: Float = 0.38
+      if let sole = athlete?.soles[i] {
+        // The contact shadow follows the lowest part of the actual shoe.
+        // On a pivot it gathers under the toes as the heel lifts off court.
+        let line = sole.toe-sole.heel
+        let balance = 0.50+0.43*tanh((sole.heel.y-sole.toe.y)*13)
+        center = sole.heel+line*balance
+        height = max(0,min(sole.heel.y,sole.toe.y))
+        length = hypot(line.x,line.z)+0.055-abs(balance-0.5)*0.24
+        shadow.orientation = simd_quatf(angle:atan2(line.x,line.z),axis:[0,1,0])
+      }
+      let contact = max(0,1-height/0.25)
       shadow.isEnabled = contact > 0.03
-      shadow.position = [foot.x,0.011,foot.z]
-      shadow.scale = [0.28*contact,1,0.42*contact]
+      shadow.position = [center.x,0.011,center.z]
+      shadow.scale = [0.21*contact,1,length*contact]
     }
     stamp.position = [hip.x,0.008,hip.z]; stamp.scale = [0.96,1,0.65]
   }

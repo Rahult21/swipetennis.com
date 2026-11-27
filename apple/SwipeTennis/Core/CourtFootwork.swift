@@ -24,13 +24,22 @@ struct CourtFootwork {
   private var progress: Float = 0
   private var length: Float = 0.4
 
+  /// Take ownership of both ground contacts at the end of a receiver's hop.
+  /// Subsequent strides pick each shoe up from its actual landing spot.
+  mutating func landSplit(leftOffset: CourtPoint3D, rightOffset: CourtPoint3D) {
+    left += leftOffset; right += rightOffset
+    left.y = 0; right.y = 0
+    shuffleLeft = left; shuffleRight = right
+    stepping = false; replanting = false
+  }
+
   mutating func advance(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
-    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1, surface: CourtSurface = .hard) {
+    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float = 1, surface: CourtSurface = .hard, rightStrideBias: CourtPoint3D = .zero) {
     let restarted = previous.map { simd_distance(centre,$0) >= 1.8 } ?? true
     left = shuffleLeft
     right = shuffleRight
     shuffle(centre:centre,velocity:velocity,destination:destination,facing:facing,
-            strideBias:strideBias,dt:dt,readiness:readiness,surface:surface)
+            strideBias:strideBias,rightBias:rightStrideBias,dt:dt,readiness:readiness,surface:surface)
     shuffleLeft = left
     shuffleRight = right
     if restarted {
@@ -118,7 +127,7 @@ struct CourtFootwork {
   }
 
   private mutating func shuffle(centre: CourtPoint3D, velocity: CourtPoint3D, destination: CourtPoint3D,
-    facing: Float, strideBias: CourtPoint3D, dt: Float, readiness: Float, surface: CourtSurface) {
+    facing: Float, strideBias: CourtPoint3D, rightBias: CourtPoint3D, dt: Float, readiness: Float, surface: CourtSurface) {
     let base = CourtPoint3D((0.175 + 0.070 * readiness) * facing, 0, (0.025 + 0.03 * readiness) * facing)
     guard let last = previous, simd_distance(centre, last) < 1.8 else {
       previous = centre; left = centre - base; right = centre + base
@@ -136,7 +145,7 @@ struct CourtFootwork {
       length = lateral ? min(0.57, 0.15 + speed * 0.13) : min(0.78, 0.21 + speed * 0.13)
       if surface == .grass { length *= 0.84 }
       let lead = moving ? velocity / speed * min(remaining, length * 1.15) : .zero
-      let goals = (left: centre - base + lead + strideBias, right: centre + base + lead)
+      let goals = (left: centre - base + lead + strideBias, right: centre + base + lead + rightBias)
       let leftGap = simd_distance(left, goals.left), rightGap = simd_distance(right, goals.right)
       guard max(leftGap, rightGap) > (moving ? 0.085 : 0.04 + 0.075 * readiness) else {
         if !moving { lateralDirection = 0 }
