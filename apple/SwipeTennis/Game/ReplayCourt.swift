@@ -83,6 +83,8 @@ enum ReplayAngle: String, CaseIterable {
 @MainActor final class CourtReplayView: ARView {
   private let court = AnchorEntity(world: .zero)
   private let scenery = Entity()
+  private static var skies: [String:EnvironmentResource] = [:]
+  private static var ballMaterial: SimpleMaterial?
   private static var venueTemplate: (venue: TennisVenue, guides: Bool, scenery: Entity)?
   private let camera = PerspectiveCamera()
   private let impression: ModelEntity
@@ -104,7 +106,15 @@ enum ReplayAngle: String, CaseIterable {
       : surface == .grass ? UIColor(red:0.35,green:0.40,blue:0.22,alpha:1) : UIColor(white:0.69,alpha:1)
     impression = ModelEntity(mesh:sphere,materials:[SimpleMaterial(color:markColor,roughness:1,isMetallic:false)])
     impression.isEnabled = false
-    ball = ModelEntity(mesh: sphere, materials: [SimpleMaterial(color: UIColor(red: 0.90, green: 0.99, blue: 0.16, alpha: 1), roughness: 0.85, isMetallic: false)])
+    if Self.ballMaterial == nil {
+      var felt = SimpleMaterial(color:UIColor(red:0.87,green:0.96,blue:0.21,alpha:1),roughness:1,isMetallic:false)
+      if let image = UIImage(named:"match-ball")?.cgImage,
+         let map = try? TextureResource.generate(from:image,options:.init(semantic:.color)) {
+        felt.color = .init(tint:.white,texture:.init(map))
+      }
+      Self.ballMaterial = felt
+    }
+    ball = ModelEntity(mesh:sphere,materials:[Self.ballMaterial!])
     powerTrail = (0..<6).map { index in
       let material = UnlitMaterial(color: UIColor(red: 0.96, green: 0.98, blue: 0.52, alpha: 0.45 - CGFloat(index)*0.055))
       let dot = ModelEntity(mesh: sphere, materials: [material])
@@ -146,6 +156,12 @@ enum ReplayAngle: String, CaseIterable {
       rim.look(at:[4,0,12],from:[19,15,-7],relativeTo:nil)
       court.addChild(rim)
     }
+    if #available(iOS 18, *) {
+      // Fit the shadow map to the playable court. Seat instances and the
+      // distant skyline contribute no extra shadow passes.
+      sun.shadow = .init(shadowProjection:.fixed(zNear:0.1,zFar:65,orthographicScale:studio ? 8 : 39),
+                         depthBias:0.9)
+    } else { sun.shadow = .init(maximumDistance:38,depthBias:0.9) }
     sun.look(at: [4,0,12], from: lightPosition, relativeTo: nil)
     court.addChild(sun)
     if studio {
@@ -163,11 +179,25 @@ enum ReplayAngle: String, CaseIterable {
       if selected == .night {
         environment.background = .color(UIColor(red: 0.055, green: 0.075, blue: 0.16, alpha: 1))
       }
+      let sky = selected == .night ? "night" : selected == .mesa ? "late" : "day"
+      if #available(iOS 18, *) {
+        if Self.skies[sky] == nil, let image = UIImage(named:"venue-sky-"+sky)?.cgImage {
+          Self.skies[sky] = try? EnvironmentResource(equirectangular:image)
+        }
+        if let resource = Self.skies[sky] {
+          environment.background = .skybox(resource)
+          environment.lighting.resource = resource
+          environment.lighting.intensityExponent = selected == .night ? 0.2 : 0.55
+        }
+      }
       // Reuse immutable meshes and materials when a point cuts to the replay camera.
       if let cached = Self.venueTemplate, cached.venue == selected, cached.guides == guides {
         court.addChild(cached.scenery.clone(recursive: true))
       } else {
         buildCourt(selected, guides: guides)
+        if #available(iOS 18, *) {
+          for node in scenery.children { node.components.set(DynamicLightShadowComponent(castsShadow:false)) }
+        }
         Self.venueTemplate = (selected, guides, scenery.clone(recursive: true))
         court.addChild(scenery)
       }
@@ -281,34 +311,71 @@ enum ReplayAngle: String, CaseIterable {
         lane.position = [x,-0.001,11.885]; scenery.addChild(lane)
       }
     }
-    // Architecture changes with the venue. Keep the player's end and sightlines clear.
+    let structure = ReplayMeshLines(), fascia = ReplayMeshLines(), lamps = ReplayMeshLines()
     for end: Float in [-1,1] {
-      let z: Float = 11.885 + end*27
+      let z: Float = 11.885 + end*29.1
       switch venue {
       case .lawn:
-        for bay in 0..<7 {
-          let x = -8 + Float(bay)*4
-          box([x,6,z],[3.75,3.4,1.8],surround)
-          box([x,7.8,z],[4.1,0.24,2.9],UIColor(white:0.83,alpha:1))
+        // An open gallery above the back row; the spectators below stay visible.
+        for bay in 0..<8 {
+          let x = -9.8+Float(bay)*3.96
+          structure.line([x,4.9,z],[x,8.3,z],radius:0.070)
+          for dz: Float in [-1,1] {
+            structure.line([x,7.58,z+dz*1.9],[x,8.34,z],radius:0.09)
+            fascia.box(center:[x+1.86,7.60,z+dz*1.95],size:[3.83,0.17,0.13])
+            let roof = ModelEntity(mesh:.generateBox(size:[3.99,0.13,2.19]),
+              materials:[SimpleMaterial(color:surround,roughness:0.9,isMetallic:false)])
+            roof.position=[x+1.88,7.99,z+dz*0.97]
+            roof.orientation = simd_quatf(angle:dz*0.34,axis:[1,0,0])
+            scenery.addChild(roof)
+          }
         }
       case .mesa:
-        for tower in 0..<6 {
-          let x = -10 + Float(tower)*5.4
-          box([x,4,z],[1.15,8.0,2.2],surround)
-          box([x+2.3,7.9,z],[4.7,0.35,2.2],surround)
+        for bay in 0..<7 {
+          let x = -10.2+Float(bay)*4.35
+          structure.box(center:[x,4.05,z],size:[0.32,8.1,0.8])
+          for i in 0..<10 {
+            func arch(_ step: Int) -> CourtPoint3D {
+              let a = Float(step)*Float.pi/10
+              return [x+2.16-cos(a)*2.16,6.36+sin(a)*1.77,z]
+            }
+            structure.line(arch(i),arch(i+1),radius:0.185)
+          }
+          fascia.box(center:[x+2.14,8.46,z],size:[4.34,0.16,2.15])
         }
       case .harbor:
-        for bay in 0..<5 {
-          box([-7+Float(bay)*5.3,7.6,z],[4.7,0.18,4.2],.white)
-          box([-7+Float(bay)*5.3,5.1,z+end],[0.16,5,0.16],.lightGray)
+        for bay in 0..<6 {
+          let x = -10.4+Float(bay)*5.0
+          structure.line([x,3.5,z+end*0.6],[x,8.25,z+end*0.35],radius:0.10)
+          structure.line([x,8.17,z+end*0.35],[x+3.92,7.38,z-end*2.3],radius:0.044)
+          structure.line([x,8.17,z+end*0.35],[x-0.3,7.38,z-end*2.3],radius:0.044)
+          let awning = ModelEntity(mesh:.generateBox(size:[4.65,0.09,3.05]),
+            materials:[SimpleMaterial(color:UIColor(white:0.86,alpha:1),roughness:0.94,isMetallic:false)])
+          awning.position = [x+1.88,7.59,z-end*0.94]
+          awning.orientation = simd_quatf(angle:-end*0.14,axis:[1,0,0])
+          scenery.addChild(awning)
         }
       case .night:
         for x: Float in [-12,20] {
-          box([x,5.8,z],[0.26,11.6,0.26],.darkGray)
-          box([x,11.7,z],[3.3,0.62,0.35],.white)
+          for dx: Float in [-0.33,0.33] { structure.line([x+dx,3,z],[x+dx*0.66,11.9,z],radius:0.075) }
+          for i in 0..<8 {
+            let y = Float(i)+3.6
+            structure.line([x-0.28,y,z],[x+0.28,y+0.72,z],radius:0.035)
+          }
+          structure.box(center:[x,11.74,z],size:[3.5,1.02,0.21])
+          for row in 0..<2 { for col in 0..<7 {
+            lamps.oval([x-1.41+Float(col)*0.47,11.49+Float(row)*0.49,z-end*0.16],radii:[0.161,0.166,0.069])
+          } }
         }
-        box([4.1,6.4,z],[33,0.12,0.4],.systemIndigo)
+        fascia.box(center:[4.1,6.65,z],size:[32,0.15,0.28])
       }
+    }
+    scenery.addChild(structure.model(color:venue == .mesa ? UIColor(red:0.62,green:0.36,blue:0.22,alpha:1) : .lightGray))
+    scenery.addChild(fascia.model(color:venue == .night ? .systemIndigo : UIColor(white:0.80,alpha:1)))
+    if night {
+      let bulbs = lamps.model(color:.white)
+      bulbs.model?.materials = [UnlitMaterial(color:UIColor(red:0.91,green:0.96,blue:1,alpha:1))]
+      scenery.addChild(bulbs)
     }
     let chalk = UIColor(white: 0.94, alpha: 1)
     for x: Float in [-1.37,0,8.23,9.60] { box([x,0.002,11.885], [0.05,0.005,23.77], chalk) }
@@ -397,41 +464,59 @@ enum ReplayAngle: String, CaseIterable {
       font:.systemFont(ofSize:0.54,weight:.semibold)),materials:[SimpleMaterial(color:chalk,roughness:0.9,isMetallic:false)])
     name.position = [4.115-name.visualBounds(relativeTo:nil).extents.x/2,1.08,-9.82]
     scenery.addChild(name)
-    let canopy = MeshResource.generateSphere(radius: 1)
-    let leaves = [UIColor(red: 0.15, green: 0.31, blue: 0.25, alpha: 1),
-      UIColor(red: 0.22, green: 0.38, blue: 0.29, alpha: 1),
-      UIColor(red: 0.28, green: 0.42, blue: 0.32, alpha: 1)].map {
-        SimpleMaterial(color: $0, roughness: 1, isMetallic: false)
+    // Cluster overlapping crowns into three meshes. A ragged canopy works in
+    // silhouette from the baseline without the draw cost of individual leaves.
+    let crowns = [ReplayMeshLines(),ReplayMeshLines(),ReplayMeshLines()]
+    let wood = ReplayMeshLines()
+    var seed: UInt32 = 713
+    func variation() -> Float {
+      seed = seed &* 1664525 &+ 1013904223
+      return Float(seed >> 8)/16_777_216
+    }
+    for end in 0...1 { for i in 0..<23 {
+      let x = -48+Float(i)*4.7+variation()*1.6
+      let depth = 1+variation()*7, h = 5.3+variation()*5.7
+      let at = CourtPoint3D(x,0,end == 0 ? -22-depth : 45.77+depth)
+      wood.line(at,at+[0,h*0.71,0],radius:0.18+variation()*0.11)
+      for j in 0..<13 {
+        let a = 2*Float.pi*Float(j)/13+variation()*0.38
+        let r = 0.4+1.88*variation(), weight = variation()
+        let branch = at+[r*cos(a),h*(0.59+0.27*weight),r*sin(a)]
+        let top = branch+[0,1+variation()*1.1,0]
+        if j%3 == 0 { wood.line(at+[0,h*0.37,0],branch,radius:0.09) }
+        let width = 1.14+variation()*0.83
+        crowns[(i+j)%3].oval(top,radii:[width,1.2+variation(),width*(0.75+variation()*0.4)])
       }
-    for end in 0...1 {
-      for i in 0..<19 {
-        let distance = Float((i*11 + end*3) % 5)
-        let height = 3.6 + Float((i*5+end) % 7)*0.36
-        let tree = ModelEntity(mesh: canopy, materials: [leaves[(i+end)%leaves.count]])
-        tree.position = [-32+Float(i)*4.1, 3.9, end == 0 ? -20-distance : 43.77+distance]
-        tree.scale = [3.0+distance*0.29,height,3.1]; scenery.addChild(tree)
-      }
+    } }
+    scenery.addChild(wood.model(color:UIColor(red:0.24,green:0.22,blue:0.17,alpha:1)))
+    for (i,color) in [UIColor(red:0.17,green:0.30,blue:0.21,alpha:1),
+      UIColor(red:0.23,green:0.35,blue:0.22,alpha:1),UIColor(red:0.30,green:0.40,blue:0.23,alpha:1)].enumerated() {
+      scenery.addChild(crowns[i].model(color:color))
     }
   }
 
-  func liveCamera(side: Int, intro: Float, nearX: Float, reduceMotion: Bool) {
-    let aspect = max(0.32,Float(bounds.width / max(bounds.height,1)))
-    let sign: Float = side == 0 ? 1 : -1
-    let wide = min(1,max(0,(aspect-0.75)/0.55))
-    let fov: Float = 53 + 5*wide
-    let target = CourtPoint3D(4.115,0.55,11.885+sign*(2.1+3.4*wide))
-    let follow = reduceMotion ? 0 : min(0.95,max(-0.95,(nearX-4.115)*0.23))
-    let t = reduceMotion ? 1 : intro
-    let direction = simd_normalize(CourtPoint3D(follow*0.11 + (1-t)*0.38,0.75-0.17*wide+(1-t)*2.4,sign))
-    let right = simd_normalize(simd_cross([0,1,0],direction)), up = simd_cross(direction,right)
-    let tangent = tan(fov * .pi / 360)
-    var distance: Float = 12
-    for x: Float in [-1.64,9.87] { for z: Float in [-2.4,26.4] {
-      let v = CourtPoint3D(x,0,z)-target
-      distance = max(distance,simd_dot(direction,v) + max(abs(simd_dot(right,v))/(aspect*tangent),abs(simd_dot(up,v))/tangent)*1.06)
-    }}
-    camera.camera.fieldOfViewInDegrees = fov
-    camera.look(at:target, from: target+direction*(distance+(1-t)*2.8), relativeTo:nil)
+  private var liveFrame: PlayerCamera?
+  private var previousAspect: Float = 0
+  private var previousDraw = 0.0
+  func liveCamera(side: Int, intro: Float, player: Vec, trackedX: Float, ball: CourtPoint3D,
+                  contact: Vec?, recovery: Vec?, style: MatchViewpoint, freeze: Bool, reduceMotion: Bool, time: Double) {
+    let aspect = max(0.32,Float(bounds.width/max(bounds.height,1)))
+    let rotated = abs(aspect-previousAspect)>0.04
+    let requested = PlayerCamera.frame(side:side,player:player,trackedX:trackedX,receiver:contact,recovery:recovery,
+      ball:ball,aspect:aspect,intro:intro,reduceMotion:reduceMotion,style:style)
+    if let last = liveFrame, !rotated, !reduceMotion && previousDraw <= time {
+      if !freeze {
+        let backingUp = simd_distance(requested.eye,requested.target)>simd_distance(last.eye,last.target)
+        let k = Float(1-exp(-max(0,min(0.1,time-previousDraw))*(backingUp ? 11 : 4.2)))
+        liveFrame = PlayerCamera(eye:last.eye+(requested.eye-last.eye)*k,target:last.target+(requested.target-last.target)*k,
+                                 verticalFOV:last.verticalFOV+(requested.verticalFOV-last.verticalFOV)*k)
+      }
+    } else { liveFrame = requested }
+    previousDraw = time; previousAspect = aspect
+    if let frame = liveFrame {
+      camera.camera.fieldOfViewInDegrees = frame.verticalFOV
+      camera.look(at:frame.target,from:frame.eye,relativeTo:nil)
+    }
   }
   func portraitCamera(azimuth: Float) {
     camera.camera.fieldOfViewInDegrees = 35
@@ -443,6 +528,7 @@ enum ReplayAngle: String, CaseIterable {
   func drawStudio(_ frame: RallyFrame, origin: CourtPoint3D, azimuth: Float, serve: Bool) {
     let centre = CourtPoint3D(origin.x,0,origin.z)
     players[0].draw(frame.near); players[1].draw(frame.far)
+    ball.orientation = frame.ballRotation
     ball.position = frame.ball
     ball.scale = .init(repeating:0.034)
     ball.isEnabled = true
@@ -466,6 +552,7 @@ enum ReplayAngle: String, CaseIterable {
       impression.scale = [0.055*v,0.001,0.115*v]
       impression.orientation = simd_quatf(angle:mark.direction,axis:[0,1,0])
     }
+    ball.orientation = frame.ballRotation
     ball.position = frame.ball
     shadow.position = [frame.ball.x,0.009,frame.ball.z]
     let shadeSize = 0.13 + 0.045 * min(4,frame.ball.y)

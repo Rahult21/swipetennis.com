@@ -137,6 +137,7 @@ struct SettingsView: View {
   @AppStorage("voice") var voice = false
   @AppStorage("tilt") var tilt = false
   @AppStorage("guides") var guides = true
+  @AppStorage("matchViewpoint") private var matchViewpoint = MatchViewpoint.baseline.rawValue
   @EnvironmentObject var store: AppStore
   var body: some View {
     Form {
@@ -152,6 +153,9 @@ struct SettingsView: View {
       Section {
         Toggle("Tilt to move", isOn: $tilt).disabled(!Immersion.shared.motionAvailable)
         Toggle("Contact & recovery guides", isOn: $guides)
+        Picker("Match camera",selection:$matchViewpoint) {
+          ForEach(MatchViewpoint.allCases,id:\.self) { Text($0.rawValue).tag($0.rawValue) }
+        }.accessibilityIdentifier("matchViewpoint")
       } header: {
         Text("Controls")
       } footer: {

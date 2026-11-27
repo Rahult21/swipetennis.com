@@ -94,6 +94,7 @@ import SwiftUI
   weak var stadium: CourtReplayView?
   private var entrance: Double = 0
   private var cameraPlayerX: Float = 4.115
+  private let matchCamera = MatchViewpoint(rawValue:UserDefaults.standard.string(forKey:"matchViewpoint") ?? "") ?? .baseline
   private var aimPreview: (side: Int, epoch: Int?, point: Vec)?
   var controlledSide: Int?
   var perspectiveSide = 0
@@ -594,7 +595,12 @@ import SwiftUI
   private func render() {
     guard actors.count == 2 else { return }
     if let stadium, !stadium.isReviewing, let frame = performance.frame {
-      stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/1.45)),nearX:cameraPlayerX,reduceMotion:reduceMotion)
+      let sharedScreen = engine.settings.local && controlledSide == nil
+      let style: MatchViewpoint = sharedScreen || engine.demo != nil ? .wide : matchCamera
+      stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/1.45)),
+        player:engine.players[perspectiveSide].pos,trackedX:cameraPlayerX,ball:frame.ball,
+        contact:engine.contactGuide(perspectiveSide),recovery:engine.recoveryGuide(perspectiveSide),
+        style:style,freeze:!touchGestures.isEmpty || !serveTouches.isEmpty,reduceMotion:reduceMotion,time:animationTime)
       stadium.draw(frame,angle:.neutral,reduceMotion:reduceMotion,powerBeat:nil,live:true)
     } else { positionPlayers() }
     actors.forEach { $0.isHidden = stadium != nil }

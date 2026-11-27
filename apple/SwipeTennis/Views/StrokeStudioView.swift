@@ -3,6 +3,7 @@ import SwiftUI
 struct StrokeStudioView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @State private var repeatStroke = false
   @State private var ready = false
   @State private var fittedMesh = false
   @State private var selectedPhase: String?
@@ -17,7 +18,9 @@ struct StrokeStudioView: View {
 
   private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
   private func cursor(_ clip: StrokeStudioClip) -> Double {
-    min(clip.duration,offset + (anchor.map { max(0,now-$0)*PointReplay.speed } ?? 0))
+    let elapsed = offset + (anchor.map { max(0,now-$0)*PointReplay.speed } ?? 0)
+    if repeatStroke && anchor != nil { return PointReplay.loopTime(elapsed,in:0...clip.duration) }
+    return min(clip.duration,elapsed)
   }
   private func freeze(_ time: Double) { offset = time; anchor = nil }
   private func start(_ clip: StrokeStudioClip) {
@@ -58,6 +61,17 @@ struct StrokeStudioView: View {
                 }.accessibilityLabel(anchor == nil ? "Play stroke" : "Pause stroke")
                 Slider(value:Binding(get:{ t },set:{ selectedPhase = nil; renderedPhase = nil; freeze($0) }),in:0...clip.duration)
                   .accessibilityLabel("Stroke timeline")
+                Button {
+                  let previous = cursor(clip)
+                  repeatStroke.toggle()
+                  if repeatStroke { start(clip) }
+                  else { offset = previous; if anchor != nil { anchor = now } }
+                } label: {
+                  Image(systemName:"repeat.1").frame(width:36,height:42)
+                }.foregroundStyle(repeatStroke ? Color.accentColor : Color.secondary)
+                  .accessibilityLabel(repeatStroke ? "Stop repeating stroke" : "Repeat stroke")
+                  .accessibilityIdentifier("studioRepeat")
+                  .accessibilityAddTraits(repeatStroke ? .isSelected : [])
                 Text("0.5×").font(.callout.monospacedDigit())
               }
               HStack {

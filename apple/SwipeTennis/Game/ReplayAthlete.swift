@@ -301,6 +301,27 @@ import UIKit
     }
   }
 
+  /// Elliptical cross-sections from the base up. The changing radius gives a
+  /// seated spectator a waist, shoulders and jaw without more draw calls.
+  func contour(_ origin: CourtPoint3D, rings: [(y: Float, x: Float, z: Float, lean: Float)]) {
+    let sectors = 10, base = UInt32(vertices.count)
+    for (row,ring) in rings.enumerated() {
+      let lo = rings[max(0,row-1)], hi = rings[min(rings.count-1,row+1)]
+      for i in 0..<sectors {
+        let a = 2*Float.pi*Float(i)/Float(sectors), c = cos(a), s = sin(a)
+        vertices.append(origin+[c*ring.x,ring.y,s*ring.z+ring.lean])
+        let tangent = CourtPoint3D(-s*ring.x,0,c*ring.z)
+        let slope = CourtPoint3D(c*(hi.x-lo.x),hi.y-lo.y,s*(hi.z-lo.z)+hi.lean-lo.lean)
+        normals.append(simd_normalize(simd_cross(slope,tangent)))
+        if row > 0 {
+          let upper = base + UInt32(row*sectors+i), next = base + UInt32(row*sectors+(i+1)%sectors)
+          let n = UInt32(sectors)
+          indices += [upper-n,upper,next,upper-n,next,next-n]
+        }
+      }
+    }
+  }
+
   func oval(_ center: CourtPoint3D, radii: CourtPoint3D) {
     let base = UInt32(vertices.count), sectors = 8
     for row in 0...4 {

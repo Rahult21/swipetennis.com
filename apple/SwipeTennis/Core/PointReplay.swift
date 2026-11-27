@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 struct BounceImpression {
   let serial: Int
@@ -18,6 +19,7 @@ struct RallyFrame {
   let far: AthletePose
   let ball: CourtPoint3D
   var bounce: BounceImpression? = nil
+  var ballRotation = simd_quatf(angle:0,axis:[0,1,0])
 
   func blended(to next: Self, by u: Float) -> Self {
     var mark = u >= 1 ? next.bounce : bounce
@@ -25,7 +27,7 @@ struct RallyFrame {
       mark?.age = old.age + (new.age - old.age) * Double(u)
     }
     return Self(near: near.blended(to: next.near, by: u), far: far.blended(to: next.far, by: u),
-      ball: ball + (next.ball - ball) * u, bounce: mark)
+      ball: ball + (next.ball - ball) * u, bounce:mark,ballRotation:simd_slerp(ballRotation,next.ballRotation,u))
   }
 }
 
@@ -51,6 +53,17 @@ struct PointReplay {
     guard let hit = strikes.last else { return nil }
     return bounceTimes.first { $0 >= hit.time }
   }
+  var contactWindow: ClosedRange<Double>? {
+    guard let strike = strikes.last else { return nil }
+    let low = max(0,strike.time-0.43), high = min(duration,strike.time+0.36)
+    return high-low >= Self.tick ? low...high : nil
+  }
+  static func loopTime(_ seconds: Double, in range: ClosedRange<Double>) -> Double {
+    let length = range.upperBound-range.lowerBound
+    guard length >= tick else { return range.lowerBound }
+    return range.lowerBound + max(0,seconds-range.lowerBound).truncatingRemainder(dividingBy:length)
+  }
+
   private(set) var decisions: [Int: DecisionSnapshot] = [:]
   private(set) var heights: [Int: ContactReading] = [:]
   private(set) var serviceRetry: PracticeEngine?
@@ -130,6 +143,7 @@ struct CourtPerformance {
   private var serial: Int
   private var bounceSerial: Int
   private var previousFlight: BallFlight?
+  private var spin = BallRotation()
   private var mark: BounceImpression?
   private(set) var frame: RallyFrame?
   private(set) var replay = PointReplay()
@@ -158,7 +172,8 @@ struct CourtPerformance {
       bounceSerial = game.bounceSerial
     }
     previousFlight = game.flight
-    let next = RallyFrame(near: near, far: far, ball: game.worldBall, bounce:mark)
+    spin.advance(game,dt:dt)
+    let next = RallyFrame(near:near,far:far,ball:game.worldBall,bounce:mark,ballRotation:spin.orientation)
     steps.removeAll(keepingCapacity:true)
     if dt > 0 && game.phase.isPlaying {
       for side in 0...1 {

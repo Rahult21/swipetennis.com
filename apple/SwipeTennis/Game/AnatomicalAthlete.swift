@@ -10,6 +10,7 @@ import UIKit
     case upperArmL, forearmL, handL, thighL, shinL, footL
     case upperArmR, forearmR, handR, thighR, shinR, footR
     case palmL, gripAxisL, palmR, gripAxisR
+    case eyeL, eyeR, toeL, toeR, heelL, heelR
   }
   let entity: ModelEntity
   private let rest: [SIMD3<Float>]
@@ -80,6 +81,9 @@ import UIKit
       image = body+"Hair.png"
       mat.faceCulling = .none
       mat.opacityThreshold = 0.37
+    case "Wristband":
+      color = kit.wristband == .match ? kit.color.tint : .white
+      hidden = kit.wristband == .none; image = "CourtKit.jpg"
     case "Eyes":
       image = "AthleteEyes.jpg"; mat.roughness = .init(floatLiteral:0.27)
     case "Shoe": image = "CourtShoes.jpg"
@@ -151,7 +155,12 @@ import UIKit
     set(.chest,at:shoulder+chest.act(anchor(.chest)-shoulderMid),rotation:chest)
     let neck = shoulder+chest.act(anchor(.neck)-shoulderMid)
     set(.neck,at:neck,rotation:simd_slerp(chest,head,0.5))
-    set(.head,at:neck+head.act(anchor(.head)-anchor(.neck)),rotation:head)
+    let headCenter = neck+head.act(anchor(.head)-anchor(.neck))
+    set(.head,at:headCenter,rotation:head)
+    let eyes = head * simd_quatf(angle:-gaze.x*0.16,axis:[0,1,0]) * simd_quatf(angle:gaze.y*0.12,axis:[1,0,0])
+    for eye in [Joint.eyeL,.eyeR] {
+      set(eye,at:headCenter+head.act(anchor(eye)-anchor(.head)),rotation:eyes)
+    }
     // The shaft passes through the baked palm landmark, between thumb and
     // curled fingers. The elbow fixes the roll around that shaft.
     func handBasis(_ axis: SIMD3<Float>, towardWrist: SIMD3<Float>) -> simd_quatf {
@@ -193,7 +202,13 @@ import UIKit
       let h = hip+hips.act(anchor(thigh)-hipMid), k = p[right ? .rightKnee : .leftKnee]
       let feet = footFacing * simd_quatf(angle:p.shoeYaw[right ? 1 : 0],axis:[0,1,0])
         * simd_quatf(angle:-p.heelPitch,axis:[1,0,0])
-      let ankle = p[right ? .rightShoe : .leftShoe] + feet.act([0,0.034,0])
+      let shoe = p[right ? .rightShoe : .leftShoe]
+      let toe = anchor(right ? .toeR : .toeL)-anchor(foot)
+      let heel = anchor(right ? .heelR : .heelL)-anchor(foot)
+      // The planted toe remains on its spot while the heel rolls up.
+      var ankle = shoe + footFacing.act(toe) - feet.act(toe)
+      let lift = max(0,shoe.y-0.06-0.14*sin(p.heelPitch))
+      ankle.y = lift-min(feet.act(toe).y,feet.act(heel).y)
       _ = align(thigh,end:shin,from:h,to:k,base:hips,pole:(anchor(foot)-anchor(shin),ankle-k))
       _ = align(shin,end:foot,from:k,to:ankle,base:hips)
       set(foot,at:ankle,rotation:feet)

@@ -28,6 +28,7 @@ struct PointReplayView: View {
   @State private var resumeAfterScrub = false
   @State private var playbackID = 0
   @State private var decision = false
+  @State private var looping = false
   @State private var ready = false
   @State private var highlight: Image?
 
@@ -38,7 +39,9 @@ struct PointReplayView: View {
   }
   private var clock: TimeInterval { ProcessInfo.processInfo.systemUptime }
   private var cursor: Double {
-    min(review.clip.duration, offset + (anchor.map { max(0, clock - $0) * PointReplay.speed } ?? 0))
+    let elapsed = offset + (anchor.map { max(0, clock - $0) * PointReplay.speed } ?? 0)
+    if looping, let window = review.clip.contactWindow { return PointReplay.loopTime(elapsed,in:window) }
+    return min(review.clip.duration,elapsed)
   }
   private func pause() { offset = cursor; anchor = nil }
   private func play() {
@@ -51,6 +54,7 @@ struct PointReplayView: View {
   }
   private func inspect(_ time: Double) {
     pause()
+    looping = false
     seek(time)
   }
   private func timeText(_ time: Double) -> String {
@@ -99,7 +103,18 @@ struct PointReplayView: View {
                     .frame(width: 44,height: 44)
                 }.accessibilityLabel(anchor != nil ? "Pause replay" : "Play replay")
                   .accessibilityIdentifier("replayPlay")
-                Slider(value: Binding(get: { time }, set: seek), in: 0...max(PointReplay.tick,review.clip.duration)) { editing in
+                if let window = review.clip.contactWindow {
+                  Button {
+                    if looping { let here = cursor; looping = false; seek(here) }
+                    else { looping = true; seek(window.lowerBound); play() }
+                  } label: {
+                    Image(systemName:"repeat.1").frame(minWidth:34,minHeight:44)
+                  }.foregroundStyle(looping ? Color.accentColor : Color.secondary)
+                    .accessibilityLabel(looping ? "Stop looping contact" : "Loop racket contact")
+                    .accessibilityAddTraits(looping ? .isSelected : [])
+                    .accessibilityIdentifier("loopContact")
+                }
+                Slider(value: Binding(get: { time }, set: { looping = false; seek($0) }), in: 0...max(PointReplay.tick,review.clip.duration)) { editing in
                   if editing { resumeAfterScrub = anchor != nil; pause() }
                   else if resumeAfterScrub { resumeAfterScrub = false; play() }
                 }.accessibilityLabel("Point timeline").accessibilityValue(timeText(time))

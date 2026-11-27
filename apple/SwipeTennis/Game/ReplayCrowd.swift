@@ -37,11 +37,21 @@ import UIKit
     let palette = Self.shirts + Self.skin + [Self.trousers, Self.hair]
     for v in 0..<Self.variants {
       let cloth = ReplayMeshLines(), body = ReplayMeshLines(), pants = ReplayMeshLines(), hair = ReplayMeshLines()
-      let lean = Float(v%3)*0.05, tilt = Float(v%5-2)*0.032
+      let lean = Float(v%3)*0.058, tilt = Float(v%5-2)*0.026
       let neck = CourtPoint3D(tilt,0.55,-lean)
-      cloth.oval([0,0.29,-lean/2], radii: [0.211,0.31,0.13])
-      body.oval(neck + [0,0.125,0], radii: [0.103,0.143,0.109])
-      hair.oval(neck + [0,0.208,0.012], radii: [0.107,0.077,0.109])
+      let breadth = 0.89 + Float(v%4)*0.055
+      cloth.contour([0,0,0],rings:[(0.025,0.155,0.115,0),(0.12,0.166,0.12,-lean*0.2),
+        (0.31,0.158*breadth,0.112,-lean*0.65),(0.425,0.205*breadth,0.125,-lean),
+        (0.49,0.203*breadth,0.105,-lean),(0.54,0.078,0.075,-lean)])
+      body.line(neck+[0,-0.032,0],neck+[0,0.078,0],radius:0.058)
+      body.contour(neck,rings:[(0.049,0.048,0.056,-0.027),(0.08,0.078,0.082,-0.017),
+        (0.14,0.091,0.103,-0.003),(0.209,0.092,0.097,0.002),(0.246,0.058,0.071,0.006)])
+      body.oval(neck+[0,0.139,-0.099],radii:[0.023,0.035,0.025])
+      hair.contour(neck,rings:[(0.172,0.092,0.081,0.019),(0.208,0.096,0.105,0.006),
+        (0.258,0.078,0.088,0.009),(0.276,0.022,0.031,0.012)])
+      for ear: Float in [-1,1] {
+        body.oval(neck+[ear*0.092,0.142,0.013],radii:[0.014,0.027,0.016])
+      }
       if v % 4 == 0 { cloth.oval(neck + [0,0.195,-0.055], radii: [0.12,0.035,0.147]) }
       if v % 5 == 1 { hair.oval(neck + [0,0.08,0.082],radii:[0.072,0.15,0.064]) }
       for side: Float in [-1,1] {
@@ -55,9 +65,11 @@ import UIKit
         }
         body.oval(hand,radii:[0.042,0.050,0.040])
         cloth.line(shoulder,elbow,radius: 0.072); body.line(elbow,hand,radius: 0.046)
-        let knee = CourtPoint3D(side*0.135,-0.02,-0.33)
+        let knee = CourtPoint3D(side*(0.136+Float(v%4)*0.014),-0.02,-0.30-0.016*Float(v%4))
         pants.line([side*0.12,0.04,0],knee,radius: 0.095)
-        pants.line(knee,knee+[0,-0.38,-0.045],radius: 0.066)
+        let ankle = knee+[0,-0.35,Float(v%3)*0.037-0.03]
+        pants.line(knee,ankle,radius:0.062)
+        hair.oval(ankle+[0,-0.012,-0.054],radii:[0.067,0.052,0.124])
       }
       let colors = [v % Self.shirts.count, Self.shirts.count + (v/3 + v)%Self.skin.count, palette.count-2, palette.count-1]
       let pieces = zip([cloth,body,pants,hair], colors).map { geometry, color -> MeshDescriptor in

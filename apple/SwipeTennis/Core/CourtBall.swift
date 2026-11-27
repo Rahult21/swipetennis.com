@@ -45,13 +45,7 @@ extension PracticeEngine {
     }
     if let serve = servePreparation, phase == .serving {
       let feet = players[serve.server].pos
-      let facing: Float = serve.server == 0 ? 1 : -1
-      let hand = feet.world() + CourtPoint3D(-0.32 * facing, 1.05, -0.17 * facing)
-      let t = Float(serve.tossProgress ?? 0)
-      let contact = serviceImpact(at: feet, side: serve.server, explosive: queuedPower == .ace)
-      var point = hand + (contact - hand) * t
-      point.y += 1.25 * sin(t * .pi)
-      return point
+      return ServiceToss.ball(feet:feet,side:serve.server,progress:Float(serve.tossProgress ?? 0),explosive:queuedPower == .ace)
     }
     return flight.map { $0.worldBall(at: $0.progress) } ?? ball.world()
   }

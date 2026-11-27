@@ -530,13 +530,12 @@ struct AthleteMotion {
     offHand += (local(-0.29, 0.85, 0.06) - offHand) * rest
     if let service {
       let t = Float(service.tossProgress ?? 0)
-      let release = ramp(t,0.04,0.43)
       let fold = ramp(t,0.57,0.94)
-      let tossHand = local(-0.32 + 0.11 * release, 1.05 + 1.16 * release, 0.17 + 0.045 * release)
-      offHand = tossHand + (chest - shoulders * 0.11 + forward * 0.13 - tossHand) * fold
+      let tossHand = ServiceToss.palm(feet:player.pos,side:side,progress:t)
+      offHand = tossHand + (chest - shoulders * 0.07 - up * 0.19 + forward * 0.17 - tossHand) * fold
     } else if swing.style == .serve, let after = elapsed {
       let tuck = 1 - ramp(Float(after),0.10,0.31)
-      offHand += (chest - shoulders * 0.11 + forward * 0.13 - offHand) * tuck
+      offHand += (chest - shoulders * 0.07 - up * 0.19 + forward * 0.17 - offHand) * tuck
     } else if swing.style == .overhead && arrival != nil { offHand = local(-0.29, 1.9, 0.19) }
     if side == 0 && game.flight?.acknowledge == true && game.isResolvingPoint { offHand = local(-0.24, 2.03, 0.12) }
     let freeReach = offHand-pose[.leftShoulder]

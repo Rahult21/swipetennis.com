@@ -54,3 +54,32 @@ def bake(venue, base):
 if __name__ == "__main__":
     for name, rgb in BASE.items():
         bake(name, rgb)
+
+
+def ball_felt():
+    rng = random.Random(3107)
+    width,height = 384,192
+    scan = bytearray()
+    for row in range(height):
+        scan.append(0)
+        lat = math.pi*(0.5-(row+0.5)/height)
+        for col in range(width):
+            lon = math.tau*(col+0.5)/width
+            curve = 0.72*math.sin(2*lon)
+            slope = 1.44*math.cos(2*lon)/max(0.03,math.cos(lat))
+            edge = abs(lat-curve)/math.sqrt(1+slope*slope)
+            seam = min(1,max(0,(0.053-edge)/0.016)) if abs(lat-curve)<0.25 else 0
+            groove = math.exp(-((edge-0.054)/0.014)**2) if abs(lat-curve)<0.25 else 0
+            grain = rng.gauss(0,5)
+            for felt,thread in zip((202,231,53),(244,244,209)):
+                scan.append(max(0,min(255,int(felt+(thread-felt)*seam+grain-groove*17))))
+    png = b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>2I5B',width,height,8,2,0,0,0))
+    dest = CATALOG/"match-ball.imageset"
+    dest.mkdir(exist_ok=True)
+    (dest/"felt.png").write_bytes(png+chunk(b'IDAT',zlib.compress(scan,9))+chunk(b'IEND',b''))
+    meta = {"images":[{"filename":"felt.png","idiom":"universal"}],"info":{"author":"xcode","version":1}}
+    (dest/"Contents.json").write_text(json.dumps(meta,indent=2)+"\n")
+
+
+if __name__ == "__main__":
+    ball_felt()

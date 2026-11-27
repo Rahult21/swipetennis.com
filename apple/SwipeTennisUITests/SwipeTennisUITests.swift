@@ -130,6 +130,34 @@ final class SwipeTennisUITests: XCTestCase {
     add(photo)
   }
 
+  func testStudioCanRepeatServeAndFreezeTheLanding() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1","YES","-athleteModel","Man","-kitColor","Chalk",
+                           "-kitShirt","Polo","-kitProp","None","-kitSkin","Honey","-kitSkort","NO"]
+    XCUIDevice.shared.orientation = .portrait
+    app.launch()
+    app.buttons["Player & kit"].tap()
+    app.buttons["strokeStudio"].tap()
+    let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
+    let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
+    XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:35),.completed)
+    let loop = app.buttons["studioRepeat"]
+    loop.tap()
+    XCTAssertTrue(loop.isSelected)
+    XCTContext.runActivity(named:"Watch three complete service motions") { _ in
+      let recording = expectation(description:"Playback crosses three loop boundaries")
+      DispatchQueue.main.asyncAfter(deadline:.now()+10.2) { recording.fulfill() }
+      wait(for:[recording],timeout:13)
+      XCTAssertTrue(app.buttons["Pause stroke"].exists)
+    }
+    app.buttons["Finish"].tap()
+    XCTAssertTrue(app.buttons["Play stroke"].exists)
+    app.buttons["Contact"].tap()
+    XCTAssertTrue(app.buttons["Share pose"].waitForExistence(timeout:15))
+    let serve = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+    serve.name = "Match whites at contact"; serve.lifetime = .keepAlways; add(serve)
+  }
+
   func testStrokeStudioShowsBothAthletesAtContactAndFinish() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1","YES"]
@@ -265,6 +293,12 @@ final class SwipeTennisUITests: XCTestCase {
       app.buttons["freezeBounce"].tap()
       XCTAssertNotEqual(app.staticTexts["replayTime"].label,atContact)
     }
+    let loop = app.buttons["loopContact"]
+    loop.tap()
+    XCTAssertTrue(loop.isSelected)
+    XCTAssertTrue(app.buttons["Pause replay"].exists)
+    app.buttons["freezeContact"].tap()
+    XCTAssertFalse(loop.isSelected)
     XCTAssertTrue(app.buttons["Share highlight"].exists)
     app.buttons["Replay the decision"].tap()
     XCTAssertTrue(app.staticTexts["At your opponent’s contact"].waitForExistence(timeout:5))
@@ -328,7 +362,8 @@ final class SwipeTennisUITests: XCTestCase {
       XCTAssertTrue(demo.waitForExistence(timeout: 5))
       demo.tap()
       let next = app.buttons["continueShotDemo"]
-      XCTAssertTrue(next.waitForExistence(timeout: 5))
+      for _ in 0..<5 where !next.isHittable { app.swipeUp() }
+      XCTAssertTrue(next.isHittable)
       next.tap()
       XCTAssertTrue(app.buttons["tryDemoShot"].waitForExistence(timeout: 5))
       app.buttons["Done"].tap()

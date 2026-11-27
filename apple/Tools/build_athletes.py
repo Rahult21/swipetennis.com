@@ -302,15 +302,22 @@ class Athlete:
                 k = "xyz".index(v[0][0])
                 scale[k] = abs(self.points[int(v[1])][k]-self.points[int(v[2])][k])/float(v[3])
         mapped, skinning = [], []
-        for original, row in zip(mesh.points, rows):
+        for row in rows:
             count = 1 if len(row) == 1 else 3
             sources = [int(v) for v in row[:count]]
             factors = [1] if count == 1 else [float(v) for v in row[3:6]]
             offset = [0]*3 if count==1 else [float(v) for v in row[6:9]]
             mapped.append(tuple(sum(w*self.points[i][k] for w,i in zip(factors,sources)) + offset[k]*scale[k] for k in range(3)))
             skinning.append(combined([(w,self.weights[i]) for w,i in zip(factors,sources)]))
-        if kind in ["Hair","Eyes"]:
+        if kind == "Hair":
             skinning = [{"head":1.0} for _ in mapped]
+        if kind == "Eyes":
+            eye = ["eyeR" if world(p)[0]>0 else "eyeL" for p in mapped]
+            for name in ["eyeL","eyeR"]:
+                cloud = [world(p) for p,bone in zip(mapped,eye) if bone==name]
+                center = tuple((max(axis)+min(axis))*0.5 for axis in zip(*cloud))
+                self.anchors[name] = (center[0],center[1],center[2]+0.004)
+            skinning = [{bone:1.0} for bone in eye]
         if kind == "Shoe":
             # Hide the enclosed toes, not just the surfaces with the strongest foot weights.
             deleted = fitting.index("delete_verts")+1
@@ -342,6 +349,40 @@ class Athlete:
                 for i in range(len(a) if wrap else len(a)-1):
                     j=(i+1)%len(a)
                     self.emit(name,[a[i],b[i],b[j],a[j]])
+        for side in "LR":
+            foot = self.anchors["foot"+side]
+            shoe = [world(v.position) for v in self.parts["Shoe"].vertices if (world(v.position)[0]<0)==(side=="L")]
+            floor = min(p[1] for p in shoe)
+            sole = [p for p in shoe if p[1]<floor+0.008]
+            self.anchors["toe"+side] = (foot[0],floor,min(p[2] for p in sole))
+            self.anchors["heel"+side] = (foot[0],floor,max(p[2] for p in sole))
+            wrist = self.anchors["hand"+side]
+            elbow = self.anchors["forearm"+side]
+            def normalize(q):
+                length = math.sqrt(sum(v*v for v in q))
+                return tuple(v/length for v in q)
+            axis = normalize([e-w for e,w in zip(elbow,wrist)])
+            x = normalize((axis[2],0,-axis[0]))
+            z = (axis[1]*x[2]-axis[2]*x[1],axis[2]*x[0]-axis[0]*x[2],axis[0]*x[1]-axis[1]*x[0])
+            skin = [world(v.position) for v in self.parts["Skin"].vertices if sum(v.weights.get(b+side,0) for b in ["hand","forearm"])>0.82]
+            rows = []
+            for distance,extra in [(0.034,.0007),(.037,.003),(.043,.003),(.048,.0024),(.066,.0024),(.073,.003),(.078,.0007)]:
+                section = []
+                for pos in skin:
+                    delta = [p-w for p,w in zip(pos,wrist)]
+                    dot = lambda vec:sum(a*b for a,b in zip(delta,vec))
+                    if abs(dot(axis)-distance)<.013: section.append((dot(x),dot(z)))
+                axes = list(zip(*section))
+                if len(axes)!=2: axes = [[-.033,.033],[-.029,.029]]
+                cx,cz = [(max(q)+min(q))/2 for q in axes]
+                rx,rz = [(max(q)-min(q))/2+extra+.0025 for q in axes]
+                ring = []
+                for i in range(40):
+                    t = i*math.tau/40
+                    p = tuple(w+d*distance+a*(cx+rx*math.cos(t))+b*(cz+rz*math.sin(t)) for w,d,a,b in zip(wrist,axis,x,z))
+                    ring.append(vertex(p,(i/40,distance),{"forearm"+side:1}))
+                rows.append(ring)
+            strip("Wristband",rows)
         head = self.anchors["head"]
         skin = [world(v.position) for v in self.parts["Skin"].vertices]
         h = head[1]+0.073

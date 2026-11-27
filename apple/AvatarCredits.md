@@ -2,7 +2,7 @@
 
 The men’s and women’s USDZ files in `SwipeTennis/Players` use the MakeHuman Community base mesh, anatomical targets, rig weights and system assets. The source identifies Data Collection AB, Joel Palmius and Jonas Hauquier among its contributors. MakeHuman releases its bundled graphical assets under CC0 1.0. [Asset license](https://github.com/makehumancommunity/makehuman/blob/a8bc2d54ff0ac92e78ff71431b1023eda42bf482/LICENSE.md) · [System asset pack](https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html)
 
-The derivatives fit each body, close the grip, trim the trousers to sports shorts, remove covered skin, and rebind the meshes and kit to the tennis rig. They use `short01`, `ponytail01`, `low-poly` eyes, `shoes05`, `male_casualsuit06`, and masked skin textures. The skort, visor, headband and collar are built during conversion.
+The derivatives fit each body, close the grip, trim the trousers to sports shorts, remove covered skin, and rebind the meshes and kit to the tennis rig. They use `short01`, `ponytail01`, `low-poly` eyes, `shoes05`, `male_casualsuit06`, and masked skin textures. The skort, visor, headband, wristbands and collar are built during conversion.
 
 ## Rebuilding
 
@@ -14,3 +14,13 @@ python3 apple/generate_project.py
 ```
 
 The ball, court, camera, real-time retargeting and racket contact use the SwipeTennis engine. The licensed movement recordings and their derivatives have separate credits. [Motion credits](MotionCredits.md)
+
+## Venue light
+
+The three sky and lighting maps use CC0 photographs from Poly Haven. Daylight uses Kloppenheim 03 Pure Sky. Clay and night use separate grades of Kloppenheim 06 Pure Sky. [Daylight panorama](https://polyhaven.com/a/kloppenheim_03_puresky) · [Evening panorama](https://polyhaven.com/a/kloppenheim_06_puresky) · [License](https://polyhaven.com/license)
+
+To rebuild the maps, download the 1K Radiance versions and run the following command from the repository root.
+
+```sh
+swift apple/Tools/bake_match_materials.swift kloppenheim_03_puresky_1k.hdr kloppenheim_06_puresky_1k.hdr apple/SwipeTennis/Assets.xcassets
+```
