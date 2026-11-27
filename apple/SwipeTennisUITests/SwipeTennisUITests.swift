@@ -20,13 +20,13 @@ final class SwipeTennisUITests: XCTestCase {
 
   func testMatchdayWarmupQuickMatchAndResume() throws {
     let app = XCUIApplication()
+    app.launchArguments = ["-matchdayMusic", "YES", "-sound", "YES"]
     app.launch()
     let music = app.buttons["lobbyBeat"]
     XCTAssertTrue(music.waitForExistence(timeout: 15))
-    let original = music.value as? String
+    XCTAssertEqual(music.value as? String, "Off")
     music.tap()
-    XCTAssertNotEqual(original, music.value as? String)
-    music.tap()
+    XCTAssertEqual(music.value as? String, "On")
     XCTAssertTrue(app.buttons["matchdayQuickMatch"].isHittable)
     app.buttons["matchdayWarmup"].tap()
     let feed = app.staticTexts["warmupFeed"]
@@ -49,6 +49,7 @@ final class SwipeTennisUITests: XCTestCase {
     returning.name = "Matchday with saved match"; returning.lifetime = .keepAlways; add(returning)
     app.terminate(); app.launch()
     XCTAssertTrue(resume.waitForExistence(timeout: 12))
+    XCTAssertEqual(music.value as? String, "Off")
     resume.tap()
     XCTAssertTrue(leave.waitForExistence(timeout: 12))
     leave.tap()

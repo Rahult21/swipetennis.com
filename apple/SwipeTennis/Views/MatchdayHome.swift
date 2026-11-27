@@ -20,7 +20,7 @@ struct HomeView: View {
   @Environment(\.verticalSizeClass) private var heightClass
   @Environment(\.dynamicTypeSize) private var textSize
   @ScaledMetric(relativeTo: .largeTitle) private var titleSize = 48.0
-  @AppStorage("matchdayMusic") private var music = true
+  @State private var music = false
   @AppStorage("sound") private var sound = true
   @AppStorage("courtVolume") private var volume = 0.3
   @State private var visible = false
@@ -34,7 +34,7 @@ struct HomeView: View {
   private let felt = Color(red: 0.035, green: 0.11, blue: 0.085)
   private var gain: Float {
     visible && phase == .active && route == nil && !startAfterWarmup && !playingDaily && cups.pendingInvite == nil && music && sound
-      ? Float(volume) : 0
+      ? Float(min(volume, 0.1)) : 0
   }
 
   var body: some View {
