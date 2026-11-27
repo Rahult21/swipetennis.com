@@ -158,3 +158,17 @@ enum TrainingFeed {
     game.players[0].splitForReturn = game.contactSerial
   }
 }
+
+/// Device-local practice statistics are independent of scored matches and career progress.
+struct TacticalPracticeRecord: Codable, Equatable {
+  private(set) var attempts = 0
+  private(set) var successes = 0
+  private(set) var streak = 0
+  private(set) var bestStreak = 0
+
+  mutating func finish(success: Bool) {
+    attempts += 1
+    if success { successes += 1; streak += 1 } else { streak = 0 }
+    bestStreak = max(bestStreak, streak)
+  }
+}

@@ -21,6 +21,71 @@ final class SwipeTennisUITests: XCTestCase {
     }
   }
 
+  func testCompletedNetAttemptsSurviveLeavingPractice() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1", "YES"]
+    app.launch()
+    app.buttons["playPractice"].tap()
+    let net = app.buttons["Net positioning"]
+    for _ in 0..<4 where !net.isHittable { app.swipeUp() }
+    net.tap()
+    let play = app.buttons["startTacticalAttempt"]
+    for _ in 0..<3 where !play.isHittable { app.swipeUp() }
+    play.tap()
+    let retry = app.buttons["Try again"]
+    XCTAssertTrue(retry.waitForExistence(timeout:45))
+    retry.tap()
+    XCTAssertTrue(app.staticTexts["Last attempt"].waitForExistence(timeout:5))
+    app.buttons["Done"].tap()
+    net.tap()
+    let attempts = app.staticTexts["Completed attempts"]
+    for _ in 0..<4 where !attempts.isHittable { app.swipeUp() }
+    XCTAssertTrue(attempts.isHittable)
+  }
+
+  func testAllFourVenuesPlayThroughContactReview() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1", "YES"]
+    XCUIDevice.shared.orientation = .portrait
+    defer { XCUIDevice.shared.orientation = .portrait }
+    app.launch()
+    app.buttons["playPractice"].tap()
+    for venue in ["Linden Gardens · Grass", "Copper Terraces · Clay", "Harbor Glass · Hard", "Midnight Pier · Hard"] {
+      let arena = app.buttons["chooseArena"]
+      for _ in 0..<5 where !arena.isHittable { app.swipeUp() }
+      arena.tap()
+      app.buttons[venue].tap()
+      let quick = app.buttons["quickGuestPlay"]
+      let take = app.buttons["takeCourt"]
+      for _ in 0..<5 where !quick.isHittable { app.swipeDown() }
+      if quick.isHittable { quick.tap() }
+      else {
+        for _ in 0..<6 where !take.isHittable { app.swipeUp() }
+        XCTAssertTrue(take.isEnabled)
+        take.tap()
+      }
+      let start = app.buttons["startPractice"]
+      XCTAssertTrue(start.waitForExistence(timeout:15))
+      start.tap()
+      let replay = app.buttons["replayPracticePoint"]
+      XCTAssertTrue(replay.waitForExistence(timeout:75))
+      replay.tap()
+      let contact = app.buttons["freezeContact"]
+      XCTAssertTrue(contact.waitForExistence(timeout:20))
+      contact.tap()
+      let camera = app.buttons["replayCameraOpponent"]
+      camera.tap()
+      let photo = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+      photo.name = venue + " at contact"; photo.lifetime = .keepAlways; add(photo)
+      XCTAssertTrue(app.buttons["Play replay"].exists)
+      app.buttons["Done"].tap()
+      app.buttons["nextPracticePoint"].tap()
+      app.buttons["Leave practice"].tap()
+      app.buttons["Leave without saving"].tap()
+      XCTAssertTrue(app.navigationBars["Play & practice"].waitForExistence(timeout:12))
+    }
+  }
+
   func testLockerRoomChangesKitAndKeepsItWhenReopened() {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1", "YES"]
@@ -36,6 +101,26 @@ final class SwipeTennisUITests: XCTestCase {
     app.navigationBars.buttons.element(boundBy: 0).tap()
     locker.tap()
     XCTAssertTrue(selected.isSelected)
+    let preview = app.descendants(matching:.any)["kitPreview"].firstMatch
+    XCTAssertTrue(preview.waitForExistence(timeout:8))
+    let side = app.buttons["Side"]
+    side.tap()
+    XCTAssertTrue(side.isSelected)
+    let sideReady = NSPredicate(format:"value == %@", "Side view")
+    expectation(for:sideReady,evaluatedWith:preview)
+    waitForExpectations(timeout:18)
+    app.buttons["Back"].tap()
+    XCTAssertTrue(app.buttons["Back"].isSelected)
+    app.buttons["Front"].tap()
+    let skin = app.buttons["kitSkinTone"]
+    skin.tap()
+    let choices = ["Porcelain", "Espresso"]
+    let tone = choices.first { !preview.label.contains($0) }!
+    app.buttons[tone].tap()
+    XCTAssertTrue(preview.label.contains(tone))
+    let front = NSPredicate(format:"value == %@", "Front view")
+    expectation(for:front,evaluatedWith:preview)
+    waitForExpectations(timeout:18)
     let photo = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
     photo.name = "Player-kit"
     photo.lifetime = .keepAlways
@@ -114,6 +199,13 @@ final class SwipeTennisUITests: XCTestCase {
     replay.tap()
     XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:15))
     app.buttons["replayCameraNeutral"].tap()
+    app.buttons["freezeContact"].tap()
+    XCTAssertTrue(app.buttons["Play replay"].exists)
+    let atContact = app.staticTexts["replayTime"].label
+    if app.buttons["freezeBounce"].exists {
+      app.buttons["freezeBounce"].tap()
+      XCTAssertNotEqual(app.staticTexts["replayTime"].label,atContact)
+    }
     XCTAssertTrue(app.buttons["Share highlight"].exists)
     app.buttons["Replay the decision"].tap()
     XCTAssertTrue(app.staticTexts["At your opponent’s contact"].waitForExistence(timeout:5))

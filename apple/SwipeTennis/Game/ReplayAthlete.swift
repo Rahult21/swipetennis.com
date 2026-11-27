@@ -12,6 +12,7 @@ import UIKit
   private let sphere: MeshResource
   private let kit: AthleteKit
   private let side: Int
+  private var pupils: [Entity] = []
   private var limbs: [ModelEntity] = []
   private var shoes: [Entity] = []
   private let stamp: ModelEntity
@@ -20,8 +21,7 @@ import UIKit
     let kit = AthleteKit.current(side: side, localSide: localSide)
     self.kit = kit
     self.side = side; self.sphere = sphere; stamp = shadow
-    skin = SimpleMaterial(color: side == 0 ? UIColor(red: 0.68, green: 0.42, blue: 0.29, alpha: 1)
-      : UIColor(red: 0.48, green: 0.285, blue: 0.19, alpha: 1), roughness: 0.85, isMetallic: false)
+    skin = SimpleMaterial(color: kit.skinTone.tint, roughness: 0.85, isMetallic: false)
     fabric = SimpleMaterial(color: kit.color.tint, roughness: 0.92, isMetallic: false)
     garment = ReplayShorts(material: shorts)
     for part in [torso, hips, face, racket, stamp, garment.model] { root.addChild(part) }
@@ -61,7 +61,12 @@ import UIKit
     if kit.prop == .visor { ellipsoid(face, [0,0.042,-0.089], [0.114,0.012,0.084], fabric) }
     if kit.prop != .plain { face.addChild(ModelEntity(mesh: Self.profile([[0.102,0.031,0.109], [0.104,0.050,0.111]]), materials: [white])) }
     ellipsoid(face, [0, -0.019, -0.099], [0.024, 0.034, 0.025], skin)
-    for x: Float in [-0.039, 0.039] { ellipsoid(face, [x, 0.009, -0.097], [0.012, 0.006, 0.006], hair) }
+    for x: Float in [-0.039, 0.039] {
+      ellipsoid(face, [x, 0.008, -0.094], [0.014, 0.0065, 0.008], white)
+      let pupil = ModelEntity(mesh:sphere, materials:[hair])
+      pupil.position = [x,0.008,-0.101]; pupil.scale = [0.0065,0.006,0.003]
+      face.addChild(pupil); pupils.append(pupil)
+    }
     for x: Float in [-0.038,0.038] {
       ellipsoid(face,[x,0.019,-0.097],[0.020,0.003,0.005],hair)
     }
@@ -207,7 +212,15 @@ import UIKit
     }
     hips.position = hip; hips.orientation = basis(p[.rightHip] - p[.leftHip])
     torso.position = (hip + shoulder) / 2; torso.orientation = basis(p[.rightShoulder] - p[.leftShoulder])
-    face.position = p[.head]; face.orientation = simd_slerp(hips.orientation, torso.orientation, 0.25)
+    face.position = p[.head]
+    let forward = simd_quatf(angle: side == 0 ? 0 : .pi, axis: [0,1,0])
+    let gaze = handshake ? SIMD2<Float>.zero : p.gaze
+    face.orientation = simd_slerp(forward, torso.orientation, 0.18)
+      * simd_quatf(angle:-gaze.x * 0.82, axis:[0,1,0]) * simd_quatf(angle:gaze.y * 0.8,axis:[1,0,0])
+    for (index, pupil) in pupils.enumerated() {
+      pupil.position.x = (index == 0 ? -0.039 : 0.039) + gaze.x * 0.0035
+      pupil.position.y = 0.008 + gaze.y * 0.003
+    }
     let shaft = simd_normalize(p[.strings] - p[.grip])
     let width = simd_normalize(p[.racketEdge] - p[.strings])
     let normal = simd_normalize(simd_cross(width, shaft))

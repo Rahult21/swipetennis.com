@@ -1,13 +1,31 @@
 import Foundation
 
+struct BounceImpression {
+  let serial: Int
+  let position: Vec
+  let direction: Float
+  let surface: CourtSurface
+  var age: Double
+
+  var lifetime: Double {
+    switch surface { case .clay: return 3.8; case .grass: return 0.68; case .hard: return 0.24 }
+  }
+  var visibility: Float { Float(clamp((lifetime - age) / (lifetime * 0.45), 0, 1)) }
+}
+
 struct RallyFrame {
   let near: AthletePose
   let far: AthletePose
   let ball: CourtPoint3D
+  var bounce: BounceImpression? = nil
 
   func blended(to next: Self, by u: Float) -> Self {
-    Self(near: near.blended(to: next.near, by: u), far: far.blended(to: next.far, by: u),
-      ball: ball + (next.ball - ball) * u)
+    var mark = u >= 1 ? next.bounce : bounce
+    if let old = bounce, let new = next.bounce, old.serial == new.serial {
+      mark?.age = old.age + (new.age - old.age) * Double(u)
+    }
+    return Self(near: near.blended(to: next.near, by: u), far: far.blended(to: next.far, by: u),
+      ball: ball + (next.ball - ball) * u, bounce: mark)
   }
 }
 
@@ -26,6 +44,13 @@ struct PointReplay {
   static let speed = 0.5
   private(set) var frames: [RallyFrame] = []
   private(set) var strikes: [RecordedStrike] = []
+  private(set) var bounceTimes: [Double] = []
+  private var recordedBounce: Int?
+  /// The final bounce belongs to this strike only if it happens after contact.
+  var lastShotBounceTime: Double? {
+    guard let hit = strikes.last else { return nil }
+    return bounceTimes.first { $0 >= hit.time }
+  }
   private(set) var decisions: [Int: DecisionSnapshot] = [:]
   private(set) var heights: [Int: ContactReading] = [:]
   private(set) var serviceRetry: PracticeEngine?
@@ -50,6 +75,10 @@ struct PointReplay {
     guard active else { gap = true; return }
     if gap { cuts.insert(frames.count); gap = false }
     frames.append(frame)
+    if let mark = frame.bounce, mark.serial != recordedBounce {
+      recordedBounce = mark.serial
+      bounceTimes.append(duration)
+    }
     if hit, let flight = game.flight {
       if flight.fault == nil {
         let receiver = 1-flight.hitter
@@ -68,6 +97,7 @@ struct PointReplay {
     clip.serviceRetry = serviceRetry
     clip.frames = Array(frames.dropFirst(first))
     let origin = Double(first) * Self.tick
+    clip.bounceTimes = bounceTimes.filter { $0 >= origin }.map { $0 - origin }
     clip.strikes = strikes.filter { $0.time >= origin - 0.000001 }.map {
       RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, blocked: $0.blocked)
     }
@@ -98,17 +128,37 @@ struct CourtPerformance {
   private(set) var steps: [ShoeContact] = []
   private var athletes = [AthleteMotion(), AthleteMotion()]
   private var serial: Int
+  private var bounceSerial: Int
+  private var previousFlight: BallFlight?
+  private var mark: BounceImpression?
   private(set) var frame: RallyFrame?
   private(set) var replay = PointReplay()
 
-  init(game: PracticeEngine) { serial = game.contactSerial }
+  init(game: PracticeEngine) {
+    serial = game.contactSerial
+    bounceSerial = game.bounceSerial
+    previousFlight = game.flight
+  }
 
   mutating func update(game: PracticeEngine, dt: Double, reduceMotion: Bool = false) {
     let hit = serial != game.contactSerial && game.flight != nil
     serial = game.contactSerial
     let near = athletes[0].sample(game: game, side: 0, hit: hit && game.flight?.hitter == 0, dt: dt, reduceMotion: reduceMotion)
     let far = athletes[1].sample(game: game, side: 1, hit: hit && game.flight?.hitter == 1, dt: dt, reduceMotion: reduceMotion)
-    let next = RallyFrame(near: near, far: far, ball: game.worldBall)
+    mark?.age += dt
+    if let current = mark, current.age >= current.lifetime { mark = nil }
+    if bounceSerial != game.bounceSerial {
+      // A return can follow a ground impact within one simulation step.
+      let bounced = hit ? previousFlight : game.flight
+      if let bounced, bounced.fault != "net" {
+        let bearing = atan2(bounced.landing.x - bounced.from.x,bounced.landing.y - bounced.from.y)
+        mark = BounceImpression(serial:game.bounceSerial,position:bounced.landing,direction:Float(bearing),
+                                surface:game.settings.surface,age:0)
+      }
+      bounceSerial = game.bounceSerial
+    }
+    previousFlight = game.flight
+    let next = RallyFrame(near: near, far: far, ball: game.worldBall, bounce:mark)
     steps.removeAll(keepingCapacity:true)
     if dt > 0 && game.phase.isPlaying {
       for side in 0...1 {

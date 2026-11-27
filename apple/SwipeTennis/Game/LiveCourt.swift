@@ -38,6 +38,8 @@ struct LiveCourt: UIViewRepresentable {
 }
 
 struct KitPreview: UIViewRepresentable {
+  let azimuth: Float
+  let ready: () -> Void
   func makeUIView(context: Context) -> CourtReplayView {
     let view = CourtReplayView(surface:.grass, studio:true)
     var game = PracticeEngine(settings:.init())
@@ -45,8 +47,9 @@ struct KitPreview: UIViewRepresentable {
     var performance = CourtPerformance(game:game)
     performance.update(game:game,dt:0,reduceMotion:true)
     if let frame = performance.frame { view.draw(frame,angle:.neutral,reduceMotion:true,powerBeat:nil) }
-    view.portraitCamera()
+    view.portraitCamera(azimuth: azimuth)
+    view.whenRendering(ready)
     return view
   }
-  func updateUIView(_ view: CourtReplayView, context: Context) {}
+  func updateUIView(_ view: CourtReplayView, context: Context) { view.portraitCamera(azimuth: azimuth) }
 }

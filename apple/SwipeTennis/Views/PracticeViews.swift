@@ -75,7 +75,7 @@ struct PracticeSetupView: View {
           settings.venue = venue; settings.surface = venue.surface
         })) {
           ForEach(TennisVenue.allCases, id: \.self) { Text("\($0.rawValue) · \($0.surface.rawValue)").tag($0) }
-        }
+        }.accessibilityIdentifier("chooseArena")
         NavigationLink("Player & kit") { LockerRoom() }
         if !settings.local { Toggle("All-court training", isOn: $settings.allCourtTraining) }
       } header: { Text("Court") } footer: {

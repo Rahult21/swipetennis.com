@@ -85,6 +85,7 @@ enum ReplayAngle: String, CaseIterable {
   private let scenery = Entity()
   private static var venueTemplate: (venue: TennisVenue, guides: Bool, scenery: Entity)?
   private let camera = PerspectiveCamera()
+  private let impression: ModelEntity
   private let ball: ModelEntity
   private let shadow: ModelEntity
   private let players: [ReplayAthlete]
@@ -98,6 +99,10 @@ enum ReplayAngle: String, CaseIterable {
 
   init(surface: CourtSurface, venue: TennisVenue? = nil, localSide: Int = 0, studio: Bool = false) {
     let sphere = MeshResource.generateSphere(radius: 1)
+    let markColor: UIColor = surface == .clay ? UIColor(red:0.49,green:0.245,blue:0.14,alpha:1)
+      : surface == .grass ? UIColor(red:0.35,green:0.40,blue:0.22,alpha:1) : UIColor(white:0.69,alpha:1)
+    impression = ModelEntity(mesh:sphere,materials:[SimpleMaterial(color:markColor,roughness:1,isMetallic:false)])
+    impression.isEnabled = false
     ball = ModelEntity(mesh: sphere, materials: [SimpleMaterial(color: UIColor(red: 0.90, green: 0.99, blue: 0.16, alpha: 1), roughness: 0.85, isMetallic: false)])
     powerTrail = (0..<6).map { index in
       let material = UnlitMaterial(color: UIColor(red: 0.96, green: 0.98, blue: 0.52, alpha: 0.45 - CGFloat(index)*0.055))
@@ -114,12 +119,32 @@ enum ReplayAngle: String, CaseIterable {
     environment.background = .color(UIColor(red: 0.66, green: 0.79, blue: 0.85, alpha: 1))
     if #available(iOS 18.0, *) { camera.camera.fieldOfViewOrientation = .vertical }
     scene.addAnchor(court)
-    court.addChild(camera); court.addChild(ball); court.addChild(shadow)
+    court.addChild(camera); court.addChild(ball); court.addChild(shadow); court.addChild(impression)
     powerTrail.forEach { court.addChild($0) }
     players.forEach { court.addChild($0.root) }
+    let selected = venue ?? .standard(surface)
     let sun = DirectionalLight()
-    sun.light.intensity = 2300
-    sun.look(at: [4,0,12], from: [-6,13,18], relativeTo: nil)
+    let lightPosition: CourtPoint3D
+    switch studio ? .harbor : selected {
+    case .lawn:
+      sun.light.color = UIColor(red:1,green:0.94,blue:0.81,alpha:1)
+      sun.light.intensity = 2500; lightPosition = [-9,14,19]
+    case .mesa:
+      sun.light.color = UIColor(red:1,green:0.86,blue:0.71,alpha:1)
+      sun.light.intensity = 2650; lightPosition = [18,16,4]
+    case .harbor:
+      sun.light.color = UIColor(red:0.95,green:0.98,blue:1,alpha:1)
+      sun.light.intensity = 2450; lightPosition = [-6,16,16]
+    case .night:
+      sun.light.color = UIColor(red:0.84,green:0.90,blue:1,alpha:1)
+      sun.light.intensity = 1840; lightPosition = [-13,16,29]
+      let rim = DirectionalLight()
+      rim.light.intensity = 1180
+      rim.light.color = UIColor(red:1,green:0.91,blue:0.80,alpha:1)
+      rim.look(at:[4,0,12],from:[19,15,-7],relativeTo:nil)
+      court.addChild(rim)
+    }
+    sun.look(at: [4,0,12], from: lightPosition, relativeTo: nil)
     court.addChild(sun)
     if studio {
       court.addChild(scenery)
@@ -127,7 +152,6 @@ enum ReplayAngle: String, CaseIterable {
       environment.background = .color(UIColor(red:0.70,green:0.78,blue:0.77,alpha:1))
       players[1].root.isEnabled = false
     } else {
-      let selected = venue ?? .standard(surface)
       let guides = UserDefaults.standard.object(forKey: "guides") as? Bool ?? true
       if selected == .night {
         environment.background = .color(UIColor(red: 0.055, green: 0.075, blue: 0.16, alpha: 1))
@@ -230,14 +254,23 @@ enum ReplayAngle: String, CaseIterable {
     case .night: surround = UIColor(red:0.15,green:0.13,blue:0.26,alpha:1)
     }
     box([4.115,-0.06,11.885], [180,0.09,185], surround)
-    box([4.115,-0.014,11.885], [10.97,0.022,23.77], base)
-    if surface == .grass {
-      for i in stride(from: 0, to: 8, by: 2) {
-        box([4.115,-0.003,23.77*(Float(i)+0.5)/8], [10.97,0.004,23.77/8], UIColor(red: 0.205, green: 0.45, blue: 0.335, alpha: 1))
-      }
+    let asset: String
+    switch venue { case .lawn: asset = "lawn"; case .mesa: asset = "mesa"; case .harbor: asset = "harbor"; case .night: asset = "night" }
+    var material = SimpleMaterial(color:base,roughness:surface == .hard ? 0.78 : 0.98,isMetallic:false)
+    if let bitmap = UIImage(named:"court-" + asset)?.cgImage,
+       let texture = try? TextureResource.generate(from:bitmap,options:.init(semantic:.color)) {
+      material.color = .init(tint:.white,texture:.init(texture))
     }
+    let playingSurface = ModelEntity(mesh:.generatePlane(width:10.97,depth:23.77),materials:[material])
+    playingSurface.position = [4.115,-0.003,11.885]
+    scenery.addChild(playingSurface)
     if guides {
-      for x: Float in [0.425,7.805] { box([x,0.0001,11.885],[0.85,0.002,23.77],base.mixed(with:.systemYellow, amount:0.065)) }
+      var margin = UnlitMaterial(color:.systemYellow)
+      margin.blending = .transparent(opacity:.init(floatLiteral:0.055))
+      for x: Float in [0.425,7.805] {
+        let lane = ModelEntity(mesh:.generatePlane(width:0.85,depth:23.77), materials:[margin])
+        lane.position = [x,-0.001,11.885]; scenery.addChild(lane)
+      }
     }
     // Architecture changes with the venue. Keep the player's end and sightlines clear.
     for end: Float in [-1,1] {
@@ -391,14 +424,23 @@ enum ReplayAngle: String, CaseIterable {
     camera.camera.fieldOfViewInDegrees = fov
     camera.look(at:target, from: target+direction*(distance+(1-t)*2.8), relativeTo:nil)
   }
-  func portraitCamera() {
+  func portraitCamera(azimuth: Float) {
     camera.camera.fieldOfViewInDegrees = 35
-    camera.look(at:[4.115,1.05,24.6],from:[3.75,1.28,21.2],relativeTo:nil)
+    let target = CourtPoint3D(4.115, 0.98, 24.6)
+    let eye = target + CourtPoint3D(3.42 * sin(azimuth), 0.26, -3.42 * cos(azimuth))
+    camera.look(at:target,from:eye,relativeTo:nil)
   }
 
   func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?, handshake: Bool = false, featuredStrike: RecordedStrike? = nil, time: Double = 0, live: Bool = false) {
     players[0].draw(frame.near,handshake:handshake); players[1].draw(frame.far,handshake:handshake)
     ball.isEnabled = !handshake; shadow.isEnabled = !handshake
+    impression.isEnabled = frame.bounce != nil && !handshake
+    if let mark = frame.bounce, !handshake {
+      let v = mark.visibility
+      impression.position = [Float(mark.position.x),0.0001,Float(mark.position.y)]
+      impression.scale = [0.055*v,0.001,0.115*v]
+      impression.orientation = simd_quatf(angle:mark.direction,axis:[0,1,0])
+    }
     ball.position = frame.ball
     shadow.position = [frame.ball.x,0.009,frame.ball.z]
     let shadeSize = 0.13 + 0.045 * min(4,frame.ball.y)
@@ -452,15 +494,5 @@ enum ReplayAngle: String, CaseIterable {
     // At the far baseline the physical ball would occupy less than one pixel on smaller phones.
     let radius = max(0.034,min(0.079,simd_distance(position,frame.ball)*0.0023))
     ball.scale = .init(repeating: radius)
-  }
-}
-
-
-private extension UIColor {
-  func mixed(with other: UIColor, amount: CGFloat) -> UIColor {
-    var r:CGFloat=0,g:CGFloat=0,b:CGFloat=0,a:CGFloat=0
-    var x:CGFloat=0,y:CGFloat=0,z:CGFloat=0
-    getRed(&r, green:&g, blue:&b, alpha:&a); other.getRed(&x,green:&y,blue:&z,alpha:&a)
-    return UIColor(red:r+(x-r)*amount,green:g+(y-g)*amount,blue:b+(z-b)*amount,alpha:1)
   }
 }

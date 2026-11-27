@@ -49,6 +49,10 @@ struct PointReplayView: View {
     let playing = anchor != nil
     offset = value; anchor = playing ? clock : nil; playbackID += 1
   }
+  private func inspect(_ time: Double) {
+    pause()
+    seek(time)
+  }
   private func timeText(_ time: Double) -> String {
     String(format: "%d:%04.1f", Int(time) / 60, time.truncatingRemainder(dividingBy: 60))
   }
@@ -103,6 +107,15 @@ struct PointReplayView: View {
               }
               HStack {
                 Text(timeText(time)).accessibilityIdentifier("replayTime")
+                Spacer()
+                if let contact = review.clip.strikes.last {
+                  Button("Contact", systemImage:"scope") { inspect(contact.time) }
+                    .accessibilityLabel("Freeze at racket contact").accessibilityIdentifier("freezeContact")
+                }
+                if let bounce = review.clip.lastShotBounceTime {
+                  Button("Bounce", systemImage:"smallcircle.filled.circle") { inspect(bounce) }
+                    .accessibilityLabel("Freeze at ball bounce").accessibilityIdentifier("freezeBounce")
+                }
                 Spacer()
                 Text(timeText(review.clip.duration))
               }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)

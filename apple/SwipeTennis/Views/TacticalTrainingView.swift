@@ -110,9 +110,15 @@ struct TrainingCourtView: View {
   @State private var feed: PracticeEngine
   @State private var run: PracticeEngine?
   @State private var runID = UUID()
+  @State private var startingComparison: String?
   @State private var previous: String?
+  @State private var practiceRecord: TacticalPracticeRecord
+  private var storageKey: String { "tactical.practice." + exercise.rawValue }
+
   init(_ exercise: TrainingExercise, surface: CourtSurface, original: PracticeEngine? = nil, comparison: String? = nil) {
     self.exercise = exercise; self.surface = surface; self.original = original; self.comparison = comparison
+    let saved = UserDefaults.standard.data(forKey:"tactical.practice." + exercise.rawValue)
+    _practiceRecord = State(initialValue:saved.flatMap { try? JSONDecoder().decode(TacticalPracticeRecord.self,from:$0) } ?? TacticalPracticeRecord())
     _feed = State(initialValue:original ?? TrainingFeed.net(surface:surface,lob:Bool.random(),right:Bool.random()))
     if let original, exercise == .net { _split = State(initialValue:original.players[0].pos) }
   }
@@ -120,9 +126,11 @@ struct TrainingCourtView: View {
     NavigationStack {
       Group {
         if let run {
-          TrainingRally(seed:run,exercise:exercise,lane:lane,plannedServe:serve,previous:previous ?? comparison) { result in
-            previous = result; self.run = nil
-          }.id(runID)
+          TrainingRally(seed:run,exercise:exercise,lane:lane,plannedServe:serve,previous:startingComparison) { summary, success in
+            previous = summary
+            practiceRecord.finish(success:success)
+            if let data = try? JSONEncoder().encode(practiceRecord) { UserDefaults.standard.set(data,forKey:storageKey) }
+          } tryAgain: { self.run = nil }.id(runID)
         } else {
           Form {
             if let previous { Section("Last attempt") { Text(previous) } }
@@ -154,8 +162,17 @@ struct TrainingCourtView: View {
             Button("Play this attempt",systemImage:"play.fill") {
               var start = exercise == .servePlusOne ? TrainingFeed.serve(serve,surface:surface) : feed
               if exercise == .net { TrainingFeed.split(split, into:&start) }
+              startingComparison = previous ?? comparison
               runID = UUID(); run = start
             }.accessibilityIdentifier("startTacticalAttempt")
+            if practiceRecord.attempts > 0 {
+              Section("Practice record on this device") {
+                LabeledContent("Completed attempts", value:String(practiceRecord.attempts))
+                LabeledContent(exercise == .servePlusOne ? "Planned lanes hit" : "Points won",
+                               value:String(practiceRecord.successes))
+                LabeledContent("Best streak", value:String(practiceRecord.bestStreak))
+              }
+            }
             DisclosureGroup("Motion credits") {
               Link("Tennis-MoCap · Pulgarin-Giraldo and colleagues",destination:URL(string:"https://github.com/jdpulgarin/Tennis-MoCap")!)
               Link("Adapted movement data · CC BY-SA 3.0",destination:URL(string:"https://creativecommons.org/licenses/by-sa/3.0/")!)
@@ -176,14 +193,15 @@ private struct TrainingRally: View {
   let lane: TrainingLane
   let plannedServe: ServePlacement
   let previous: String?
-  let finish: (String) -> Void
+  let finish: (String, Bool) -> Void
+  let tryAgain: () -> Void
   @State private var result: String?
   @State private var serveX: Double?
   @State private var returnX: Double?
   @State private var firstDriveSerial: Int?
-  init(seed: PracticeEngine, exercise: TrainingExercise, lane: TrainingLane, plannedServe: ServePlacement, previous: String?,finish: @escaping (String)->Void) {
+  init(seed: PracticeEngine, exercise: TrainingExercise, lane: TrainingLane, plannedServe: ServePlacement, previous: String?,finish: @escaping (String,Bool)->Void,tryAgain: @escaping ()->Void) {
     _session = StateObject(wrappedValue:PracticeSession(engine:seed))
-    self.exercise = exercise; self.lane = lane; self.plannedServe = plannedServe; self.previous = previous; self.finish = finish
+    self.exercise = exercise; self.lane = lane; self.plannedServe = plannedServe; self.previous = previous; self.finish = finish; self.tryAgain = tryAgain
   }
   var body: some View {
     VStack(spacing:0) {
@@ -194,7 +212,7 @@ private struct TrainingRally: View {
         VStack(alignment:.leading,spacing:8) {
           Text(result).font(.headline)
           if let previous { Text("Previous · \(previous)").font(.footnote).foregroundStyle(.secondary) }
-          Button("Try again") { finish(result) }.buttonStyle(.borderedProminent)
+          Button("Try again", action: tryAgain).buttonStyle(.borderedProminent)
         }.frame(maxWidth:.infinity,alignment:.leading).padding().background(.bar)
       } else if session.paused {
         Button("Resume attempt") { session.resume() }.padding()
@@ -213,8 +231,10 @@ private struct TrainingRally: View {
         let pulled = abs(returnX-serveX)
         let gap = abs(lane.x-game.players[1].pos.x)
         let landed = shot.fault == nil && abs(shot.landing.x-lane.x) <= 1.37
-        result = String(format:"Returner moved %.1f m from the serve. Your planned lane was %.1f m from them. %@",pulled,gap,
+        let summary = String(format:"Returner moved %.1f m from the serve. Your planned lane was %.1f m from them. %@",pulled,gap,
           shot.fault != nil ? "Your next shot missed." : landed ? "You hit the planned lane." : "Your next shot went to another lane.")
+        result = summary
+        finish(summary, landed)
       }
     }
     .onChange(of:session.snapshot.flight?.progress) { _, progress in
@@ -225,7 +245,12 @@ private struct TrainingRally: View {
     }
     .onChange(of:session.snapshot.showsPointResult) { _, visible in
       guard visible else { return }
-      if result == nil { result = session.snapshot.feedback.title + " " + session.snapshot.feedback.reason }
+      if result == nil {
+        let game = session.snapshot
+        let summary = game.feedback.title + " " + game.feedback.reason
+        result = summary
+        finish(summary, exercise != .servePlusOne && game.coach.records.last?.winner == 0)
+      }
       session.pause()
     }
   }
