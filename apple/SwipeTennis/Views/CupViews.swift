@@ -324,7 +324,7 @@ struct CupMatchView: View {
             if game.phase != .ready { Text(game.feedback.reason).font(.subheadline) }
             Text(game.phase == .ready ? "Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot." : game.scoreSummary)
               .font(.subheadline).foregroundStyle(.secondary)
-            if game.phase == .point { replayButton }
+            if game.phase == .point && game.showsPointResult { replayButton }
             Button(session.waitingForNext ? "Waiting for opponent…" : game.phase == .ready ? "I'm ready to play" : "Next point") { session.next() }
               .buttonStyle(.borderedProminent).disabled(session.waitingForNext || game.phase == .finished)
           }
@@ -345,6 +345,7 @@ struct CupMatchView: View {
         }.padding(8)
       } else { Text("\(game.name(game.scoring.server)) serving · Win by two").font(.caption).foregroundStyle(.white).padding(8) }
     }
+    .accessibilityHidden(review != nil)
     .onChange(of:game.showsPointResult) { _, visible in
       if visible && session.scene.performance.replay.canPlay {
         review = ReplayReview(clip:session.scene.performance.replay,surface:game.settings.surface,

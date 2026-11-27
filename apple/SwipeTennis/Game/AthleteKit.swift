@@ -33,9 +33,12 @@ enum LockerAngle: String, CaseIterable {
   }
 }
 
+enum KitBottomColor: String, CaseIterable { case graphite = "Graphite", white = "White", match = "Match shirt" }
+
 enum Wristband: String, CaseIterable { case chalk = "White", match = "Match shirt", none = "None" }
 
 struct AthleteKit {
+  var bottomColor = KitBottomColor.graphite
   var wristband = Wristband.chalk
   var skort = false
   var skinTone = SkinTone.bronze
@@ -47,7 +50,7 @@ struct AthleteKit {
       return Self(skort:selfModel == .man,skinTone:.umber,model:selfModel == .man ? .woman : .man, shirt:.polo,
         color:d.string(forKey:"kitColor") == KitColor.ember.rawValue ? .tide : .ember, prop:.band)
     }
-    return Self(wristband:Wristband(rawValue:d.string(forKey:"kitWrist") ?? "") ?? .chalk,skort:d.bool(forKey:"kitSkort"),skinTone:SkinTone(rawValue:d.string(forKey:"kitSkin") ?? "") ?? .bronze,model:selfModel, shirt:TennisKit(rawValue:d.string(forKey:"kitShirt") ?? "") ?? .crew,
+    return Self(bottomColor:KitBottomColor(rawValue:d.string(forKey:"kitBottomColor") ?? "") ?? .graphite,wristband:Wristband(rawValue:d.string(forKey:"kitWrist") ?? "") ?? .chalk,skort:d.bool(forKey:"kitSkort"),skinTone:SkinTone(rawValue:d.string(forKey:"kitSkin") ?? "") ?? .bronze,model:selfModel, shirt:TennisKit(rawValue:d.string(forKey:"kitShirt") ?? "") ?? .crew,
       color:KitColor(rawValue:d.string(forKey:"kitColor") ?? "") ?? .tide,
       prop:KitProp(rawValue:d.string(forKey:"kitProp") ?? "") ?? .visor)
   }
@@ -59,13 +62,14 @@ struct LockerRoom: View {
   @AppStorage("kitColor") private var color = KitColor.tide.rawValue
   @AppStorage("kitProp") private var prop = KitProp.visor.rawValue
   @AppStorage("kitSkin") private var skin = SkinTone.bronze.rawValue
+  @AppStorage("kitBottomColor") private var bottoms = KitBottomColor.graphite.rawValue
   @AppStorage("kitWrist") private var wristband = Wristband.chalk.rawValue
   @State private var angle = LockerAngle.front
   @State private var orbit: Float = 0
   @GestureState private var drag: CGFloat = 0
   @State private var previewReady = false
   @State private var visible = true
-  private var appearance: [String] { [model, shirt, color, prop, skin, wristband, String(skort)] }
+  private var appearance: [String] { [model, shirt, color, prop, skin, wristband, bottoms, String(skort)] }
   var body: some View {
     Form {
       Section {
@@ -106,6 +110,7 @@ struct LockerRoom: View {
         Picker("Shirt", selection:$shirt) { ForEach(TennisKit.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Bottoms",selection:$skort) { Text("Shorts").tag(false); Text("Skort").tag(true) }
         Picker("Color", selection:$color) { ForEach(KitColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
+        Picker("Bottoms color",selection:$bottoms) { ForEach(KitBottomColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Wristbands", selection:$wristband) { ForEach(Wristband.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Headwear", selection:$prop) { ForEach(KitProp.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
       }

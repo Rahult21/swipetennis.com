@@ -1,6 +1,6 @@
 # SwipeTennis for iPhone & iPad
 
-A native SwiftUI + SpriteKit adaptation of swipetennis.com. The iOS app contains no WebView, web bundle, or JavaScript runtime. Open **SwipeTennis.xcodeproj**, select the **SwipeTennis** scheme, and run on an iPhone or iPad simulator. Requires Xcode 15 or later and iOS 17 or later; developed with Xcode 27.2. Gameplay runs natively. Apple sign-in and Coachability standings use the Cloudflare Worker/D1 service in **Backend**; follow [the deployment instructions](Backend/README.md) before signing in. Once signed in, completed points queue on the device when offline.
+SwipeTennis uses RealityKit for its 3D court and athletes, SpriteKit for court gestures and overlays, and SwiftUI for its iPhone and iPad screens. Open **SwipeTennis.xcodeproj**, select the **SwipeTennis** scheme, and run on an iPhone or iPad simulator. Requires Xcode 15 or later and iOS 17 or later; developed with Xcode 27.2. Gameplay runs natively. Apple sign-in and Coachability standings use the Cloudflare Worker/D1 service in **Backend**; follow [the deployment instructions](Backend/README.md) before signing in. Once signed in, completed points queue on the device when offline.
 
 For a physical device, choose your Apple development team under Signing & Capabilities and use a unique bundle identifier if needed. The project deliberately contains no personal signing team. The app has not been submitted to TestFlight or the App Store.
 
@@ -25,6 +25,8 @@ For a physical device, choose your Apple development team under Signing & Capabi
 Completed matches archive automatically. Closing an unfinished match also keeps it in the journal. Active matches survive termination. On the practice court, the result card’s × advances to the next point. The courtside × pauses play and asks whether to save and leave, leave without saving, or cancel. Play & practice offers one saved match on this device to the account that played it. Resuming restores the rally and score. Starting a new match replaces the save. Website browser storage is not automatically imported or synchronized.
 
 ## Native play
+
+- **Player & kit and Stroke studio.** On the Court tab, open Player & kit to choose an athlete, change clothing and view the kit from any angle. Stroke studio shows the actual serve, running return, forehand, backhand and volley at half speed. Drag across the court to orbit, freeze the load, contact or finish, or export the stroke as a video. The four-chapter Quick start in How to play uses footage from the same court and adds the touch gestures.
 
 - **ST ranking:** Every account starts at **ST 4t** on a 1–10 scale. The tentative marker lasts for three completed online human matches. Opponent strength and the share of tiebreak points won change the rating; bots, practice, manual scoring, forfeits and disconnects never do. Account and cup screens show ST and human W/L, and completed human brackets show before/after rating changes. A 7–1 win earns more than 7–5 against the same opponent; outperforming the expected point share can raise ST even after a loss, and underperforming can lower it after a win. This is a UTR-inspired ST formula, not an official UTR rating. ST does not grant stronger shots or faster movement.
 

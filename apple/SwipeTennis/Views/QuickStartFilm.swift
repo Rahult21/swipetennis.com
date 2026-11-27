@@ -19,7 +19,7 @@ struct QuickStartFilm: View {
       GeometryReader { geometry in
         let layout = geometry.size.width > geometry.size.height ? AnyLayout(HStackLayout(spacing:16)) : AnyLayout(VStackLayout(spacing:12))
         layout {
-          VideoPlayer(player:player).aspectRatio(720/640,contentMode:.fit)
+          VideoPlayer(player:player).aspectRatio(720.0/848.0,contentMode:.fit)
             .accessibilityLabel(titles[chapter])
           VStack(alignment:.leading,spacing:12) {
             Text("Step \(chapter+1) of 4").font(.subheadline).foregroundStyle(.secondary)

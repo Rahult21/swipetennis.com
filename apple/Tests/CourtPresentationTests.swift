@@ -113,6 +113,22 @@ extension CourtPresentationTests {
       }
     }
   }
+  func testQuickStartShowsAnActualRunAndTwoDifferentShotDepths() throws {
+    let run = try XCTUnwrap(StrokeStudioClip(.chase))
+    let start = try XCTUnwrap(run.frame(0)).near, hit = try XCTUnwrap(run.frame(run.contactTime)).near
+    let hips = (hit[.leftHip]+hit[.rightHip]-start[.leftHip]-start[.rightHip])*0.5
+    XCTAssertGreaterThan(hips.x,3.5, "The running lesson should show several real lateral strides.")
+
+    func opponentLanding(_ stroke: StudioStroke) throws -> Vec {
+      let clip = try XCTUnwrap(StrokeStudioClip(stroke))
+      let returnFlight = try XCTUnwrap(clip.recording.decisions[1]?.game.flight)
+      XCTAssertEqual(returnFlight.hitter,0)
+      return returnFlight.landing
+    }
+    let deep = try opponentLanding(.forehand), short = try opponentLanding(.backhand)
+    XCTAssertGreaterThan(short.y-deep.y,2.0, "The quick-start diagonal and drive should teach visibly different depths.")
+  }
+
   func testServeDropsTheHeadOfTheRacketThenExtendsThroughTheToss() throws {
     let clip = try XCTUnwrap(StrokeStudioClip(.serve))
     func pose(_ relative: Double) throws -> AthletePose { try XCTUnwrap(clip.frame(clip.contactTime+relative)).near }

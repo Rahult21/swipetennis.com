@@ -50,11 +50,15 @@ struct CourtGuideView: View {
 struct CourtGuideCard: View {
   @State private var isExpanded = false
   @State private var showFullGuide = false
+  @State private var showFilm = false
   @State private var page = 0
   private let topics = ["Move, serve & split", "Choose your shot", "Combine your moves", "Attack the short ball",
     "Earn Coachability Points", "Read your opponent", "Scores & a fresh start", "Court markings & out balls"]
   var body: some View {
     DisclosureGroup(isExpanded: $isExpanded) {
+      Button { showFilm = true } label: {
+        Label("Watch quick start",systemImage:"play.rectangle")
+      }.accessibilityIdentifier("rewatchQuickStart")
       Text("Swipe farther to hit deeper, or tap a spot across the net to aim there before contact. Swipe faster to sprint. Watch the energy bars beside the score and run at rally pace to recover. Set your feet early for a stronger drive, or stretch for a shorter block.")
         .font(.subheadline).foregroundStyle(.secondary)
       ForEach(topics.indices, id: \.self) { index in
@@ -72,6 +76,7 @@ struct CourtGuideCard: View {
       }
     } label: { Label("How to play", systemImage: "hand.draw") }
       .accessibilityIdentifier("howToPlay")
+      .sheet(isPresented: $showFilm) { QuickStartFilm() }
       .sheet(isPresented: $showFullGuide) { CourtGuideView(initialPage: page).id(page) }
   }
 }

@@ -11,6 +11,7 @@ import UIKit
     case upperArmR, forearmR, handR, thighR, shinR, footR
     case palmL, gripAxisL, palmR, gripAxisR
     case eyeL, eyeR, toeL, toeR, heelL, heelR
+    case waist, clavL, clavR, twistL, twistR, tailBase, tailTip
   }
   let entity: ModelEntity
   private let rest: [SIMD3<Float>]
@@ -87,13 +88,21 @@ import UIKit
     case "Eyes":
       image = "AthleteEyes.jpg"; mat.roughness = .init(floatLiteral:0.27)
     case "Shoe": image = "CourtShoes.jpg"
-    case "Shorts":
-      color = UIColor(red:0.22,green:0.26,blue:0.31,alpha:1); image = "CourtKit.jpg"
+    case "Sock":
+      color = UIColor(white:0.90,alpha:1)
+    case "Shorts","Skort":
+      switch kit.bottomColor {
+      case .graphite: color = UIColor(red:0.22,green:0.26,blue:0.31,alpha:1)
+      case .white: color = UIColor(white:0.97,alpha:1)
+      case .match: color = kit.color.tint
+      }
+      image = "CourtKit.jpg"; hidden = name == "Skort" && !kit.skort
     case "Shirt","Sleeves":
       color = kit.color.tint; image = "CourtKit.jpg"
       hidden = name == "Sleeves" && kit.shirt == .sleeveless
-    case "Skort": color = kit.color.tint; hidden = !kit.skort
-    case "Collar": color = .white; hidden = kit.shirt != .polo
+    case "Collar","CollarEdge","SleeveEdge":
+      color = kit.color == .white ? UIColor(red:0.12,green:0.30,blue:0.25,alpha:1) : UIColor(white:0.92,alpha:1)
+      hidden = kit.shirt != .polo
     case "Headband": hidden = kit.prop == .plain
     case "Visor": color = kit.color.tint; hidden = kit.prop != .visor
     default: break
@@ -152,11 +161,21 @@ import UIKit
     let head = simd_slerp(facing,chest,0.22) * simd_quatf(angle:-gaze.x * 0.84,axis:[0,1,0])
       * simd_quatf(angle:gaze.y*0.8,axis:[1,0,0])
     set(.pelvis,at:hip+hips.act(anchor(.pelvis)-hipMid),rotation:hips)
+    let middle = simd_slerp(hips,chest,0.52)
+    let waistFraction = (anchor(.waist).y-hipMid.y)/(shoulderMid.y-hipMid.y)
+    let spineMid = hip+(shoulder-hip)*waistFraction
+    let waistRest = hipMid+(shoulderMid-hipMid)*waistFraction
+    set(.waist,at:spineMid+middle.act(anchor(.waist)-waistRest),rotation:middle)
     set(.chest,at:shoulder+chest.act(anchor(.chest)-shoulderMid),rotation:chest)
     let neck = shoulder+chest.act(anchor(.neck)-shoulderMid)
     set(.neck,at:neck,rotation:simd_slerp(chest,head,0.5))
     let headCenter = neck+head.act(anchor(.head)-anchor(.neck))
     set(.head,at:headCenter,rotation:head)
+    let base = headCenter+head.act(anchor(.tailBase)-anchor(.head))
+    let sway = head * simd_quatf(angle:p.hairSway.x,axis:[0,0,1]) * simd_quatf(angle:p.hairSway.y,axis:[1,0,0])
+    set(.tailBase,at:base,rotation:sway)
+    let tip = base+sway.act(anchor(.tailTip)-anchor(.tailBase))
+    set(.tailTip,at:tip,rotation:sway*simd_quatf(angle:p.hairSway.x*0.55,axis:[0,0,1]))
     let eyes = head * simd_quatf(angle:-gaze.x*0.16,axis:[0,1,0]) * simd_quatf(angle:gaze.y*0.12,axis:[1,0,0])
     for eye in [Joint.eyeL,.eyeR] {
       set(eye,at:headCenter+head.act(anchor(eye)-anchor(.head)),rotation:eyes)
@@ -178,7 +197,20 @@ import UIKit
       let foot: Joint = right ? .footR : .footL
       let palmJoint: Joint = right ? .palmR : .palmL
       let across: Joint = right ? .gripAxisR : .gripAxisL
-      let s = shoulder + chest.act(anchor(upper)-shoulderMid), e = p[right ? .rightElbow : .leftElbow]
+      let e = p[right ? .rightElbow : .leftElbow]
+      let clav: Joint = right ? .clavR : .clavL
+      let pivot = shoulder+chest.act(anchor(clav)-shoulderMid)
+      let socket = shoulder+chest.act(anchor(upper)-shoulderMid)
+      let arm = simd_normalize(e-socket)
+      // The shoulder blade rises with an overhead arm and glides forward on
+      // a two-handed drive. The shirt collar follows the collarbone weights.
+      let elevation = max(0,simd_dot(arm,up)+0.12)
+      let ahead = chest.act([0,0,-1])
+      let glide = up*(elevation*0.055)+ahead*max(0,simd_dot(arm,ahead))*0.024
+      let clavRotation = simd_quatf(from:simd_normalize(socket-pivot),
+                                    to:simd_normalize(socket+glide-pivot))*chest
+      set(clav,at:pivot,rotation:clavRotation)
+      let s = pivot+clavRotation.act(anchor(upper)-anchor(clav))
       let palm = p[right ? .grip : .leftHand]
       let offset = anchor(hand)-anchor(palmJoint)
       let handRotation: simd_quatf
@@ -197,7 +229,16 @@ import UIKit
       }
       _ = align(upper,end:fore,from:s,to:e,base:chest,
                 pole:(anchor(hand)-anchor(fore),wristPoint-e))
-      _ = align(fore,end:hand,from:e,to:wristPoint,base:chest)
+      let proximal = align(fore,end:hand,from:e,to:wristPoint,base:chest)
+      let twist: Joint = right ? .twistR : .twistL
+      let t = min(1,simd_distance(anchor(twist),anchor(fore))/simd_distance(anchor(hand),anchor(fore)))
+      let axis = simd_normalize(wristPoint-e)
+      let delta = handRotation*proximal.inverse
+      // Resolve only the wrist's twist about the long bones of the forearm.
+      let signedRoll = atan2(simd_dot(delta.imag,axis),delta.real)*2
+      let roll = atan2(sin(signedRoll),cos(signedRoll))
+      let sleeve = simd_quatf(angle:max(-1.48,min(1.48,roll))*t,axis:axis)*proximal
+      set(twist,at:e+(wristPoint-e)*t,rotation:sleeve)
       set(hand,at:wristPoint,rotation:handRotation)
       let h = hip+hips.act(anchor(thigh)-hipMid), k = p[right ? .rightKnee : .leftKnee]
       let feet = footFacing * simd_quatf(angle:p.shoeYaw[right ? 1 : 0],axis:[0,1,0])

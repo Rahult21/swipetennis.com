@@ -1,96 +1,124 @@
-// Run on macOS: swift apple/Tools/make_quick_start.swift <destination.mp4>
+// Compile on macOS and supply four native Stroke studio exports in chapter order:
+// make_quick_start destination.mp4 serve.mp4 run.mp4 forehand.mp4 backhand.mp4
 import AppKit
 import AVFoundation
 
-let width = 720, height = 640, fps: Int32 = 24
-let url = URL(fileURLWithPath: CommandLine.arguments[1])
-let writer = try AVAssetWriter(outputURL:url,fileType:.mp4)
-let input = AVAssetWriterInput(mediaType:.video,outputSettings:[
-  AVVideoCodecKey:AVVideoCodecType.h264, AVVideoWidthKey:width, AVVideoHeightKey:height,
-  AVVideoCompressionPropertiesKey:[AVVideoAverageBitRateKey:850000,AVVideoMaxKeyFrameIntervalKey:24]])
-let pool = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:input,sourcePixelBufferAttributes:[
-  kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,
-  kCVPixelBufferWidthKey as String:width,kCVPixelBufferHeightKey as String:height])
+let args=CommandLine.arguments
+guard args.count==6 else { fatalError("Expected destination, serve, run, forehand and backhand paths") }
+let width=720,height=848, panel:CGFloat=170, fps:Int32=30
+let output=URL(fileURLWithPath:args[1])
+let writer=try AVAssetWriter(outputURL:output,fileType:.mp4)
+let input=AVAssetWriterInput(mediaType:.video,outputSettings:[AVVideoCodecKey:AVVideoCodecType.h264,
+  AVVideoWidthKey:width,AVVideoHeightKey:height,
+  AVVideoCompressionPropertiesKey:[AVVideoAverageBitRateKey:2_400_000,AVVideoExpectedSourceFrameRateKey:fps]])
+let pixels=AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:input,sourcePixelBufferAttributes:[
+  kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,kCVPixelBufferWidthKey as String:width,kCVPixelBufferHeightKey as String:height])
 writer.add(input)
-guard writer.startWriting() else { fatalError(String(describing:writer.error)) }
+guard writer.startWriting() else { throw writer.error! }
 writer.startSession(atSourceTime:.zero)
-let white = CGColor(gray:0.96,alpha:1), yellow = NSColor.systemYellow.cgColor
-let blue = NSColor.systemCyan.cgColor, purple = NSColor.systemPurple.cgColor
-let hand = NSImage(systemSymbolName:"hand.point.up.left.fill",accessibilityDescription:nil)?
-  .withSymbolConfiguration(.init(pointSize:40,weight:.medium).applying(.init(paletteColors:[.white])))
-var handRect = CGRect(x:0,y:0,width:42,height:52)
-let finger = hand?.cgImage(forProposedRect:&handRect,context:nil,hints:nil)
-func ease(_ t:Double)->Double { let v=min(1,max(0,t));return v*v*(3-2*v) }
-func point(_ x:Double,_ y:Double)->CGPoint { CGPoint(x:360+(x-4.115)*(38+12*y/23.77),y:536-405*y/23.77) }
-func mix(_ a:CGPoint,_ b:CGPoint,_ t:Double)->CGPoint { CGPoint(x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t) }
-func frame(_ c:CGContext,_ time:Double) {
-  let chapter = Int(time/5), t = time.truncatingRemainder(dividingBy:5)/5
-  func line(_ a:CGPoint,_ b:CGPoint,_ col:CGColor,_ w:Double) {
-    c.beginPath(); c.move(to:a);c.addLine(to:b);c.setStrokeColor(col);c.setLineWidth(w);c.strokePath()
+let hand=NSImage(systemSymbolName:"hand.point.up.left.fill",accessibilityDescription:nil)?
+  .withSymbolConfiguration(.init(pointSize:32,weight:.medium))?
+  .withSymbolConfiguration(.init(paletteColors:[.white]))?.cgImage(forProposedRect:nil,context:nil,hints:nil)
+let white=CGColor(gray:0.97,alpha:1), muted=CGColor(red:0.73,green:0.84,blue:0.80,alpha:1)
+let blue=CGColor(red:0.43,green:0.76,blue:1,alpha:1),yellow=CGColor(red:0.96,green:0.91,blue:0.28,alpha:1)
+let purple=CGColor(red:0.81,green:0.68,blue:0.99,alpha:1)
+func ease(_ value:Double)->Double { let u=max(0,min(1,value));return u*u*(3-2*u) }
+func diagram(_ c:CGContext,chapter:Int,t:Double) {
+  c.setFillColor(CGColor(red:0.052,green:0.143,blue:0.122,alpha:1))
+  c.fill(CGRect(x:0,y:0,width:width,height:Int(panel)))
+  func line(_ a:CGPoint,_ b:CGPoint,_ color:CGColor,_ weight:CGFloat){
+    c.setStrokeColor(color);c.setLineWidth(weight);c.setLineCap(.round)
+    c.move(to:a);c.addLine(to:b);c.strokePath()
   }
-  func oval(_ p:CGPoint,_ x:Double,_ y:Double,_ color:CGColor) { c.setFillColor(color);c.fillEllipse(in:CGRect(x:p.x-x,y:p.y-y,width:2*x,height:2*y)) }
-  func rings(_ p:CGPoint,_ color:CGColor) {
+  func text(_ string:String,at p:CGPoint,size:CGFloat,bold:Bool,color:CGColor){
+    let attr:[NSAttributedString.Key:Any]=[.font:NSFont.systemFont(ofSize:size,weight:bold ? .semibold:.regular),
+                                           .foregroundColor:NSColor(cgColor:color)!]
+    NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current=NSGraphicsContext(cgContext:c,flipped:false)
+    string.draw(at:p,withAttributes:attr);NSGraphicsContext.restoreGraphicsState()
+  }
+  func ring(_ p:CGPoint,_ color:CGColor,_ pulse:Double) {
     for i in 0..<3 {
-      let r = 10+Double(i)*5
-      c.setLineWidth(2);c.setStrokeColor(color.copy(alpha:0.85-Double(i)*0.23)!)
-      c.strokeEllipse(in:CGRect(x:p.x-r,y:p.y-r*0.46,width:2*r,height:r*0.92))
+      let f=(pulse+Double(i)/3).truncatingRemainder(dividingBy:1)
+      let radius=4+10*f
+      c.setLineWidth(CGFloat(2.7*(1-f)+0.7));c.setStrokeColor(color.copy(alpha:0.92*(1-f))!)
+      c.strokeEllipse(in:CGRect(x:p.x-radius,y:p.y-radius,width:radius*2,height:radius*2))
     }
   }
-  c.setFillColor(CGColor(red:0.035,green:0.12,blue:0.13,alpha:1));c.fill(CGRect(x:0,y:0,width:width,height:height))
-  let corners=[point(-1.37,0),point(9.6,0),point(9.6,23.77),point(-1.37,23.77)]
-  c.beginPath();c.addLines(between:corners);c.closePath();c.setFillColor(CGColor(red:0.12,green:0.35,blue:0.30,alpha:1));c.fillPath()
-  for x in [-1.37,0,8.23,9.6] {line(point(x,0),point(x,23.77),white,2)}
-  for z in [0.0,23.77] {line(point(-1.37,z),point(9.6,z),white,2.5)}
-  for z in [5.485,18.285] {line(point(0,z),point(8.23,z),white,2)}
-  line(point(4.115,5.485),point(4.115,18.285),white,2)
-  var netL=point(-1.63,11.885), netR=point(9.86,11.885);netL.y+=13;netR.y+=13
-  for i in 0...80 { let p=mix(netL,netR,Double(i)/80);line(p,CGPoint(x:p.x,y:p.y-13),white.copy(alpha:0.3)!,1) }
-  line(netL,netR,white,3)
-  let center=point(4.15,24.7), receiver=point(chapter==3 ? 1.65:6.65,23.9)
-  let runner=chapter==0 ? center : mix(center,receiver,ease((t-0.08)/0.38))
-  let target = chapter==0 ? mix(point(3.5,8),point(1.3,7),ease(t/0.35))
-    : point(chapter==3 ? 5.4:2.4,chapter==3 ? 7.6:1.7)
-  func avatar(_ p:CGPoint,_ facing:Double,_ swing:Double,_ back:Bool) {
-    let sign=back ? -1.0:1.0
-    oval(p,13,4,CGColor(gray:0,alpha:0.32))
-    let jersey=NSColor(calibratedRed:facing>0 ? 0.19:0.86,green:facing>0 ? 0.72:0.42,blue:facing>0 ? 0.74:0.21,alpha:1).cgColor
-    let skin=CGColor(red:0.74,green:0.48,blue:0.33,alpha:1)
-    for x in [-5.0,5] {line(CGPoint(x:p.x+x,y:p.y+15),CGPoint(x:p.x+x*1.65,y:p.y+2),skin,4);oval(CGPoint(x:p.x+x*1.65,y:p.y+2),4,2,white)}
-    oval(CGPoint(x:p.x,y:p.y+20),8,11,jersey);oval(CGPoint(x:p.x,y:p.y+34),5.7,6.8,skin)
-    let grip=CGPoint(x:p.x+sign*(12-15*swing),y:p.y+21+7*swing)
-    line(CGPoint(x:p.x+5*sign,y:p.y+26),grip,skin,4)
-    let tip=CGPoint(x:grip.x+sign*(9-22*swing),y:grip.y+12+6*swing)
-    line(grip,tip,white,2);c.setStrokeColor(white);c.strokeEllipse(in:CGRect(x:tip.x-5,y:tip.y-1,width:10,height:14))
+  let court=CGRect(x:92,y:14,width:74,height:143), lines=white.copy(alpha:0.69)!
+  c.setFillColor(CGColor(red:0.12,green:0.27,blue:0.22,alpha:1));c.fill(court)
+  c.setStrokeColor(lines);c.setLineWidth(1.6);c.stroke(court)
+  for x in [court.minX+9,court.maxX-9] {line(CGPoint(x:x,y:court.minY),CGPoint(x:x,y:court.maxY),lines,1.1)}
+  for f in [0.23,0.77] {let y=court.minY+court.height*f;line(CGPoint(x:court.minX+9,y:y),CGPoint(x:court.maxX-9,y:y),lines,1)}
+  line(CGPoint(x:court.midX,y:court.minY+court.height*0.23),CGPoint(x:court.midX,y:court.minY+court.height*0.77),lines,1)
+  line(CGPoint(x:court.minX-3,y:court.midY),CGPoint(x:court.maxX+3,y:court.midY),white,2.2)
+  let start=CGPoint(x:court.midX,y:court.minY+10)
+  var finger=CGPoint.zero, target=CGPoint.zero
+  let progress=ease((t-0.3)/1.48)
+  let title:String,caption:String
+  let tint:CGColor
+  switch chapter {
+  case 0:
+    tint=blue;target=CGPoint(x:court.midX+6+17*progress,y:court.midY+21)
+    finger=CGPoint(x:start.x+19*progress,y:start.y+8*progress)
+    title=t<2 ? "Drag on your half" : "Tap to serve"
+    caption=t<2 ? "Place the blue target" : "Your serve follows the target"
+  case 1:
+    tint=yellow;target=CGPoint(x:court.maxX-9,y:court.minY+16)
+    finger=CGPoint(x:start.x+(target.x-start.x)*progress,y:start.y+(target.y-start.y)*progress)
+    title="Run to yellow";caption="Tap the ring or swipe toward it"
+  default:
+    let deep=chapter==2
+    tint=purple;target=CGPoint(x:court.midX+(deep ? -19:18)*progress,y:court.midY+(deep ? 63:24)*progress)
+    finger=CGPoint(x:start.x+(deep ? -22:14)*progress,y:start.y+(deep ? 70:27)*progress)
+    title=deep ? "Swipe farther" : "Use a shorter swipe"
+    caption=deep ? "Aim deep before contact" : "Bring the landing inside the court"
   }
-  avatar(point(4,0),-1,chapter==1 ? ease(t/0.22):0,false)
-  let hit=ease((t-0.5)/0.16)
-  avatar(runner,1,hit,chapter==3)
-  if chapter==0 {rings(target,blue)} else if t<0.52 {rings(receiver,yellow)} else {rings(target,purple)}
-  let incomingStart=point(4,0)
-  var b=chapter==0 ? runner : mix(incomingStart,receiver,ease(t/0.51))
-  if t>0.52 {let u=ease((t-0.52)/0.39);b=mix(runner,target,u);b.y+=sin(u * .pi)*45}
-  else {b.y+=chapter==0 ? 18+sin(t/0.52 * .pi)*35 : sin(t/0.52 * .pi)*25}
-  oval(b,4.8,4.8,yellow)
-  let a = chapter==0 ? center : chapter==1 ? center : receiver
-  let finish = chapter==0 ? CGPoint(x:a.x-46,y:a.y+10) : chapter==1 ? receiver :
-    CGPoint(x:a.x+(chapter==3 ? 24:-50),y:a.y+(chapter==3 ? 34:94))
-  let progress=ease((t-(chapter<2 ? 0.02:0.28))/0.3)
-  let handAt=mix(a,finish,progress)
-  if t<0.69 {
-    line(a,handAt,white.copy(alpha:0.55)!,4)
-    if let finger { c.draw(finger,in:CGRect(x:handAt.x-4,y:handAt.y-33,width:37,height:42)) }
+  ring(target,tint,t*1.32)
+  if t<2.35 || (chapter==0 && t<3.4) {
+    line(start,finger,white.copy(alpha:0.58)!,3)
+    if let hand { c.draw(hand,in:CGRect(x:finger.x-2,y:finger.y-22,width:31,height:32)) }
+    if chapter==0 && t>=2 { ring(finger,.init(gray:1,alpha:1),t*1.8) }
+  }
+  text(title,at:CGPoint(x:229,y:91),size:37,bold:true,color:white)
+  text(caption,at:CGPoint(x:230,y:56),size:23,bold:false,color:muted)
+  for i in 0..<4 {
+    c.setFillColor(i==chapter ? tint : white.copy(alpha:0.24)!)
+    c.fill(CGRect(x:231+i*27,y:29,width:19,height:3))
   }
 }
-for n in 0..<Int(fps)*20 {
-  while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval:0.004) }
-  autoreleasepool {
-    var buf:CVPixelBuffer?
-    guard CVPixelBufferPoolCreatePixelBuffer(nil,pool.pixelBufferPool!,&buf)==kCVReturnSuccess,let buf else { fatalError() }
-    CVPixelBufferLockBaseAddress(buf,[]);let ctx=CGContext(data:CVPixelBufferGetBaseAddress(buf),width:width,height:height,bitsPerComponent:8,bytesPerRow:CVPixelBufferGetBytesPerRow(buf),space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo.byteOrder32Little.rawValue|CGImageAlphaInfo.noneSkipFirst.rawValue)!
-    frame(ctx,Double(n)/Double(fps));CVPixelBufferUnlockBaseAddress(buf,[])
-    guard pool.append(buf,withPresentationTime:CMTime(value:Int64(n),timescale:fps)) else { fatalError(String(describing:writer.error)) }
+for (chapter,path) in args.dropFirst(2).enumerated() {
+  let asset=AVURLAsset(url:URL(fileURLWithPath:path))
+  let reader=try AVAssetReader(asset:asset)
+  let video=AVAssetReaderTrackOutput(track:asset.tracks(withMediaType:.video).first!,
+                 outputSettings:[kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA])
+  reader.add(video);guard reader.startReading() else {throw reader.error!}
+  var sample=video.copyNextSampleBuffer(), displayed:CMSampleBuffer?
+  let duration=asset.duration.seconds
+  for i in 0..<5*Int(fps) {
+    let seconds=Double(i)/Double(fps)
+    let t=max(0,min(duration-0.012,(seconds-0.30)*max(1,duration/4.48)))
+    while let next=sample, CMSampleBufferGetPresentationTimeStamp(next).seconds<=t+0.002 {
+      displayed=next; sample=video.copyNextSampleBuffer()
+    }
+    guard let source=displayed ?? sample,let frame=CMSampleBufferGetImageBuffer(source) else {fatalError("Empty native court film")}
+    while !input.isReadyForMoreMediaData && writer.status == .writing { Thread.sleep(forTimeInterval:0.004) }
+    guard writer.status == .writing else {throw writer.error!}
+    try autoreleasepool {
+      var result:CVPixelBuffer?
+      guard let bufferPool=pixels.pixelBufferPool,CVPixelBufferPoolCreatePixelBuffer(nil,bufferPool,&result)==kCVReturnSuccess,let buf=result else {fatalError("Video buffer")}
+      CVPixelBufferLockBaseAddress(buf,[]);CVPixelBufferLockBaseAddress(frame,.readOnly)
+      let flags=CGBitmapInfo.byteOrder32Little.rawValue|CGImageAlphaInfo.noneSkipFirst.rawValue
+      let space=CGColorSpace(name:CGColorSpace.sRGB)!
+      let c=CGContext(data:CVPixelBufferGetBaseAddress(buf),width:width,height:height,bitsPerComponent:8,bytesPerRow:CVPixelBufferGetBytesPerRow(buf),space:space,bitmapInfo:flags)!
+      let source=CGContext(data:CVPixelBufferGetBaseAddress(frame),width:CVPixelBufferGetWidth(frame),height:CVPixelBufferGetHeight(frame),
+        bitsPerComponent:8,bytesPerRow:CVPixelBufferGetBytesPerRow(frame),space:space,bitmapInfo:flags)!.makeImage()!
+      c.draw(source,in:CGRect(x:0,y:panel,width:CGFloat(width),height:CGFloat(height)-panel))
+      diagram(c,chapter:chapter,t:seconds)
+      CVPixelBufferUnlockBaseAddress(frame,.readOnly);CVPixelBufferUnlockBaseAddress(buf,[])
+      guard pixels.append(buf,withPresentationTime:CMTime(value:Int64(chapter*150+i),timescale:fps)) else {throw writer.error!}
+    }
   }
 }
-input.markAsFinished();let done=DispatchSemaphore(value:0)
-writer.finishWriting { done.signal() };done.wait()
-guard writer.status == .completed else { fatalError(String(describing:writer.error)) }
+input.markAsFinished();let completed=DispatchSemaphore(value:0)
+writer.finishWriting { completed.signal() };completed.wait()
+guard writer.status == .completed else {throw writer.error!}

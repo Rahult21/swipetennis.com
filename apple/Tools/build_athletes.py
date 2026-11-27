@@ -68,6 +68,8 @@ def source_bone(name):
     stem = name.split(".")[0]
     if stem.startswith("upperarm"):
         return "upperArm" + side
+    if stem == "lowerarm02":
+        return "twist" + side
     if stem.startswith("lowerarm"):
         return "forearm" + side
     if stem.startswith(("wrist", "finger", "metacarpal")):
@@ -78,7 +80,11 @@ def source_bone(name):
         return "shin" + side
     if stem.startswith(("toe", "foot")):
         return "foot" + side
-    if stem.startswith(("shoulder", "clavicle", "scapula", "breast")) or stem in ["spine01","spine02"]:
+    if stem.startswith(("shoulder", "clavicle", "scapula")):
+        return "clav" + side
+    if stem in ["spine02","spine03"]:
+        return "waist"
+    if stem.startswith("breast") or stem == "spine01":
         return "chest"
     if stem.startswith("neck"):
         return "neck"
@@ -187,13 +193,15 @@ class Athlete:
         self.base = Obj((source / "base.obj").read_text())
         self.original = self.base.points
         self.points = list(self.original)
-        for origin in ("african","asian","caucasian"):
-            target = source / f"{origin}-{model}-young.target"
+        targets = [(f"{origin}-{model}-young.target",1/3) for origin in ("african","asian","caucasian")]
+        targets.append((f"universal-{model}-young-maxmuscle-averageweight.target",0.38))
+        for filename, blend in targets:
+            target = source / filename
             for line in target.read_text().splitlines():
                 t = line.split()
                 if t and t[0].isdigit():
                     i = int(t[0])
-                    self.points[i] = tuple(self.points[i][k]+float(t[k+1])/3 for k in range(3))
+                    self.points[i] = tuple(self.points[i][k]+float(t[k+1])*blend for k in range(3))
         weights = json.loads((source/"default_weights.mhw").read_text())
         assert weights["license"] == "CC0"
         self.weights = [defaultdict(float) for _ in self.points]
@@ -204,10 +212,11 @@ class Athlete:
         rig = json.loads((source/"default.mhskel").read_text())
         def pivot(name):
             return world(average([self.points[i] for i in rig["joints"][rig["bones"][name]["head"]]]))
-        self.anchors = {"root":(0.,0.,0.), "pelvis":pivot("root"),"chest":pivot("spine01"),
+        self.anchors = {"root":(0.,0.,0.), "pelvis":pivot("root"),"chest":pivot("spine01"),"waist":pivot("spine03"),
                         "neck":pivot("neck01"),"head":pivot("head")}
         for side in "LR":
-            for key, bone in [("upperArm","upperarm01"),("forearm","lowerarm01"),("hand","wrist"),
+            for key, bone in [("upperArm","upperarm01"),("forearm","lowerarm01"),("twist","lowerarm02"),("hand","wrist"),
+                              ("clav","clavicle"),
                               ("thigh","upperleg01"),("shin","lowerleg01"),("foot","foot")]:
                 self.anchors[key+side] = pivot(bone+"."+side)
         self.curl_fingers(rig,weights["weights"])
@@ -310,7 +319,17 @@ class Athlete:
             mapped.append(tuple(sum(w*self.points[i][k] for w,i in zip(factors,sources)) + offset[k]*scale[k] for k in range(3)))
             skinning.append(combined([(w,self.weights[i]) for w,i in zip(factors,sources)]))
         if kind == "Hair":
-            skinning = [{"head":1.0} for _ in mapped]
+            head = self.anchors["head"]
+            self.anchors["tailBase"] = (0.,head[1]+.033,head[2]+.102)
+            self.anchors["tailTip"] = (0.,head[1]-.077,head[2]+.121)
+            skinning = []
+            for point in mapped:
+                _,y,z = world(point)
+                falls = min(1,max(0,(self.anchors["tailBase"][1]-y)/.066))
+                rear = min(1,max(0,(z-head[2]-.061)/.035))
+                hangs = falls*rear if self.model=="female" else 0
+                tip = min(1,max(0,(self.anchors["tailTip"][1]+.031-y)/.081))
+                skinning.append({"head":1-hangs,"tailBase":hangs*(1-tip),"tailTip":hangs*tip})
         if kind == "Eyes":
             eye = ["eyeR" if world(p)[0]>0 else "eyeL" for p in mapped]
             for name in ["eyeL","eyeR"]:
@@ -364,7 +383,7 @@ class Athlete:
             axis = normalize([e-w for e,w in zip(elbow,wrist)])
             x = normalize((axis[2],0,-axis[0]))
             z = (axis[1]*x[2]-axis[2]*x[1],axis[2]*x[0]-axis[0]*x[2],axis[0]*x[1]-axis[1]*x[0])
-            skin = [world(v.position) for v in self.parts["Skin"].vertices if sum(v.weights.get(b+side,0) for b in ["hand","forearm"])>0.82]
+            skin = [world(v.position) for v in self.parts["Skin"].vertices if sum(v.weights.get(b+side,0) for b in ["hand","forearm","twist"])>0.82]
             rows = []
             for distance,extra in [(0.034,.0007),(.037,.003),(.043,.003),(.048,.0024),(.066,.0024),(.073,.003),(.078,.0007)]:
                 section = []
@@ -380,10 +399,31 @@ class Athlete:
                 for i in range(40):
                     t = i*math.tau/40
                     p = tuple(w+d*distance+a*(cx+rx*math.cos(t))+b*(cz+rz*math.sin(t)) for w,d,a,b in zip(wrist,axis,x,z))
-                    ring.append(vertex(p,(i/40,distance),{"forearm"+side:1}))
+                    ring.append(vertex(p,(i/40,distance),{"twist"+side:1}))
                 rows.append(ring)
             strip("Wristband",rows)
         head = self.anchors["head"]
+        # A fitted ribbed sock follows calf and ankle weights and overlaps the shoe.
+        # Each ring fits the body mesh at that height instead of wrapping a cylinder.
+        for side in "LR":
+            foot = self.anchors["foot"+side]; sign = -1 if side=="L" else 1
+            lower = [world(v.position) for name in ["Skin","Shoe"] for v in self.parts[name].vertices
+                     if world(v.position)[0]*sign>0 and 0.10<world(v.position)[1]<0.36]
+            rows = []
+            for height,extra in [(0.128,.0008),(.152,.0014),(.187,.0015),(.22,.0015),(.247,.0019),
+                                 (.253,.003),(.261,.002),(.266,.0034),(.273,.0014)]:
+                ring = []
+                section = [p for p in lower if abs(p[1]-height)<0.014]
+                if not section: section = sorted(lower,key=lambda p:abs(p[1]-height))[:16]
+                xs,_,zs = list(zip(*section)); cx,cz=(min(xs)+max(xs))/2,(min(zs)+max(zs))/2
+                for i in range(48):
+                    a=math.tau*i/48; dx,dz=math.cos(a),math.sin(a)
+                    radius=max((p[0]-cx)*dx+(p[2]-cz)*dz for p in section)+extra+0.0008*(i%2)
+                    shin=min(1,max(0,(height-0.128)/0.052))
+                    bones={"shin"+side:shin,"foot"+side:1-shin}
+                    ring.append(vertex((cx+dx*radius,height,cz+dz*radius),(i/48,(height-.128)*6),bones))
+                rows.append(ring)
+            strip("Sock",rows)
         skin = [world(v.position) for v in self.parts["Skin"].vertices]
         h = head[1]+0.073
         brow = [p for p in skin if abs(p[1]-h)<0.012 and abs(p[0])<0.12]
@@ -425,7 +465,39 @@ class Athlete:
                 row.append(vertex(((width+flare)*math.sin(t),waist-depth,cz-(rz+flare)*math.cos(t)),(i/64,depth),weights))
             rows.append(row)
         strip("Skort",rows)
+        # Bind the piping directly to the actual open sleeve hem. Ignore UV
+        # boundaries inside the cloth and the edges where it meets the shirt.
+        sleeve = self.parts["Sleeves"]
+        edges = defaultdict(list)
+        for face in sleeve.faces:
+            for a,b in zip(face,face[1:]+face[:1]):
+                va,vb = sleeve.vertices[a],sleeve.vertices[b]
+                edges[tuple(sorted((va.position,vb.position)))].append((va,vb))
+        for pairs in edges.values():
+            if len(pairs)!=1: continue
+            a,b = pairs[0]
+            mid = world(average([a.position,b.position]))
+            side = "L" if mid[0]<0 else "R"
+            shoulder,elbow = [self.anchors[key+side] for key in ["upperArm","forearm"]]
+            axis = normalize([q-p for p,q in zip(shoulder,elbow)])
+            reach = sum((p-q)*d for p,q,d in zip(mid,shoulder,axis))
+            if reach<.105: continue
+            def hem(v,span):
+                pos = world(v.position)
+                near = tuple(s+t*reach for s,t in zip(shoulder,axis))
+                outward = normalize([p-n for p,n in zip(pos,near)])
+                return vertex(tuple(p+n*.0018-d*span for p,n,d in zip(pos,outward,axis)),v.uv,v.weights)
+            self.emit("SleeveEdge",[hem(a,0),hem(b,0),hem(b,.009),hem(a,.009)])
         neck = self.anchors["neck"]
+        rows = []
+        for rise,radius in [(-.007,1.08),(.005,1.06),(.017,.99),(.024,.95)]:
+            ring=[]
+            for i in range(48):
+                a = math.tau*i/48
+                ring.append(vertex((neck[0]+math.sin(a)*.067*radius,neck[1]+rise+.014*math.cos(a),
+                                    neck[2]+math.cos(a)*.064*radius),(i/48,rise*4),{"chest":.62,"neck":.38}))
+            rows.append(ring)
+        strip("CollarEdge",rows)
         # The two collar leaves fold forward and taper toward the placket.
         for sign in [-1,1]:
             points = [(0.009,.005,-.068),(.066,.008,-.015),(.088,-.018,-.045),(.041,-.061,-.088)]

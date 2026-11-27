@@ -133,7 +133,7 @@ final class SwipeTennisUITests: XCTestCase {
   func testStudioCanRepeatServeAndFreezeTheLanding() throws {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1","YES","-athleteModel","Man","-kitColor","Chalk",
-                           "-kitShirt","Polo","-kitProp","None","-kitSkin","Honey","-kitSkort","NO"]
+                           "-kitShirt","Polo","-kitBottomColor","White","-kitProp","None","-kitSkin","Honey","-kitSkort","NO"]
     XCUIDevice.shared.orientation = .portrait
     app.launch()
     app.buttons["Player & kit"].tap()
@@ -156,6 +156,22 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(app.buttons["Share pose"].waitForExistence(timeout:15))
     let serve = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
     serve.name = "Match whites at contact"; serve.lifetime = .keepAlways; add(serve)
+    let export = app.buttons["exportStudioMovie"]
+    for _ in 0..<2 where !export.isHittable { app.swipeUp() }
+    export.tap()
+    XCTAssertTrue(app.buttons["shareStudioMovie"].waitForExistence(timeout:120))
+    let movie = app.buttons["shareStudioMovie"]
+    XCTAssertTrue(movie.isEnabled)
+    // Switching stroke invalidates the exported movie from the previous selection.
+    for shot in ["Run","Forehand","Backhand"] {
+      let choice = app.buttons[shot]
+      if !choice.isHittable { app.swipeDown() }
+      choice.tap()
+      XCTAssertFalse(movie.exists)
+      if !export.isHittable { app.swipeUp() }
+      export.tap()
+      XCTAssertTrue(movie.waitForExistence(timeout:120),shot)
+    }
   }
 
   func testStrokeStudioShowsBothAthletesAtContactAndFinish() throws {
@@ -214,6 +230,63 @@ final class SwipeTennisUITests: XCTestCase {
     }
   }
 
+  func testRepeatingServePresentsDistinctAthletePoses() throws {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1","YES"]
+    XCUIDevice.shared.orientation = .portrait
+    app.launch()
+    app.buttons["Player & kit"].tap()
+    app.buttons["strokeStudio"].tap()
+    let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
+    let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
+    XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
+    app.buttons["studioRepeat"].tap()
+    var previous = [UInt8](), changes = 0
+    let deadline = Date.now.addingTimeInterval(6)
+    while Date.now < deadline && changes < 5 {
+      let frame = try XCTUnwrap(court.screenshot().image.cgImage)
+      // In the behind-server view this crop contains the legs, shirt and racket.
+      // Excluding the timeline prevents the slider alone from passing the test.
+      let crop = try XCTUnwrap(frame.cropping(to:CGRect(x:Double(frame.width)*0.23,y:Double(frame.height)*0.24,
+        width:Double(frame.width)*0.54,height:Double(frame.height)*0.65)))
+      var pixels = [UInt8](repeating:0,count:32*40*4)
+      pixels.withUnsafeMutableBytes { buffer in
+        let context = CGContext(data:buffer.baseAddress,width:32,height:40,bitsPerComponent:8,bytesPerRow:128,
+          space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.noneSkipLast.rawValue)
+        context?.draw(crop,in:CGRect(x:0,y:0,width:32,height:40))
+      }
+      if !previous.isEmpty {
+        let changedPixels = stride(from:1,to:pixels.count,by:4).filter { abs(Int(pixels[$0])-Int(previous[$0])) > 18 }
+        if changedPixels.count >= 12 { changes += 1 }
+      }
+      previous = pixels
+      Thread.sleep(forTimeInterval:0.14)
+    }
+    XCTAssertGreaterThanOrEqual(changes,5,"The visible athlete should change pose through the service loop.")
+  }
+
+  func testLandscapeStrokeStudioFitsAthleteAndContactControls() {
+    let app = XCUIApplication()
+    app.launchArguments = ["-watchedQuickStartV1","YES"]
+    XCUIDevice.shared.orientation = .portrait
+    defer { XCUIDevice.shared.orientation = .portrait }
+    app.launch()
+    app.buttons["Player & kit"].tap()
+    app.buttons["strokeStudio"].tap()
+    let court = app.descendants(matching:.any)["motionStudioCourt"].firstMatch
+    let ready = XCTNSPredicateExpectation(predicate:NSPredicate(format:"value == %@", "Ready"),object:court)
+    XCTAssertEqual(XCTWaiter.wait(for:[ready],timeout:30),.completed)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    let control = app.buttons["Contact"]
+    XCTAssertTrue(control.isHittable)
+    XCTAssertGreaterThan(control.frame.minX,court.frame.maxX)
+    XCTAssertLessThan(court.frame.maxY,app.tabBars.firstMatch.frame.minY)
+    control.tap()
+    XCTAssertTrue(app.buttons["Share pose"].waitForExistence(timeout:20))
+    let image = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+    image.name = "Landscape stroke studio"; image.lifetime = .keepAlways; add(image)
+  }
+
   func testCareerResumesAtSavedPointAfterQuickPlay() throws {
     let app = XCUIApplication()
     app.launchArguments += ["-watchedQuickStartV1", "YES"]
@@ -256,6 +329,10 @@ final class SwipeTennisUITests: XCTestCase {
     app.launch()
     let done = app.buttons["closeQuickStart"]
     XCTAssertTrue(done.waitForExistence(timeout: 15))
+    for title in ["Move to the return", "Drive a deep forehand", "Play a shorter backhand", "Place your serve"] {
+      app.buttons[title].tap()
+      XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout:3))
+    }
     done.tap()
     app.buttons["playPractice"].tap()
     let quick = app.buttons["quickGuestPlay"]
@@ -273,6 +350,8 @@ final class SwipeTennisUITests: XCTestCase {
     XCUIDevice.shared.orientation = .landscapeLeft
     capture("Landscape-ready")
     start.tap()
+    let playing = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:start)
+    XCTAssertEqual(XCTWaiter.wait(for:[playing],timeout:10),.completed)
     capture("Landscape-rally")
     let skip = app.buttons["Skip"]
     XCTAssertTrue(skip.waitForExistence(timeout: 35))
@@ -328,7 +407,7 @@ final class SwipeTennisUITests: XCTestCase {
       "SWIPETENNIS_LOCAL_TEST_USER":user,"SWIPETENNIS_LOCAL_TEST_TOKEN":token]
     app.launch()
     app.buttons["quickCup"].tap()
-    let draw = app.buttons.containing(.staticText,identifier:"Replay test").firstMatch
+    let draw = app.buttons.containing(.staticText,identifier:env["TOUR_TEST_TITLE"] ?? "Replay test").firstMatch
     for _ in 0..<6 where !draw.isHittable { app.swipeUp() }
     XCTAssertTrue(draw.isHittable)
     draw.tap()
@@ -337,8 +416,13 @@ final class SwipeTennisUITests: XCTestCase {
     play.tap()
     let ready = app.buttons["I'm ready to play"]
     XCTAssertTrue(ready.waitForExistence(timeout:12)); ready.tap()
+    let automatic = app.buttons["Skip"]
+    XCTAssertTrue(automatic.waitForExistence(timeout:50))
+    if automatic.isHittable { automatic.tap() }
     let replay = app.buttons["replayCupPoint"]
-    XCTAssertTrue(replay.waitForExistence(timeout:30)); replay.tap()
+    let accessible = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == true AND hittable == true"),object:replay)
+    XCTAssertEqual(XCTWaiter.wait(for:[accessible],timeout:30),.completed)
+    replay.tap()
     XCTAssertTrue(app.buttons["replayCameraNeutral"].waitForExistence(timeout:15))
     app.buttons["replayCameraNeutral"].tap()
     app.buttons["Done"].tap()
@@ -397,11 +481,14 @@ final class SwipeTennisUITests: XCTestCase {
     app.launchArguments += ["-watchedQuickStartV1", "YES"]
     app.launch()
     app.tabBars.buttons["Score"].tap()
-    if app.buttons["End this match"].exists {
-      app.buttons["End this match"].tap()
+    let one = app.textFields["playerOne"]
+    if !one.waitForExistence(timeout:5) {
+      let end = app.buttons["End this match"]
+      for _ in 0..<6 where !end.isHittable { app.swipeUp() }
+      XCTAssertTrue(end.isHittable)
+      end.tap()
       app.buttons["Save & close match"].tap()
     }
-    let one = app.textFields["playerOne"]
     XCTAssertTrue(one.waitForExistence(timeout: 5))
     one.tap()
     one.typeText("Alex")

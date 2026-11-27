@@ -82,6 +82,7 @@ enum ReplayAngle: String, CaseIterable {
 
 @MainActor final class CourtReplayView: ARView {
   private let court = AnchorEntity(world: .zero)
+  private var audience: GrandstandAudience?
   private let scenery = Entity()
   private static var skies: [String:EnvironmentResource] = [:]
   private static var ballMaterial: SimpleMaterial?
@@ -126,7 +127,7 @@ enum ReplayAngle: String, CaseIterable {
     shadow = stamp
     players = [0, 1].map { ReplayAthlete(side: $0, sphere: sphere, shadow: stamp.clone(recursive: true), localSide:localSide) }
     super.init(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
-    renderOptions.insert(.disableGroundingShadows)
+    renderOptions.formUnion([.disableGroundingShadows,.disableMotionBlur,.disableDepthOfField])
     isUserInteractionEnabled = false
     environment.background = .color(UIColor(red: 0.66, green: 0.79, blue: 0.85, alpha: 1))
     if #available(iOS 18.0, *) { camera.camera.fieldOfViewOrientation = .vertical }
@@ -175,6 +176,8 @@ enum ReplayAngle: String, CaseIterable {
       court.addChild(fill)
       players[1].root.isEnabled = false
     } else {
+      audience = GrandstandAudience(night:selected == .night)
+      if let audience { court.addChild(audience.root) }
       let guides = UserDefaults.standard.object(forKey: "guides") as? Bool ?? true
       if selected == .night {
         environment.background = .color(UIColor(red: 0.055, green: 0.075, blue: 0.16, alpha: 1))
@@ -205,6 +208,15 @@ enum ReplayAngle: String, CaseIterable {
   }
   @MainActor required dynamic init(frame frameRect: CGRect) { fatalError("Use init(surface:)") }
   @MainActor required dynamic init?(coder decoder: NSCoder) { fatalError("Use init(surface:)") }
+
+  override func didMoveToWindow() {
+    super.didMoveToWindow()
+    #if targetEnvironment(simulator)
+    // Keep touch and SwiftUI at native scale. A two-sample-per-point 3D surface
+    // leaves the simulator GPU more time for the stroke itself.
+    if window != nil { contentScaleFactor = min(contentScaleFactor,2) }
+    #endif
+  }
 
   func whenRendering(_ ready: @escaping () -> Void) { whenFrameIsReady { _ in ready() } }
 
@@ -273,7 +285,11 @@ enum ReplayAngle: String, CaseIterable {
       mat.color = .init(tint: .white, texture: .init(texture))
     } else { mat.color = .init(tint: .black.withAlphaComponent(0.18)) }
     mat.blending = .transparent(opacity: .init(floatLiteral: 1))
-    return ModelEntity(mesh: .generatePlane(width: 1, depth: 1), materials: [mat])
+    let stamp = ModelEntity(mesh:.generatePlane(width:1,depth:1),materials:[mat])
+    // This translucent contact shadow sits on the floor. Its rectangular
+    // carrier must not cast another, hard-edged shadow beside the shoes.
+    if #available(iOS 18, *) { stamp.components.set(DynamicLightShadowComponent(castsShadow:false)) }
+    return stamp
   }
 
   private func box(_ at: CourtPoint3D, _ size: CourtPoint3D, _ color: UIColor) {
@@ -404,7 +420,7 @@ enum ReplayAngle: String, CaseIterable {
     for x in [x0, x0+width] { box([x,0.54,netZ], [0.085,1.08,0.085], surround) }
     let wall = UIColor(red: 0.075, green: 0.20, blue: 0.19, alpha: 1)
     let seats = [ReplayMeshLines(), ReplayMeshLines()]
-    let crowd = ReplayCrowd()
+    let crowd = GrandstandAudience.available ? nil : ReplayCrowd()
     let terraces = ReplayMeshLines()
     // Each stand faces the court. Breaks between seating sections remain open as aisles.
     for end in 0..<4 {
@@ -429,12 +445,12 @@ enum ReplayAngle: String, CaseIterable {
           let batch = seats[(seat/12+row/3)%2]
           batch.box(center: position, size: size(0.54,0.10,0.42))
           batch.box(center: position + outward*0.19 + [0,0.17,0], size: size(0.54,0.35,0.07))
-          crowd.seat(at: position + [0,0.05,0], yaw: yaw)
+          crowd?.seat(at:position+[0,0.05,0],yaw:yaw)
         }
       }
     }
     scenery.addChild(terraces.model(color: UIColor(red: 0.39,green: 0.43,blue: 0.40,alpha: 1)))
-    scenery.addChild(crowd.model())
+    if let crowd { scenery.addChild(crowd.model()) }
     scenery.addChild(seats[0].model(color: UIColor(red: 0.11,green: 0.34,blue: 0.32,alpha: 1)))
     scenery.addChild(seats[1].model(color: UIColor(red: 0.24,green: 0.47,blue: 0.42,alpha: 1)))
     let braces = ReplayMeshLines()
@@ -464,35 +480,32 @@ enum ReplayAngle: String, CaseIterable {
       font:.systemFont(ofSize:0.54,weight:.semibold)),materials:[SimpleMaterial(color:chalk,roughness:0.9,isMetallic:false)])
     name.position = [4.115-name.visualBounds(relativeTo:nil).extents.x/2,1.08,-9.82]
     scenery.addChild(name)
-    // Cluster overlapping crowns into three meshes. A ragged canopy works in
-    // silhouette from the baseline without the draw cost of individual leaves.
-    let crowns = [ReplayMeshLines(),ReplayMeshLines(),ReplayMeshLines()]
-    let wood = ReplayMeshLines()
-    var seed: UInt32 = 713
-    func variation() -> Float {
-      seed = seed &* 1664525 &+ 1013904223
-      return Float(seed >> 8)/16_777_216
-    }
-    for end in 0...1 { for i in 0..<23 {
-      let x = -48+Float(i)*4.7+variation()*1.6
-      let depth = 1+variation()*7, h = 5.3+variation()*5.7
-      let at = CourtPoint3D(x,0,end == 0 ? -22-depth : 45.77+depth)
-      wood.line(at,at+[0,h*0.71,0],radius:0.18+variation()*0.11)
-      for j in 0..<13 {
-        let a = 2*Float.pi*Float(j)/13+variation()*0.38
-        let r = 0.4+1.88*variation(), weight = variation()
-        let branch = at+[r*cos(a),h*(0.59+0.27*weight),r*sin(a)]
-        let top = branch+[0,1+variation()*1.1,0]
-        if j%3 == 0 { wood.line(at+[0,h*0.37,0],branch,radius:0.09) }
-        let width = 1.14+variation()*0.83
-        crowns[(i+j)%3].oval(top,radii:[width,1.2+variation(),width*(0.75+variation()*0.4)])
-      }
+    if let grove = Self.grove(night:night) { scenery.addChild(grove) }
+  }
+
+  private static func grove(night: Bool) -> ModelEntity? {
+    guard let image = UIImage(named:"venue-trees")?.cgImage,
+      let map = try? TextureResource.generate(from:image,options:.init(semantic:.color)) else { return nil }
+    var leaves = UnlitMaterial()
+    leaves.color = .init(tint:UIColor(white:night ? 0.38 : 0.91,alpha:1),texture:.init(map))
+    leaves.opacityThreshold = 0.32
+    if #available(iOS 18, *) { leaves.faceCulling = .none }
+    var points:[CourtPoint3D]=[], uv:[SIMD2<Float>]=[], indices:[UInt32]=[]
+    for end in 0...1 { for i in 0..<24 {
+      let variant = (i*5+i/6+end)%6, size = 9.4+Float((i*7+end*3)%9)*0.59
+      let x = -54+Float(i)*5.25, z = (end == 0 ? -26.0 : 49.77) + Float((i*17)%9)*(end == 0 ? -1 : 1)
+      let left = Float(variant)/6+0.001, right = Float(variant+1)/6-0.001
+      let base = UInt32(points.count)
+      let span = CourtPoint3D(end == 0 ? size/2 : -size/2,0,0)
+      let root = CourtPoint3D(x,0,z), crown = root+[0,size,0]
+      points += [root-span,root+span,crown+span,crown-span]
+      uv += [[left,0],[right,0],[right,1],[left,1]]
+      indices += [base,base+1,base+2,base,base+2,base+3]
     } }
-    scenery.addChild(wood.model(color:UIColor(red:0.24,green:0.22,blue:0.17,alpha:1)))
-    for (i,color) in [UIColor(red:0.17,green:0.30,blue:0.21,alpha:1),
-      UIColor(red:0.23,green:0.35,blue:0.22,alpha:1),UIColor(red:0.30,green:0.40,blue:0.23,alpha:1)].enumerated() {
-      scenery.addChild(crowns[i].model(color:color))
-    }
+    var grove = MeshDescriptor()
+    grove.positions = .init(points); grove.textureCoordinates = .init(uv); grove.primitives = .triangles(indices)
+    guard let mesh = try? MeshResource.generate(from:[grove]) else { return nil }
+    return ModelEntity(mesh:mesh,materials:[leaves])
   }
 
   private var liveFrame: PlayerCamera?
@@ -516,6 +529,7 @@ enum ReplayAngle: String, CaseIterable {
     if let frame = liveFrame {
       camera.camera.fieldOfViewInDegrees = frame.verticalFOV
       camera.look(at:frame.target,from:frame.eye,relativeTo:nil)
+      audience?.face(camera:frame.eye)
     }
   }
   func portraitCamera(azimuth: Float) {
@@ -525,8 +539,11 @@ enum ReplayAngle: String, CaseIterable {
     camera.look(at:target,from:eye,relativeTo:nil)
   }
 
-  func drawStudio(_ frame: RallyFrame, origin: CourtPoint3D, azimuth: Float, serve: Bool) {
-    let centre = CourtPoint3D(origin.x,0,origin.z)
+  func drawStudio(_ frame: RallyFrame, origin: CourtPoint3D, azimuth: Float, stroke: StudioStroke) {
+    let serve = stroke == .serve
+    let pelvis = (frame.near[.leftHip]+frame.near[.rightHip])*0.5
+    let lead = stroke == .chase ? origin+(pelvis-origin)*0.65 : origin
+    let centre = CourtPoint3D(lead.x,0,lead.z)
     players[0].draw(frame.near); players[1].draw(frame.far)
     ball.orientation = frame.ballRotation
     ball.position = frame.ball
@@ -538,8 +555,10 @@ enum ReplayAngle: String, CaseIterable {
     let height: Float = serve ? 1.52 : 1.10
     let target = centre + CourtPoint3D(0,height,0)
     camera.camera.fieldOfViewInDegrees = 38
-    let distance: Float = serve ? 4.95 : 3.9
-    camera.look(at:target,from:target+[distance*sin(azimuth),0.25,-distance*cos(azimuth)],relativeTo:nil)
+    let distance: Float = stroke == .chase ? 5.7 : serve ? 4.95 : 3.9
+    let eye = target+CourtPoint3D(distance*sin(azimuth),0.25,-distance*cos(azimuth))
+    camera.look(at:target,from:eye,relativeTo:nil)
+    audience?.face(camera:eye)
   }
 
   func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?, handshake: Bool = false, featuredStrike: RecordedStrike? = nil, time: Double = 0, live: Bool = false) {
@@ -599,6 +618,7 @@ enum ReplayAngle: String, CaseIterable {
       camera.camera.fieldOfViewInDegrees = 58
     }
     camera.look(at: target, from: position, relativeTo: nil)
+    audience?.face(camera:position)
     if handshake {
       camera.camera.fieldOfViewInDegrees = 42
       camera.look(at:[4.115,1.03,11.885],from:[8.6,2.0,13.55],relativeTo:nil)

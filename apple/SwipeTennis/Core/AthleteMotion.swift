@@ -8,6 +8,7 @@ enum BodyJoint: Int, CaseIterable {
 
 struct AthletePose {
   private var joints = Array(repeating: CourtPoint3D.zero, count: BodyJoint.allCases.count)
+  var hairSway = SIMD2<Float>.zero
   var heelPitch: Float = 0
   var shoeYaw = SIMD2<Float>.zero
   /// Player-relative yaw and pitch of the gaze, stored with each replay sample.
@@ -21,6 +22,7 @@ struct AthletePose {
     var result = self
     result.gaze += (other.gaze - gaze) * fraction
     result.shoeYaw += (other.shoeYaw - shoeYaw) * fraction
+    result.hairSway += (other.hairSway-hairSway)*fraction
     result.heelPitch += (other.heelPitch - heelPitch) * fraction
     for joint in BodyJoint.allCases { result[joint] += (other[joint] - self[joint]) * fraction }
     // The racket is a rigid object between samples, including slow-motion scrubbing.
@@ -62,6 +64,8 @@ struct AthleteMotion {
   private var capture = CapturedTransitions()
   private var feet = CourtFootwork()
   private var gaze = SIMD2<Float>.zero
+  private var hair = SIMD2<Float>.zero, hairVelocity = SIMD2<Float>.zero
+  private var lastShoulderYaw: Float?
   private var swing = StrokeAnimation()
   private var hitPoint = CourtPoint3D.zero
   private var previousStrings: CourtPoint3D?
@@ -282,6 +286,18 @@ struct AthleteMotion {
       hips = unit(hips + (axis(max(-1.55,min(1.4,measured.hipYaw)))-hips)*blend,fallback:right)
       shoulders = unit(shoulders + (axis(max(-1.80,min(1.52,measured.chestYaw)))-shoulders)*blend,fallback:right)
     }
+    if let measured, swing.style == .groundstroke && !blocked {
+      // Retain each player's contact geometry. The captured chest follows
+      // the pelvis through preparation and turns through the outgoing ball.
+      let amount = motionWeight*(planted ? 0.36 : 0.26)
+      hips = unit(hips+(axis(max(-1.25,min(1.12,measured.hipYaw)))-hips)*amount*0.48,fallback:right)
+      var capturedYaw = measured.chestYaw
+      if forehand, time > -0.23, time < -0.025, let loaded = CapturedStroke.sample(.forehand,at:-0.23) {
+        // Keep the non-hitting shoulder closed during the initial pelvic release.
+        capturedYaw = loaded.chestYaw+(capturedYaw-loaded.chestYaw)*ramp(time,-0.09,-0.025)
+      }
+      shoulders = unit(shoulders+(axis(max(-1.62,min(1.66,capturedYaw)))-shoulders)*amount,fallback:right)
+    }
     if activePower == .rally { pelvis += forward * (0.095 * pushOff) }
     var wrongStep = CourtPoint3D.zero
     if side == 1, let winner = game.flight, winner.power != nil {
@@ -302,6 +318,11 @@ struct AthleteMotion {
     var chest = pelvis + up * (0.49 - 0.018 * kneeLoad) + CourtPoint3D(0.048 * lean, 0, 0)
       + forward * (0.015 + 0.065 * rush + kneeLoad * (0.065 + lowBall * 0.08))
     // Lean into the low first volley; retain the shot finish as the first approach step starts.
+    if swing.style == .serve {
+      let arch = ramp(time,-0.55,-0.26)*(1-ramp(time,-0.195,-0.012))
+      let carry = ramp(time,-0.095,0.082)*(1-ramp(time,0.17,0.45))
+      chest += forward*(-0.087*arch+0.10*carry)-right*0.048*arch
+    }
     if volley { chest += (right * sideOfBall * 0.10 + forward * 0.12) * kneeLoad }
     if approaching { chest += forward * (0.12 * forwardRun) }
     chest += (reachDirection * 0.39 - up * 0.22) * dive + wrongStep
@@ -315,6 +336,18 @@ struct AthleteMotion {
     let halfWidth = sqrt(max(0.002,0.22*0.22-shoulderTilt*shoulderTilt))
     pose[.leftShoulder] = chest - shoulders * halfWidth + up * shoulderTilt
     pose[.rightShoulder] = chest + shoulders * halfWidth - up * shoulderTilt
+    let chestYaw = atan2(simd_dot(shoulders,forward),simd_dot(shoulders,right))
+    if dt>0 && !reduceMotion {
+      let tick = min(0.033,Float(dt)), prev = lastShoulderYaw ?? chestYaw
+      let turning = atan2(sin(chestYaw-prev),cos(chestYaw-prev))/Float(dt)
+      let lateral = Float(player.velocity.x)*sign
+      // A tied ponytail trails a shoulder turn and settles after the feet land.
+      let wanted = SIMD2<Float>(max(-0.48,min(0.48,-0.044*turning-0.025*lateral)),
+        max(-0.26,min(0.38,simd_dot(player.velocity.world(),forward)*0.035 + 0.16*pushOff - 0.18*landingLoad)))
+      hairVelocity += ((wanted-hair)*118-hairVelocity*16)*tick
+      hair += hairVelocity*tick
+    } else if reduceMotion { hair = .zero; hairVelocity = .zero }
+    lastShoulderYaw = chestYaw; pose.hairSway = hair
     // Track the knees outward over the wider base as the feet plant for the shot.
     let kneeOut = right * (0.15 + 0.40 * kneeLoad)
     pose[.leftKnee] = hinge(pose[.leftHip], pose[.leftShoe], length: 0.47, bend: forward - kneeOut)
@@ -396,7 +429,15 @@ struct AthleteMotion {
       shaft += (extensionAxis-shaft)*ramp(time,-0.135,-0.004)
       shaft += (finishAxis-shaft)*ramp(time,0.025,0.235)
       shaft = unit(shaft,fallback:up)
-      let palm = pose[.rightShoulder]+relative(measured.hand)*0.665
+      var palm = pose[.rightShoulder]+relative(measured.hand)*0.665
+      // Keep the bent hitting arm beside the head while the tossing arm rises.
+      // The racket head, rather than the wrist, drops behind the shoulder.
+      let trophyWeight = ramp(time,-0.65,-0.39)*(1-ramp(time,-0.14,-0.044))
+      let trophyPalm = pose[.rightShoulder]+right*0.14+up*0.23-forward*0.16
+      palm += (trophyPalm-palm)*(0.87*trophyWeight)
+      let crossing = ramp(time,0.068,0.23)*(1-ramp(time,0.34,0.58))
+      let finishPalm = pose[.leftHip]+up*0.23+forward*0.14
+      palm += (finishPalm-palm)*(0.82*crossing)
       let capturedStrings = palm+shaft*0.49
       strings = ready+(capturedStrings-ready)*motionWeight
       let lock = ramp(time,-0.11,0)*(1-ramp(time,0,0.19))
@@ -408,6 +449,14 @@ struct AthleteMotion {
       let lock = ramp(time, -0.18, 0) * (1 - ramp(time, 0, 0.19))
       strings += (strike - strings) * lock
       shaft = right * Float(-sin(existing.racketAngle)) + up * Float(cos(existing.racketAngle)) + forward * 0.18
+    }
+    if let measured, swing.style == .groundstroke && !blocked {
+      let palm = pose[.rightShoulder] + relative(measured.hand)*0.64
+      let recorded = palm+unit(shaft,fallback:up)*0.49
+      let onBall = ramp(time,-0.11,-0.005)*(1-ramp(time,0.004,0.13))
+      let difference = recorded-strings
+      let amount = motionWeight*(1-onBall)*0.53
+      strings += unit(difference,fallback:.zero)*min(0.37,simd_length(difference))*amount
     }
     if jumping || activePower == .ace {
       let t = jumping ? jumpTime : time
