@@ -87,6 +87,44 @@ final class ReceiverAndSwingTests: XCTestCase {
     }
   }
 
+  func testWideBackhandTurnsWithOutsideLegAndKeepsBothHandsThroughRecovery() throws {
+    for side in 0...1 {
+      let sign: Float = side == 0 ? 1 : -1
+      var game = PracticeEngine(settings: .init(local: true, surface: .hard, allCourtTraining: false))
+      game.phase = .live
+      game.players[side].pos = Vec(x: 4.115, y: side == 0 ? 22.6 : PracticeEngine.length-22.6)
+      game.players[1-side].pos = Vec(x: 4.115, y: side == 0 ? 1 : PracticeEngine.length-1)
+      for i in 0...1 { game.players[i].destination = game.players[i].pos }
+      game.launch(1-side, aim: Vec(x: 4.115-Double(sign)*2.65, y: side == 0 ? 21.5 : PracticeEngine.length-21.5), kind: .cross)
+      game.apply(.guidedMove(.receive), side: side)
+      var performance = CourtPerformance(game: game)
+      var poses: [AthletePose] = [], impact: Int?
+      for i in 0..<420 {
+        if let impact, i == impact+19 { game.apply(.guidedMove(.recover), side: side) }
+        game.step(PointReplay.tick, random: { 0.8 })
+        performance.update(game: game, dt: PointReplay.tick)
+        let frame = try XCTUnwrap(performance.frame)
+        poses.append(side == 0 ? frame.near : frame.far)
+        if impact == nil && game.flight?.hitter == side { impact = i }
+        if let impact, i >= impact+50 { break }
+      }
+      let hit = try XCTUnwrap(impact)
+      func turn(_ across: CourtPoint3D) -> Float { atan2(-sign*across.z,sign*across.x) }
+      for p in poses[(hit-24)...hit] {
+        let belt = turn(p[.rightHip]-p[.leftHip])
+        let shoulders = turn(p[.rightShoulder]-p[.leftShoulder])
+        XCTAssertLessThan(abs(shoulders-belt), .pi/3)
+      }
+      for p in poses[hit...(hit+45)] {
+        XCTAssertEqual(simd_distance(p[.grip],p[.leftHand]), 0.095, accuracy: 0.005)
+      }
+      let finish = poses[hit+28]
+      let shoulderHeight = (finish[.leftShoulder].y+finish[.rightShoulder].y)/2
+      XCTAssertGreaterThan(finish[.grip].y-shoulderHeight, 0.09)
+      XCTAssertGreaterThan(finish[.leftElbow].y-shoulderHeight, 0.0)
+    }
+  }
+
   func testTwoBoneHingePreservesUnequalLengthsAndBendPlane() {
     let limb = LimbGeometry(upper: 0.252, lower: 0.267)
     for high: Float in [-0.2, 0, 0.2] {

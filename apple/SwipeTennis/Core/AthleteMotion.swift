@@ -84,23 +84,35 @@ struct AthleteMotion {
   private var freePalm: CourtPoint3D?
   private var elbowPlanes = [CourtPoint3D?](repeating: nil, count: 2)
 
+  private var upperArmOffsets = [CourtPoint3D?](repeating: nil, count: 2)
+
   /// Transport each bend plane with the arm. Near full extension a tiny wrist
   /// change otherwise selects the opposite bend plane and flips the elbow.
   private mutating func elbow(_ index: Int, shoulder: CourtPoint3D, palm: CourtPoint3D,
-                              preferred: CourtPoint3D, dt: Float) -> CourtPoint3D {
+                              preferred: CourtPoint3D, dt: Float, driving: Bool) -> CourtPoint3D {
     let axis = unit(palm-shoulder, fallback: [0,-1,0])
     func planar(_ v: CourtPoint3D) -> CourtPoint3D { v-axis*simd_dot(v,axis) }
     let proposal = planar(preferred)
     let fallback = unit(simd_cross(axis, abs(axis.x) < 0.9 ? [1,0,0] : [0,0,1]), fallback: [0,0,1])
     var plane = unit(proposal, fallback: fallback)
     if let prior = elbowPlanes[index], dt > 0 {
-      let carried = unit(planar(prior), fallback: plane)
+      var carried = unit(planar(prior), fallback: plane)
+      if driving, let offset = upperArmOffsets[index] {
+        // Of all elbows that reach the handle, start with the one nearest
+        // the previous upper arm in shoulder space. This keeps a turning
+        // wrist from swinging the elbow around the handle on a low drive.
+        let nearest = planar(offset)
+        let weight = ramp(simd_length(nearest),0.035,0.15)
+        carried = unit(carried+(unit(nearest,fallback:carried)-carried)*weight,fallback:carried)
+      }
       let angle = atan2(simd_dot(simd_cross(carried,plane),axis),simd_dot(carried,plane))
       let turn = min(1,simd_length(proposal)*3) * min(1,20*dt)
       plane = simd_quatf(angle:angle*turn,axis:axis).act(carried)
     }
     elbowPlanes[index] = plane
-    return hinge(shoulder,palm,length:0.34,bend:plane)
+    let joint = hinge(shoulder,palm,length:0.34,bend:plane)
+    upperArmOffsets[index] = joint-shoulder
+    return joint
   }
   private var transitionStart: CourtPoint3D?
   private var transitionTime: Double = 0
@@ -350,11 +362,16 @@ struct AthleteMotion {
       // starts opening while the lead shoulder is still pointing upcourt.
       let handed: Float = backhand ? 1 : -1
       let set = ramp(time,-0.79,-0.32)
-      let reset = 1-ramp(time,0.34,0.58)
+      let reset = 1-ramp(time,0.24,0.58)
       let belt = backhand ? Float(0.91) : 0.78
       let ribs = backhand ? Float(1.61) : 1.49
-      hipTurn = handed*set*(belt-(belt+0.58)*ramp(time,-0.215,0.059))*reset
-      chestTurn = handed*set*(ribs-(ribs+1.16)*ramp(time,-0.104,0.155))*reset
+      // The outside knee starts to extend before contact. Let that release
+      // lead the belt, with the chest following while the hands are still low.
+      let plantDrive = feet.plantedSide == 0 ? 0 : pushOff
+      let beltRelease = ramp(time,-0.19,0.082)
+      let ribRelease = ramp(time,backhand ? -0.165 : -0.10,0.145)
+      hipTurn = handed*set*(belt-(belt+0.65)*beltRelease-0.085*plantDrive)*reset
+      chestTurn = handed*set*(ribs-(ribs+1.20)*ribRelease-(backhand ? 0.065*plantDrive : 0))*reset
     }
     let running = reduceMotion ? 0 : feet.runBlend
     let shuffleTurn = min(0.28,abs(Float(player.velocity.x))*0.065)*(player.velocity.x*Double(sign) >= 0 ? Float(-1) : 1)
@@ -482,6 +499,11 @@ struct AthleteMotion {
     }
     shoulderTilt += simd_dot(movingLean,shoulders)*0.19*(1-drive)
     if swing.style == .groundstroke && !blocked { shoulderTilt += sideOfBall*0.042*low }
+    if backhand && swing.style == .groundstroke && !blocked {
+      // The left shoulder dips with the low backswing and comes up behind
+      // the left hand as it drives the two-handed finish.
+      shoulderTilt += 0.041*lowBall*(ramp(time,-0.10,0.14)*finish-kneeLoad)
+    }
     shoulderTilt -= 0.052*landingBrace
     let halfWidth = sqrt(max(0.002,0.22*0.22-shoulderTilt*shoulderTilt))
     pose[.leftShoulder] = chest - shoulders * halfWidth + up * shoulderTilt
@@ -622,11 +644,13 @@ struct AthleteMotion {
       // the shirt when the shoulders continue opening under the racket.
       let wrap = ramp(time,0.052,0.245)*(1-ramp(time,0.34,0.57))
       let across = backhand ? Float(0.20) : -0.19
-      let palm = chest + shoulders*across + up*(backhand ? 0.11 : 0.085) + chestFront*0.28
+      let carry = ramp(time,0.16,0.31)
+      let palm = chest + shoulders*across + up*(backhand ? 0.105+0.066*carry : 0.085)
+        + chestFront*(0.32-0.085*carry)
       let blade = unit(-shoulders*sideOfBall*0.67 + up*0.45 - chestFront*0.55,fallback:up)
       let followShaft = unit(shaft,fallback:up)
       shaft = simd_slerp(simd_quatf(real:1,imag:.zero),simd_quatf(from:followShaft,to:blade),0.55*wrap).act(followShaft)
-      strings += (palm+shaft*0.49-strings)*(0.83*wrap)
+      strings += (palm+shaft*0.49-strings)*(0.65*wrap)
     }
     if volley && !blocked && dive == 0 {
       // Keep the handle in front of the sternum on the punch. On a low
@@ -829,7 +853,7 @@ struct AthleteMotion {
     }
     if rush > 0.12 && !reduceMotion && !waiting && !jumping && dive == 0 {
       // The free arm counterbalances the opposite shoe when chasing a wide ball.
-      let chase = chaseCarry*(1-rest)
+      let chase = twoHands ? 0 : chaseCarry*(1-rest)
       var pumping = pose[.leftShoulder]-up*(0.36+stride*0.07)-carryAcross*0.10+carryForward*(0.12-stride*0.22)
       if let runner { pumping += (pose[.leftShoulder]+inHeading(runner.freeHand)*0.64-pumping)*running }
       offHand += (pumping-offHand)*chase
@@ -898,8 +922,13 @@ struct AthleteMotion {
       let strength = ramp(time,-0.74,-0.40)*(1-ramp(time,0.36,0.55))
       let rightBend = unit(shoulders*(0.78-0.27*through) + chestFront*(0.42+0.63*through) - up*0.68,fallback:rightPole)
       let leftBend = unit(-shoulders*(backhand ? 0.66 : 0.39) + chestFront*(backhand ? 0.84 : 0.27) - up*0.91,fallback:leftPole)
-      rightPole += (rightBend-rightPole)*strength
-      leftPole += (leftBend-leftPole)*strength
+      let fold = ramp(time,0.045,0.245)*(1-ramp(time,0.31,0.55))
+      // The upper arms travel with the rotating chest. The elbows rise and
+      // fold around the shoulders only after the hands have extended forward.
+      let rightFinish = unit(shoulders*0.74 + chestFront*0.68 + up*0.20,fallback:rightBend)
+      let leftFinish = unit(-shoulders*0.54 + chestFront*0.93 + up*0.17,fallback:leftBend)
+      rightPole += (rightBend+(rightFinish-rightBend)*fold-rightPole)*strength
+      leftPole += (leftBend+(leftFinish-leftBend)*(backhand ? fold : 0)-leftPole)*strength
     }
     if volley && !blocked && dive == 0 {
       let inFront = ramp(time,-0.31,-0.16)*(1-ramp(time,0.15,0.32))
@@ -914,8 +943,8 @@ struct AthleteMotion {
       let t = ramp(Float(game.pointResolution?.elapsed ?? 0), 0.12, 0.4)
       pose[.leftHand] += (chest + forward * 0.15 - pose[.leftHand]) * t
     }
-    pose[.rightElbow] = elbow(1,shoulder:pose[.rightShoulder],palm:pose[.grip],preferred:rightPole,dt:delta)
-    pose[.leftElbow] = elbow(0,shoulder:pose[.leftShoulder],palm:pose[.leftHand],preferred:leftPole,dt:delta)
+    pose[.rightElbow] = elbow(1,shoulder:pose[.rightShoulder],palm:pose[.grip],preferred:rightPole,dt:delta,driving:preparedDrive)
+    pose[.leftElbow] = elbow(0,shoulder:pose[.leftShoulder],palm:pose[.leftHand],preferred:leftPole,dt:delta,driving:preparedDrive)
     carryingPalm = pose[.grip]-pose[.rightShoulder]
     carryingAxis = shaft
     freePalm = pose[.leftHand]-pose[.leftShoulder]
