@@ -7,7 +7,7 @@
 <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
-<key>CFBundleVersion</key><string>29</string>
+<key>CFBundleVersion</key><string>30</string>
 <key>SwipeTennisSourceRevision</key><string>$(SOURCE_REVISION)</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.swipetennis.cup</string><key>CFBundleURLSchemes</key><array><string>swipetennis</string></array></dict></array>

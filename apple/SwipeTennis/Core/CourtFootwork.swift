@@ -168,7 +168,7 @@ struct CourtFootwork {
     let outside = outsideRight ? right : left
     let inward: Float = -plantedSide*facing
     let returning = time >= 0 && toTarget.x*inward > 0.18 && abs(toTarget.x) > abs(toTarget.z)*0.7
-    if time > 0.58 || abs(centre.x-outside.x) > 0.62 ||
+    if time > 0.58 || (firstStep == 0 && abs(centre.x-outside.x) > 0.62) ||
        (simd_length(toTarget) > 0.45 && !returning && firstStep == 0) {
       plantedSide = 0; firstStep = 0; push = 0
       return false
@@ -179,6 +179,10 @@ struct CourtFootwork {
         insideStart = inside
         let distance = simd_length(toTarget)
         insideGoal = centre + CourtPoint3D(0.22*inward,0,0) + toTarget/distance*min(0.44,distance)
+        // From a wide base the inside shoe is already near this target.
+        // Open a full first step from the actual sole before releasing the plant.
+        let step = (insideGoal.x-insideStart.x)*inward
+        insideGoal.x += inward*max(0,min(0.25,distance)-step)
       }
       firstStep = min(1,firstStep+dt/0.185)
       let u = firstStep*firstStep*(3-2*firstStep)

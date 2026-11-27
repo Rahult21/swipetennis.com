@@ -87,7 +87,7 @@ struct AthleteMotion {
   private var lastVelocity: CourtPoint3D?
   private var acceleration = CourtPoint3D.zero
   private var swing = StrokeAnimation()
-  private var spacing: Float = 0, spacingAtImpact: Float = 0
+  private var stanceOffset = CourtPoint3D.zero, plantedOffset = CourtPoint3D.zero
   private var hitPoint = CourtPoint3D.zero
   private var previousStrings: CourtPoint3D?
   private var carryingPalm: CourtPoint3D?
@@ -206,22 +206,39 @@ struct AthleteMotion {
     let volley = swing.style == .volley
     let forehand = swing.style == .groundstroke && swing.stance == .forehand
     let fullForehand = forehand && !blocked && (arrival != nil || elapsed != nil)
-    // Make an adjustment step within yellow on a prepared forehand that
-    // would otherwise crowd the hitting hip. Keep the plant through contact.
-    if hit { spacingAtImpact = spacing }
-    var wantedSpacing: Float = 0
-    if fullForehand && !reduceMotion {
-      if elapsed != nil {
-        wantedSpacing = spacingAtImpact*(1-ramp(time,0.56,0.88))
-      } else {
-        let feetX = closingOnBall ? Float(player.destination.x) : centre.x
-        let room = (strike.x-feetX)*sign
-        wantedSpacing = min(0.43,max(0,0.54-room))*ramp(time,-0.84,-0.44)
+    // The receive guide describes playable ball position. Place the feet
+    // beside that line before impact so the hands can extend across the court.
+    if hit { plantedOffset = stanceOffset }
+    var wantedOffset = CourtPoint3D.zero
+    if let elapsed {
+      wantedOffset = plantedOffset * (1-ramp(Float(elapsed),0.54,0.85))
+    } else if swing.style == .groundstroke, !blocked, player.netEffort == nil, let target, let arrival, activePower == nil {
+      let base = closingOnBall ? player.destination.world() : centre
+      var contact = target
+      var remaining = arrival
+      if closingOnBall, let flight = game.flight,
+         let window = BallContactWindow.next(flight: flight, player: player.destination, side: side),
+         !window.volley {
+        contact = flight.worldBall(at: window.entry)
+        remaining = max(0,flight.time(at: window.entry)-flight.elapsed)
+      }
+      let heightFactor = ramp(contact.y,0.35,0.95)
+      let width: Float = sideOfBall > 0 ? 1.03+0.09*heightFactor : 0.95+0.07*heightFactor
+      let lead: Float = sideOfBall > 0 ? 0.34 : 0.39
+      let required = contact - base - right*(sideOfBall*width) - forward*lead
+      // A late reach takes only the adjustment steps time permits.
+      wantedOffset = right*max(-1.10,min(1.10,simd_dot(required,right)))
+        + forward*max(-0.66,min(0.66,simd_dot(required,forward)))
+      wantedOffset *= ramp(-Float(remaining),-1.14,-0.49)
+      if let serve = game.flight, serve.serve {
+        wantedOffset *= ramp(Float(serve.elapsed),0.17,0.38)
       }
     }
-    let stepWidth = Float(max(0,dt)) * (elapsed == nil ? 1.42 : 1.66)
-    spacing += max(-stepWidth,min(stepWidth,wantedSpacing-spacing))
-    centre -= right*spacing
+    let adjustment = wantedOffset - stanceOffset
+    let stepDistance = Float(max(0,dt)) * (elapsed == nil ? 2.45 : 2.0)
+    let footAdjustment = adjustment * min(1,stepDistance/max(0.0001,simd_length(adjustment)))
+    stanceOffset += footAdjustment
+    centre += stanceOffset
     let backhand = swing.stance == .backhand && (swing.style == .groundstroke || swing.style == .lob)
     let captureKind: CapturedStroke.Kind
     switch swing.style {
@@ -322,7 +339,7 @@ struct AthleteMotion {
     let rightSet = (backhand ? leadStep : outsideStep)*driveSet
     let lateralDriveTime: Float? = !reduceMotion && game.phase == .live && swing.style == .groundstroke
       && effort == nil && activePower == nil && (arrival != nil || elapsed != nil) ? time : nil
-    feet.advance(centre: centre, velocity: velocity, destination: player.destination.world()-right*spacing,
+    feet.advance(centre: centre, velocity: velocity, destination: player.destination.world()+stanceOffset,
       facing: sign, strideBias: step+leftSet, dt: Float(dt), readiness: max(stance,driveSet), surface: game.settings.surface,
       rightStrideBias: rightSet, lateralDriveTime: lateralDriveTime)
     let recoveryRun = game.phase == .live && game.flight?.hitter == side && !game.followingApproach[side] && abs(player.velocity.x) > 0.9
@@ -436,8 +453,10 @@ struct AthleteMotion {
     if feet.plantedSide != 0 {
       // Carry the belt over the outside knee as the shot loads, then send it
       // toward the stepping shoe while the shoulders finish their rotation.
-      let pressure = ramp(time,-0.33,-0.16)*(1-ramp(time,-0.08,0.11))
-      pelvis += right*feet.plantedSide*((fullForehand ? 0.119 : 0.078)*pressure-0.058*feet.push)
+      let pressure = ramp(time,-0.33,-0.16)*(1-ramp(time,-0.13,0.04))
+      let outside = feet.plantedSide > 0 ? feet.right : feet.left
+      let toPlant = (outside.x-pelvis.x)*sign*feet.plantedSide
+      pelvis += right*feet.plantedSide*(max(0,min(0.31,toPlant-0.10))*pressure-0.058*feet.push)
       pelvis.y -= 0.025*pressure+0.038*feet.push
     }
     if fullForehand {
@@ -794,15 +813,20 @@ struct AthleteMotion {
     let delta = Float(max(0,dt))
     let release = ramp(time,-0.085,-0.005)*(1-ramp(time,0.012,0.095))
     if !hit, delta > 0, let previous = carryingPalm, let oldAxis = carryingAxis {
+      let intendedShaft = shaft
       let directionChange = simd_quatf(from:oldAxis,to:shaft)
-      let rotation = min(1,(14+release*32)*delta/max(0.001,directionChange.angle))
+      let wrap = fullForehand ? ramp(time,0.04,0.13)*(1-ramp(time,0.26,0.40)) : 0
+      let rotation = min(1,(14+release*32+wrap*18)*delta/max(0.001,directionChange.angle))
       shaft = simd_slerp(simd_quatf(real:1,imag:.zero),directionChange,rotation).act(oldAxis)
-      let desired = strings-shaft*0.49-pose[.rightShoulder]
+      // During the forehand wrap the wrist leads the rotating racket head.
+      // Filtering its angle must not pull the hand back across the body.
+      let wristAxis = fullForehand && time > 0 ? intendedShaft : shaft
+      let desired = strings-wristAxis*0.49-pose[.rightShoulder]
       let change = desired-previous
       let distance = simd_length(change)
       let speed: Float = swing.style == .serve || swing.style == .overhead ? 8.5 : 7.5
-      let amount = min(1,speed*delta/max(0.0001,distance))
-      strings = pose[.rightShoulder]+previous+change*(amount+(1-amount)*release)+shaft*0.49
+      let amount = min(1,(speed+wrap*4)*delta/max(0.0001,distance))
+      strings = pose[.rightShoulder]+previous+change*(amount+(1-amount)*max(release,wrap))+shaft*0.49
     }
     // The grip is half a metre behind the strings. Reorient it toward a reachable
     // wrist before asking the shoulder to reach. The recorded impact stays fixed.
@@ -988,8 +1012,15 @@ struct AthleteMotion {
         let elbow = direction*along + side*sqrt(max(0,0.34*0.34-along*along))
         guide += (unit(elbow-wrist*0.5,fallback:guide)-guide)*takeback
       }
+      // Extend the elbows below the wrists’ swing plane through contact.
+      // The non-dominant arm drives the two-handed backhand from the left.
+      let extensionBeat = ramp(time,-0.14,-0.035)*(1-ramp(time,0.045,0.16))
+      let lowBend = unit(-up+forward*0.22+right*0.16,fallback:guide)
+      guide += (lowBend-guide)*extensionBeat
       rightPole += (guide-rightPole)*strength
-      leftPole += (leftBend+(leftFinish-leftBend)*(backhand ? fold : 0)-leftPole)*strength
+      var supportBend = leftBend+(leftFinish-leftBend)*(backhand ? fold : 0)
+      if backhand { supportBend += (unit(-up+forward*0.20-right*0.16,fallback:leftBend)-supportBend)*extensionBeat }
+      leftPole += (supportBend-leftPole)*strength
     }
     if volley && !blocked && dive == 0 {
       let inFront = ramp(time,-0.31,-0.16)*(1-ramp(time,0.15,0.32))
