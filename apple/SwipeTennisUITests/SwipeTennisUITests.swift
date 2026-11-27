@@ -1,6 +1,70 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  func testMatchdayLandscapeWarmupAndReturn() {
+    let app = XCUIApplication()
+    XCUIDevice.shared.orientation = .landscapeLeft
+    defer { XCUIDevice.shared.orientation = .portrait }
+    app.launch()
+    let warm = app.buttons["matchdayWarmup"]
+    XCTAssertTrue(warm.waitForExistence(timeout: 15))
+    XCTAssertTrue(warm.isHittable && app.buttons["matchdayQuickMatch"].isHittable)
+    let home = XCTAttachment(screenshot: app.screenshot())
+    home.name = "Matchday landscape"; home.lifetime = .keepAlways; add(home)
+    warm.tap()
+    let close = app.buttons["Close warm up"]
+    XCTAssertTrue(close.waitForExistence(timeout: 12))
+    close.tap()
+    XCTAssertTrue(warm.waitForExistence(timeout: 12))
+  }
+
+  func testMatchdayWarmupQuickMatchAndResume() throws {
+    let app = XCUIApplication()
+    app.launch()
+    let music = app.buttons["lobbyBeat"]
+    XCTAssertTrue(music.waitForExistence(timeout: 15))
+    let original = music.value as? String
+    music.tap()
+    XCTAssertNotEqual(original, music.value as? String)
+    music.tap()
+    XCTAssertTrue(app.buttons["matchdayQuickMatch"].isHittable)
+    app.buttons["matchdayWarmup"].tap()
+    let feed = app.staticTexts["warmupFeed"]
+    XCTAssertTrue(feed.waitForExistence(timeout: 12))
+    XCTAssertEqual(feed.label, "Place your serve")
+    app.buttons["warmupNext"].tap()
+    XCTAssertEqual(feed.label, "Deep forehand")
+    app.buttons["warmupNext"].tap()
+    XCTAssertEqual(feed.label, "Short backhand")
+    app.buttons["warmupNext"].tap()
+    let leave = app.buttons["Leave practice"]
+    XCTAssertTrue(leave.waitForExistence(timeout: 15))
+    XCTAssertFalse(app.buttons["startPractice"].exists)
+    leave.tap()
+    app.buttons["saveAndLeave"].tap()
+    let resume = app.buttons["matchdayResume"]
+    XCTAssertTrue(resume.waitForExistence(timeout: 12))
+    XCTAssertTrue(resume.isHittable && app.buttons["matchdayWarmup"].isHittable && app.buttons["matchdayQuickMatch"].isHittable)
+    let returning = XCTAttachment(screenshot: app.screenshot())
+    returning.name = "Matchday with saved match"; returning.lifetime = .keepAlways; add(returning)
+    app.terminate(); app.launch()
+    XCTAssertTrue(resume.waitForExistence(timeout: 12))
+    resume.tap()
+    XCTAssertTrue(leave.waitForExistence(timeout: 12))
+    leave.tap()
+    app.buttons["saveAndLeave"].tap()
+    app.buttons["matchdayQuickMatch"].tap()
+    XCTAssertTrue(leave.waitForExistence(timeout: 12))
+    XCTAssertFalse(app.buttons["startPractice"].exists)
+    leave.tap()
+    app.buttons["Leave without saving"].tap()
+    XCTAssertTrue(app.buttons["matchdayFilm"].waitForExistence(timeout: 12))
+    XCTAssertFalse(resume.exists)
+    let first = XCTAttachment(screenshot: app.screenshot())
+    first.name = "Matchday first serve"; first.lifetime = .keepAlways; add(first)
+
+  }
+
   func testTacticsPracticeModesReturnToSetup() {
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1", "YES"]
@@ -331,6 +395,9 @@ final class SwipeTennisUITests: XCTestCase {
     XCUIDevice.shared.orientation = .portrait
     defer { XCUIDevice.shared.orientation = .portrait }
     app.launch()
+    let film = app.buttons["matchdayFilm"]
+    XCTAssertTrue(film.waitForExistence(timeout: 12))
+    film.tap()
     let done = app.buttons["closeQuickStart"]
     XCTAssertTrue(done.waitForExistence(timeout: 15))
     for title in ["Move to the return", "Drive a deep forehand", "Play a shorter backhand", "Place your serve"] {
@@ -338,6 +405,7 @@ final class SwipeTennisUITests: XCTestCase {
       XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout:3))
     }
     done.tap()
+    if !app.buttons["playPractice"].isHittable { app.swipeDown() }
     app.buttons["playPractice"].tap()
     let quick = app.buttons["quickGuestPlay"]
     guard quick.waitForExistence(timeout:5) else { throw XCTSkip("This simulator profile already mastered the academy.") }

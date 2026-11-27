@@ -7,16 +7,10 @@ struct SoloCareerLink: View {
   private var owner: String { account.identity?.userID ?? DemoProgressArchive.guest }
   var body: some View {
     let career = store.progress(for: owner)
-    Section("Road to the Grass Major") {
+    VStack(alignment: .leading) {
       NavigationLink { SoloCareerView(owner: owner) } label: {
-        Label {
-          VStack(alignment: .leading, spacing: 4) {
-            Text(career.next == nil ? "Chapter recap" : career.started ? "Continue Career" : "Start Career")
-              .font(.headline)
-            Text(career.next.map { "\($0.title) · \($0.rival.rawValue)" } ?? "Club debut complete · regional entry earned")
-              .font(.subheadline).foregroundStyle(.secondary)
-          }
-        } icon: { Image(systemName: "flag.checkered").foregroundStyle(TennisTheme.accent) }
+        MatchdayCompetitionCard(title: career.next == nil ? "Chapter recap" : career.started ? "Continue Career" : "Start Career",
+                                subtitle: "Road to the Grass Major", symbol: "flag.checkered")
       }.accessibilityIdentifier("soloCareer")
       if let message = error ?? store.loadError { Text(message).foregroundStyle(.red) }
     }.onChange(of: owner, initial: true) { _, id in

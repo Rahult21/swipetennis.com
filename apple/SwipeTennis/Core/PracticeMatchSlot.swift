@@ -5,6 +5,13 @@ import Combine
 struct SavedPracticeMatch: Codable, Identifiable {
   let owner: String
   let engine: PracticeEngine
+  static func quickPlay(owner: String, name: String, preferences: PracticeSettings) -> Self {
+    var settings = PracticeSettings(surface: preferences.surface, allCourtTraining: false,
+                                    scoring: .tiebreak, playerName: name)
+    settings.venue = preferences.matchVenue
+    return Self(owner: owner, engine: PracticeEngine(settings: settings))
+  }
+
   var id: UUID { engine.coach.sessionID }
 }
 

@@ -2,6 +2,7 @@ import AVFoundation
 import CoreHaptics
 import CoreMotion
 import GameController
+import OSLog
 import UIKit
 
 @MainActor final class Immersion {
@@ -48,6 +49,35 @@ import UIKit
       try session.setActive(true)
       audioActive = true
     } catch { audioActive = false }
+  }
+
+  private let lobbyLog = Logger(subsystem: "com.swipetennis.app", category: "LobbyAudio")
+  private var lobby: AVAudioPlayer?
+  private var lobbyFade: Task<Void, Never>?
+
+  func setLobbyGain(_ gain: Float) {
+    lobbyFade?.cancel()
+    if gain > 0 && soundEnabled {
+      if lobby == nil, let url = Bundle.main.url(forResource: "lobby", withExtension: "wav") {
+        lobby = try? AVAudioPlayer(contentsOf: url)
+        lobby?.numberOfLoops = -1
+      }
+      guard let lobby else { return }
+      activateAudio()
+      if !lobby.isPlaying {
+        lobby.volume = 0
+        guard lobby.play() else { return }
+        lobbyLog.debug("Lobby loop playing")
+      }
+      lobby.setVolume(gain, fadeDuration: 0.38)
+    } else if let lobby, lobby.isPlaying {
+      lobby.setVolume(0, fadeDuration: 0.32)
+      lobbyFade = Task {
+        do { try await Task.sleep(for: .milliseconds(340)) } catch { return }
+        lobby.pause()
+        lobbyLog.debug("Lobby fade complete, transport paused")
+      }
+    }
   }
 
   func prepareAudio() {
@@ -176,8 +206,10 @@ import UIKit
     endApplause()
     audio.forEach { $0.stop() }
     textures.values.forEach { $0.forEach { $0.stop() } }
-    if audioActive { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
-    audioActive = false
+    if audioActive && lobby?.isPlaying != true {
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+      audioActive = false
+    }
     haptics?.stop()
   }
 }

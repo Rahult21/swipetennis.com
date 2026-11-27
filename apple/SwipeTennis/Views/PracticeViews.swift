@@ -31,11 +31,8 @@ struct PracticeSetupView: View {
       if !demos.progress.unlocksCourt {
         Section {
           Button("Quick play") {
-            var quick = PracticeSettings(surface: settings.surface, allCourtTraining:false,scoring:.tiebreak,
-              playerName:ApplePlayerName.display(account.identity?.emailMask))
-            quick.venue = settings.matchVenue
-            presentedMatch = SavedPracticeMatch(owner:account.identity?.userID ?? DemoProgressArchive.guest,
-              engine:PracticeEngine(settings:quick))
+            presentedMatch = .quickPlay(owner: account.identity?.userID ?? DemoProgressArchive.guest,
+              name: ApplePlayerName.display(account.identity?.emailMask), preferences: settings)
           }.accessibilityIdentifier("quickGuestPlay")
         } footer: { Text("Play a seven-point tiebreak right away. Starting replaces the saved match on this device.") }
         Section {
@@ -154,7 +151,9 @@ struct PracticeGameView: View {
   @State private var resumeAfterCancel = false
   @State private var saveError: String?
   let owner: String
-  init(match: SavedPracticeMatch) {
+  let startImmediately: Bool
+  init(match: SavedPracticeMatch, startImmediately: Bool = false) {
+    self.startImmediately = startImmediately
     owner = match.owner
     _session = StateObject(wrappedValue: PracticeSession(engine: match.engine))
   }
@@ -292,6 +291,7 @@ struct PracticeGameView: View {
       }
       .onAppear {
         session.restoreInventory(owner: owner)
+        if startImmediately && game.phase == .ready { advance() }
         if game.phase.isPlaying && !session.paused { session.scene.configureMotion() }
         session.scene.engine.settings.playerName = ApplePlayerName.display(account.identity?.emailMask)
         session.snapshot = session.scene.engine
@@ -331,7 +331,7 @@ struct PracticeGameView: View {
         if resumeAfterGuide && scenePhase == .active { session.resume() }
       }) { CourtGuideView() }
       .sheet(isPresented: Binding(
-        get: { !showCoach && (game.phase == .ready || session.paused) },
+        get: { !showCoach && ((game.phase == .ready && (!startImmediately || saveError != nil)) || session.paused) },
         set: { shown in if !shown && session.paused && !confirmingExit { session.resume() } }
       )) {
         PracticeSessionSheet(session: session, confirmingExit: confirmingExit, saveError: saveError,
@@ -709,6 +709,7 @@ private enum DailyRival {
   }
 }
 struct DailyPressureSection: View {
+  var playingChanged: (Bool) -> Void = { _ in }
   @EnvironmentObject private var account: CoachAccountStore
   @State private var match: SavedPracticeMatch?
   @State private var results: [String:Bool] = [:]
@@ -738,6 +739,7 @@ struct DailyPressureSection: View {
         } else { Text("First meeting with \(name). \(opponent.style.detail)").font(.caption) }
       }
     }.task(id:owner) { results = DailyRival.results(owner) }
+      .onChange(of: match?.id) { _, id in playingChanged(id != nil) }
       .fullScreenCover(item:$match,onDismiss:{ results = DailyRival.results(owner) }) { PracticeGameView(match:$0) }
   }
 }
