@@ -63,7 +63,7 @@ final class ShotRiskAndServeTests: XCTestCase {
       XCTAssertEqual(game.flight?.receiverWrongFooted, true)
       game.players[1].destination = Vec(x: 4 - 5 * direction, y: 0)
       for _ in 0..<90 { game.updateFootwork(1 / 120) }
-      XCTAssertEqual(game.players[1].velocity.length, 0.6 * BotStyle.baseline.speed, accuracy: 0.05)
+      XCTAssertEqual(game.players[1].velocity.length, 0.6 * game.settings.opponentRunSpeed(), accuracy: 0.05)
       game.launch(0, aim: behind, kind: .cross)
       XCTAssertEqual(game.flight?.receiverWrongFooted, false)
       game.players[1].velocity = .zero

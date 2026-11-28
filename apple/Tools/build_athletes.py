@@ -454,6 +454,10 @@ class Athlete:
             # Taper at the waist and lift the tail, preserving waistband overlap.
             waist = self.anchors["waist"][1]
             hip = self.anchors["thighL"][1]
+            # The original cut determines the sleeve hem for every kit style.
+            sleeve_weights = [sum(w for bone,w in weights.items() if bone.startswith(("upperArm","forearm")))
+                              for weights in skinning]
+            self.fit_kit_weights(mesh, mapped, skinning, groups)
             for i, (x,y,z) in enumerate(mapped):
                 if groups.get(i) != "top":
                     continue
@@ -473,7 +477,7 @@ class Athlete:
             if kind != "Kit":
                 self.emit(kind,vs); continue
             if groups[face[0][0]] == "top":
-                arm = sum(sum(w for bone,w in v.weights.items() if bone.startswith(("upperArm","forearm"))) for v in vs)/len(vs)
+                arm = sum(sleeve_weights[i] for i, _ in face)/len(face)
                 if arm > 0.50:
                     self.emit("Sleeves",vs)
                 else:
@@ -489,6 +493,42 @@ class Athlete:
                 liner, _ = self.split_face(liner, lambda v: world(v.position)[1]-self.anchors["thighR"][1]-.032)
                 self.emit("Liner",[Vertex((v.position[0]*.96,v.position[1],v.position[2]*.94),
                                           v.uv,v.weights) for v in liner])
+
+    def fit_kit_weights(self, mesh, mapped, weights, groups):
+        """Keep the fabric continuous between the legs and across the shoulder cap."""
+        hip = self.anchors["thighL"][1]
+        shoulder = self.anchors["upperArmL"]
+        neighbours = defaultdict(set)
+        for _, face in mesh.faces:
+            for (a, _), (b, _) in zip(face, face[1:]+face[:1]):
+                neighbours[a].add(b)
+                neighbours[b].add(a)
+        sleeves = []
+        for i, point in enumerate(mapped):
+            x, y, _ = world(point)
+            if groups.get(i) == "top":
+                across = abs(x)-abs(shoulder[0])
+                if -.11 < across < .15 and shoulder[1]-.21 < y < shoulder[1]+.08:
+                    sleeves.append(i)
+            else:
+                # The two leg openings move independently. The seam joining
+                # them is supported by the pelvis, with a graded transition
+                # into each thigh instead of opposite bones on adjacent vertices.
+                side = max(0,min(1,(abs(x)-.013)/.108))
+                height = max(0,min(1,(y-hip+.197)/.068))
+                panel = (1-side*side*(3-2*side))*height*height*(3-2*height)
+                if panel > 0:
+                    weights[i] = combined([(1-panel,weights[i]),(panel,{"pelvis":1})])
+        # Fair the shoulder weights along the actual surface. Running this
+        # before the sleeve and shirt are cut gives both sides of a seam
+        # exactly the same bend when the player raises the racket.
+        for _ in range(3):
+            previous = list(weights)
+            for i in sleeves:
+                ring = neighbours[i]
+                if ring:
+                    mix = .55/len(ring)
+                    weights[i] = combined([(.45,previous[i])]+[(mix,previous[j]) for j in sorted(ring)])
 
     def split_side_panel(self, face):
         """Cut the inset along a curved seam shared by all shirt styles."""

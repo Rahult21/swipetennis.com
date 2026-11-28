@@ -9,7 +9,7 @@ struct CourtInstruction: Equatable {
 extension PracticeEngine {
   var promptsReturnSwipe: Bool {
     guard phase == .live, let flight, let contact = flight.expectedContactTime,
-      flight.missedSwingWindow != true, !flight.hasTimelySwing(at: contact) else { return false }
+      canChooseShot(1-flight.hitter), !flight.hasTimelySwing(at: contact) else { return false }
     let lead = contact - flight.elapsed
     return lead > 0 && lead <= BallFlight.swingLead
   }

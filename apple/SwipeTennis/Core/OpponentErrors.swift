@@ -37,17 +37,17 @@ struct OpponentErrors: Codable {
 }
 
 extension PracticeEngine {
-  mutating func prepareOpponentReply(random: () -> Double) {
+  mutating func prepareOpponentReply(contestEveryBall: Bool = false, random: () -> Double) {
     guard !settings.local, flight?.isDefensiveLob != true else { return }
-    if prepareApproachReply(random: random) { return }
+    if prepareApproachReply(contestEveryBall: contestEveryBall, random: random) { return }
     guard !settings.local, let incoming = flight, incoming.hitter == 0,
       incoming.fault == nil, !incoming.opponentReplyPrepared else { return }
     flight!.opponentReplyPrepared = true
     if incoming.kind == .drop || incoming.kind == .slice {
       let isDrop = incoming.kind == .drop
-      let speed = (isDrop ? 7.0 : settings.style.speed) * settings.botSpeed
+      let speed = settings.opponentRunSpeed(chasingDrop: isDrop)
       let travel = CourtTactics.travelTime(distance: players[1].pos.distance(to: incoming.contact), speed: speed)
-      let succeeds = !isDrop || dropReturns.next(difficulty: settings.difficulty, random: random)
+      let succeeds = !isDrop || contestEveryBall || dropReturns.next(difficulty: settings.difficulty, random: random)
       let reaction = isDrop ? 0.06 : settings.botReaction
       if incoming.swingStrength == nil {
         flight!.duration = max(incoming.duration, (travel + reaction + 0.2) / 0.86)
@@ -60,10 +60,10 @@ extension PracticeEngine {
       }
       return // Protected touch-shot returns do not consume an ordinary-error opportunity.
     }
-    guard !incoming.trainingApproach else { return }
+    guard !incoming.trainingApproach, !(incoming.kind == .lob && contestEveryBall) else { return }
     let error = opponentErrors.next(
       difficulty: settings.difficulty,
-      canMissByFootwork: players[1].pos.distance(to: incoming.contact) > 2.2,
+      canMissByFootwork: !contestEveryBall && players[1].pos.distance(to: incoming.contact) > 2.2,
       random: random)
     flight!.opponentError = error
     if error == .unreachable {

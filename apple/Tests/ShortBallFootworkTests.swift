@@ -84,7 +84,7 @@ final class ShortBallFootworkTests: XCTestCase {
       if mode == "fault" { engine.flight!.fault = "wide" }
       if mode == "outgoing" { engine.flight!.hitter = side }
       for _ in 0..<120 { engine.updateFootwork(1/120) }
-      let expected = mode == "gold" ? 9.0 : mode == "bot" ? engine.settings.style.speed * engine.settings.difficulty.speed : 6.0
+      let expected = mode == "gold" ? 9.0 : mode == "bot" ? engine.settings.opponentRunSpeed() : 6.0
       XCTAssertEqual(engine.players[side].velocity.length, expected, accuracy: 0.001, mode)
     }
   }

@@ -37,6 +37,7 @@ import UIKit
     let bend: Float
     let fist: simd_quatf
   }
+  private var elbowBends = [ElbowBend(),ElbowBend()]
   private let fingers: [Finger]
   private let arms, legs: [LimbGeometry]
   private let shoulderMid, hipMid: SIMD3<Float>
@@ -262,18 +263,61 @@ import UIKit
   func pose(_ p: AthletePose, handshake: Bool) {
     var hip = (p[.leftHip]+p[.rightHip])*0.5
     let capturedShoulder = (p[.leftShoulder]+p[.rightShoulder])*0.5
-    // Keep a planted sole down during a wide split or an outside-foot plant.
-    // The common pelvis settles into the reach; neither leg is lengthened.
+    let hipAxis = simd_normalize(p[.rightHip]-p[.leftHip])
+    let sign: Float = side == 0 ? 1 : -1
+    let hipYaw = atan2(-hipAxis.z*sign,hipAxis.x*sign)
+    let facing = simd_quatf(angle:side == 0 ? 0 : .pi,axis:[0,1,0])
+    // Heading follows the hips. A torso lean must not tip an otherwise
+    // planted shoe through the court while the support knee is flexing.
+    let footFacing = facing*simd_quatf(angle:hipYaw*(handshake ? 1 : 0.27),axis:[0,1,0])
+    func footTarget(_ i: Int) -> (rotation: simd_quatf, ankle: SIMD3<Float>, toe: SIMD3<Float>, heel: SIMD3<Float>) {
+      let right = i == 1
+      let foot = anchor(right ? .footR : .footL)
+      let toe = anchor(right ? .toeR : .toeL)-foot
+      let heel = anchor(right ? .heelR : .heelL)-foot
+      let heading: simd_quatf
+      if !handshake, let recorded = p.soleHeading {
+        heading = facing*simd_quatf(angle:recorded[i],axis:[0,1,0])
+      } else { heading = footFacing*simd_quatf(angle:p.shoeYaw[i],axis:[0,1,0]) }
+      let toeAtPlant = heading*simd_quatf(angle:p.toePivotYaw[i],axis:[0,1,0])
+      let rotation = heading*simd_quatf(angle:-p.heelPitch-p.footRoll[i],axis:[1,0,0])
+      let shoe = p[right ? .rightShoe : .leftShoe]
+      // Pivot around the forefoot and land on whichever sole marker is lower.
+      var ankle = shoe+toeAtPlant.act(toe)-rotation.act(toe)
+      let clearance = max(0,shoe.y-0.06-0.14*sin(p.heelPitch))
+      ankle.y = clearance-min(rotation.act(toe).y,rotation.act(heel).y)
+      return (rotation,ankle,toe,heel)
+    }
+    let feetTargets = (left:footTarget(0),right:footTarget(1))
     var settle: Float = 0
-    for (i,right) in [false,true].enumerated() {
-      let socket = p[right ? .rightHip : .leftHip]
-      var shoe = p[right ? .rightShoe : .leftShoe]
-      shoe.y += anchor(right ? .footR : .footL).y - 0.06
-      let d = socket-shoe, reach = (legs[i].upper+legs[i].lower)*0.995
+    for i in 0...1 {
+      let right = i == 1
+      let referenceHip = p[right ? .rightHip : .leftHip]
+      let knee = p[right ? .rightKnee : .leftKnee]
+      var referenceAnkle = p[right ? .rightShoe : .leftShoe]
+      referenceAnkle.y += 0.18*max(0,sin(p.heelPitch+p.footRoll[i])-sin(p.heelPitch))
+      let span = legs[i].span(matching:knee-referenceHip,lowerRay:referenceAnkle-knee)
+      let socket = hip+hipAxis*(anchor(right ? .thighR : .thighL).x-hipMid.x)
+      let ankle = right ? feetTargets.right.ankle : feetTargets.left.ankle
+      let d = socket-ankle
+      let reach = min(span,(legs[i].upper+legs[i].lower)*0.995)
       let height = sqrt(max(0,reach*reach-d.x*d.x-d.z*d.z))
       settle = max(settle,d.y-height)
     }
-    hip.y -= min(0.14,settle)
+    hip.y -= min(0.21,settle)
+    // On a cut the short rig may still be too far from the planted ankle.
+    // Transfer the pelvis toward that support leg instead of hauling its sole
+    // off the ground. Each correction preserves the rig's segment lengths.
+    for _ in 0..<2 {
+      for i in 0...1 {
+        let ankle = i == 1 ? feetTargets.right.ankle : feetTargets.left.ankle
+        let socket = hip+hipAxis*(anchor(i == 1 ? .thighR : .thighL).x-hipMid.x)
+        let leg = socket-ankle
+        let limit = (legs[i].upper+legs[i].lower)*0.993
+        let distance = simd_length(leg)
+        if distance > limit { hip -= leg*(1-limit/distance) }
+      }
+    }
     let chestLine = simd_normalize(p[.rightShoulder]-p[.leftShoulder])
     let socket = capturedShoulder+chestLine*(anchor(.upperArmR).x-shoulderMid.x)
     let handRay = p[.grip]-socket, handDistance = simd_length(handRay)
@@ -287,7 +331,6 @@ import UIKit
       return simd_quatf(simd_float3x3(columns:(x,simd_cross(z,x),z)))
     }
     let hips = basis(p[.rightHip]-p[.leftHip]), chest = basis(p[.rightShoulder]-p[.leftShoulder])
-    let facing = simd_quatf(angle:side == 0 ? 0 : .pi,axis:[0,1,0])
     let gaze = handshake ? SIMD2<Float>.zero : p.gaze
     let head = simd_slerp(handshake ? hips : facing,chest,0.22) * simd_quatf(angle:-gaze.x * 0.84,axis:[0,1,0])
       * simd_quatf(angle:gaze.y*0.8,axis:[1,0,0])
@@ -337,7 +380,6 @@ import UIKit
       x = simd_normalize(x)
       return simd_quatf(simd_float3x3(columns:(x,y,simd_cross(x,y))))
     }
-    let footFacing = handshake ? hips : simd_slerp(facing,hips,0.27)
     let lateral = chest.act([1,0,0]), anterior = chest.act([0,0,-1])
     func outsideTorso(_ target: SIMD3<Float>, right: Bool) -> SIMD3<Float> {
       let depth = (shoulder.y-target.y)/max(0.18,shoulder.y-hip.y)
@@ -353,6 +395,42 @@ import UIKit
       let outward = SIMD2<Float>(x/width+(right ? bias : -bias),z/thickness+bias)
       let direction = outward/max(0.001,simd_length(outward))
       return target+(lateral*(direction.x*width-x)+anterior*(direction.y*thickness-z))*fade
+    }
+    // The elbow can sit outside the shirt while the upper arm still cuts
+    // across the chest. Test the links as well as the hinge, then rotate the
+    // bent elbow about the shoulder–wrist line. Both bone lengths stay fixed.
+    func clearElbow(_ elbow: SIMD3<Float>, socket: SIMD3<Float>, wrist: SIMD3<Float>, right: Bool) -> SIMD3<Float> {
+      let sign: Float = right ? 1 : -1
+      if min(simd_dot(elbow-shoulder,lateral)*sign,simd_dot(wrist-shoulder,lateral)*sign) > 0.20 { return elbow }
+      func clearance(_ point: SIMD3<Float>) -> Float {
+        let depth = (shoulder.y-point.y)/max(0.20,shoulder.y-hip.y)
+        guard depth > 0.01 && depth < 1.07 else { return 2 }
+        let relative = point-(shoulder+(hip-shoulder)*depth)
+        let x = simd_dot(relative,lateral)/(0.192-0.018*depth)
+        let z = simd_dot(relative,anterior)
+        let front = z/(z >= 0 ? 0.181 : 0.150)
+        return x*x+front*front
+      }
+      func pathMargin(_ e: SIMD3<Float>) -> Float {
+        min(clearance(socket+(e-socket)*0.37),clearance(socket+(e-socket)*0.72),
+            clearance(e),clearance((e+wrist)*0.5))
+      }
+      let initial = pathMargin(elbow)
+      guard initial < 1 else { return elbow }
+      let axis = simd_normalize(wrist-socket)
+      let center = socket+axis*simd_dot(elbow-socket,axis)
+      let radial = elbow-center, radius = simd_length(radial)
+      guard radius > 0.001 else { return elbow }
+      let away = anterior*0.92+lateral*(0.64*sign)-up*0.14
+      let preferred = away-axis*simd_dot(away,axis)
+      guard simd_length_squared(preferred) > 0.0001 else { return elbow }
+      let destination = simd_normalize(preferred)
+      let turn = atan2(simd_dot(axis,simd_cross(radial,destination)),simd_dot(radial,destination))
+      let final = center+destination*radius
+      let gain = pathMargin(final)-initial
+      guard gain > 0.001 else { return elbow }
+      let amount = min(1,(1-initial)/gain)
+      return center+simd_quatf(angle:turn*amount,axis:axis).act(radial)
     }
     var gripCorrection = SIMD3<Float>.zero
     for right in [true,false] {
@@ -372,7 +450,9 @@ import UIKit
       // a two-handed drive. The shirt collar follows the collarbone weights.
       let elevation = max(0,simd_dot(arm,up)+0.12)
       let ahead = chest.act([0,0,-1])
-      let glide = up*(elevation*0.055)+ahead*max(0,simd_dot(arm,ahead))*0.024
+      let targetHand = p[right ? .grip : .leftHand]
+      let acrossBody = min(1,max(0,-simd_dot(targetHand-shoulder,lateral)*(right ? 1 : -1)/0.32))
+      let glide = up*(elevation*0.055)+ahead*(max(0,simd_dot(arm,ahead))*0.024+0.082*acrossBody)
       let clavRotation = simd_quatf(from:simd_normalize(socket-pivot),
                                     to:simd_normalize(socket+glide-pivot))*chest
       set(clav,at:pivot,rotation:clavRotation)
@@ -434,7 +514,9 @@ import UIKit
       palms[index] = wristPoint-handRotation.act(offset)
       if right { gripCorrection = palms[index]-palm }
       let guide = arms[index].hinge(from:s,to:wristPoint,guide:elbowGuide,fallback:bend)
-      let e = arms[index].hinge(from:s,to:wristPoint,guide:outsideTorso(guide,right:right),fallback:bend)
+      let posed = arms[index].hinge(from:s,to:wristPoint,guide:outsideTorso(guide,right:right),fallback:bend)
+      let clear = clearElbow(posed,socket:s,wrist:wristPoint,right:right)
+      let e = elbowBends[index].follow(clear,shoulder:s,wrist:wristPoint,time:handshake ? nil : p.sampleTime)
       let upperRotation = align(upper,end:fore,from:s,to:e,base:chest,
                 pole:(anchor(hand)-anchor(fore),wristPoint-e))
       let proximal = align(fore,end:hand,from:e,to:wristPoint,base:upperRotation)
@@ -455,16 +537,9 @@ import UIKit
       set(twist,at:e+(wristPoint-e)*t,rotation:sleeve)
       set(hand,at:wristPoint,rotation:handRotation)
       let h = hip+hips.act(anchor(thigh)-hipMid)
-      let feet = footFacing * simd_quatf(angle:p.shoeYaw[right ? 1 : 0],axis:[0,1,0])
-        * simd_quatf(angle:-p.heelPitch-p.footRoll[right ? 1 : 0],axis:[1,0,0])
-      let shoe = p[right ? .rightShoe : .leftShoe]
-      let toe = anchor(right ? .toeR : .toeL)-anchor(foot)
-      let heel = anchor(right ? .heelR : .heelL)-anchor(foot)
-      // The planted toe remains on its spot while the heel rolls up.
-      var ankle = shoe + footFacing.act(toe) - feet.act(toe)
-      let lift = max(0,shoe.y-0.06-0.14*sin(p.heelPitch))
-      ankle.y = lift-min(feet.act(toe).y,feet.act(heel).y)
-      ankle = legs[index].reachable(from:h,toward:ankle)
+      let target = right ? feetTargets.right : feetTargets.left
+      let feet = target.rotation
+      let ankle = legs[index].reachable(from:h,toward:target.ankle)
       let k = legs[index].hinge(from: h, to: ankle, guide: p[right ? .rightKnee : .leftKnee],
                                 fallback: feet.act([right ? 0.12 : -0.12,0,-1]))
       let femur = align(thigh,end:shin,from:h,to:k,base:hips,pole:(anchor(foot)-anchor(shin),ankle-k))
@@ -474,7 +549,7 @@ import UIKit
       setBendArc(right ? (.kneeCapInnerR,.kneeCapR,.kneeCapOuterR) : (.kneeCapInnerL,.kneeCapL,.kneeCapOuterL),
            at:k,from:femur,to:tibia)
       set(foot,at:ankle,rotation:feet)
-      soles[index] = SoleContact(toe: ankle+feet.act(toe), heel: ankle+feet.act(heel))
+      soles[index] = SoleContact(toe: ankle+feet.act(target.toe), heel: ankle+feet.act(target.heel))
     }
     for finger in fingers {
       let curl = p.fingerCurl[finger.side]

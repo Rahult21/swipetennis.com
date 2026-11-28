@@ -15,6 +15,8 @@ struct CourtFootwork {
   private(set) var gaitPhase: Float = 0
   private var shuffleLeft = CourtPoint3D.zero, shuffleRight = CourtPoint3D.zero
   private var running = false
+  private var retreatTurn: Float = 1
+  private(set) var supportCompression: Float = 0
   private var supportFeet = [CourtPoint3D?](repeating:nil,count:2)
   private var toeOffOffsets = [CourtPoint3D](repeating:.zero,count:2)
   private var previous: CourtPoint3D?
@@ -32,6 +34,7 @@ struct CourtFootwork {
   private(set) var plantedSide: Float = 0
   private var insideStart = CourtPoint3D.zero, insideGoal = CourtPoint3D.zero
   private var firstStep: Float = 0
+  private var collecting: Float = 1
   private(set) var push: Float = 0
 
   /// Take ownership of both ground contacts at the end of a receiver's hop.
@@ -67,6 +70,7 @@ struct CourtFootwork {
     shuffleRight = right
     if restarted {
       runBlend = 0; runYaw = 0; footPitch = .zero; armStride = 0; running = false
+      supportCompression = 0; retreatTurn = 1
       supportFeet = [nil,nil]; toeOffOffsets = [.zero,.zero]
       return
     }
@@ -80,29 +84,44 @@ struct CourtFootwork {
       // Roll off the trailing forefoot as the outside shoe takes the weight.
       // The forward step presents a heel, the shuffle lands nearer the forefoot.
       shufflePitch[1-swing] = strength*(lateral ? 0.21 : 0.32)*progress*progress
+      if !lateral && forward < -0.4 {
+        // Backpedal on the forefoot and lower the heel under load.
+        shufflePitch[1-swing] = strength*(0.23-0.17*sin(.pi*progress))
+      }
       shufflePitch[swing] = strength*((lateral ? 0.21 : 0.32)*(1-progress)
         - (forward > 0.4 && !lateral ? 0.13 : 0.035)*progress)
     }
     let rollEase = 1-exp(-dt*36)
     // A shallow adjustment stays square to the net. On a longer chase the hips
     // turn and the legs alternate under the direction of travel.
+    let retreat = !lateral && forward < -0.4
+    if !running && abs(velocity.x) > 0.5 { retreatTurn = velocity.x*facing > 0 ? -1 : 1 }
     if running {
-      running = speed > 2.9 && remaining > 0.48 && (lateral || forward > 0)
-    } else if speed > (lateral ? 5.2 : 4.1) && remaining > 1.7 && (lateral || forward > 0) {
+      running = speed > (retreat ? 3.7 : 2.9) && remaining > 0.48
+    } else if speed > (retreat ? 4.25 : lateral ? 5.2 : 4.1) && remaining > 1.7 {
       running = true
       if runBlend < 0.02 {
         gaitPhase = simd_dot(right-left,velocity) > 0 ? 0.50 : 0
       }
     }
     runBlend += ((running ? 1 : 0)-runBlend) * (1-exp(-dt*(running ? 11 : 14)))
+    let shuffleLoad: Float = stepping ? sin(.pi*progress) : 0
+    supportCompression = shuffleLoad
     if runBlend < 0.002 {
       if runBlend > 0 { supportFeet = [nil,nil]; toeOffOffsets = [.zero,.zero] }
       runBlend = 0; footPitch += (shufflePitch-footPitch)*rollEase; armStride = 0
       return
     }
     let direction = speed > 0.01 ? velocity / speed : CourtPoint3D(0,0,-facing)
-    let desiredYaw = -atan2(direction.x*facing,max(0.16,-direction.z*facing))
-    runYaw += (desiredYaw-runYaw)*(1-exp(-dt*12))
+    // On a deep retreat open one hip for a crossover; keep the shoulders
+    // sufficiently side-on to see the ball over the lead shoulder.
+    let desiredYaw = retreat ? retreatTurn*(1.78+0.42*abs(direction.z))
+      : -atan2(direction.x*facing,max(0.12,-direction.z*facing))
+    // Reopen toward the net on a reversal. Both lateral lanes and the
+    // side-on retreat fit within this range; chasing a wrapped heading
+    // can turn the runner an entire revolution while slowing to a shuffle.
+    let change = (desiredYaw-runYaw)*(1-exp(-dt*10))
+    runYaw += max(-7.8*dt,min(7.8*dt,change))
     let across = CourtPoint3D(cos(runYaw)*facing,0,-sin(runYaw)*facing)
     // Cadence is bounded. Extra distance comes from stride length and a flight
     // phase between toe-off and the opposite foot's next ground contact.
@@ -111,6 +130,9 @@ struct CourtFootwork {
     gaitPhase = (gaitPhase+dt/period).truncatingRemainder(dividingBy:1)
     let support = max(0.21,0.43-speed*0.015)
     let reach = speed*period*support*0.5
+    let stepPhase = gaitPhase.truncatingRemainder(dividingBy:0.5)
+    let compression = stepPhase < support ? sin(.pi*stepPhase/support) : 0
+    supportCompression += (compression-shuffleLoad)*runBlend
     for index in 0...1 {
       let phase = (gaitPhase+Float(index)*0.5).truncatingRemainder(dividingBy:1)
       let lane = across * (index == 0 ? -0.135 : 0.135)
@@ -162,8 +184,17 @@ struct CourtFootwork {
       plantedSide = approachSide
       if plantedSide > 0 { right.y = 0 } else { left.y = 0 }
       insideStart = plantedSide > 0 ? left : right
+      var delta = insideStart-shoe
+      delta.y = 0
+      if simd_length(delta) > 0.84 {
+        // Finish the trailing shuffle. Leaving this shoe where the sprint
+        // ended forces the pelvis down between feet more than a metre apart.
+        insideGoal = shoe+simd_normalize(delta)*0.69
+        insideGoal.y = 0
+        collecting = 0
+      } else { collecting = 1 }
       firstStep = 0; push = 0
-      running = false; runBlend = 0; armStride = 0
+      running = false; runBlend = 0; armStride = 0; supportCompression = 0
       supportFeet = [nil,nil]; toeOffOffsets = [.zero,.zero]
       stepping = false; replanting = false
     }
@@ -193,8 +224,12 @@ struct CourtFootwork {
       inside.y += 0.092*sin(.pi*firstStep)
       push = sin(.pi*firstStep)
     } else {
-      // Finish grounding an airborne inside shoe without moving either sole laterally.
-      inside.y = max(0,inside.y-dt*0.75)
+      if collecting < 1 {
+        collecting = min(1,collecting+dt/0.19)
+        let u = collecting*collecting*(3-2*collecting)
+        inside = insideStart+(insideGoal-insideStart)*u
+        inside.y += 0.085*sin(.pi*collecting)
+      } else { inside.y = max(0,inside.y-dt*0.75) }
     }
     let outsideIndex = outsideRight ? 1 : 0
     let pitch = 0.34*firstStep*firstStep
@@ -226,7 +261,9 @@ struct CourtFootwork {
     let direction: Float = lateral ? (velocity.x * facing > 0 ? 1 : -1) : 0
     if !stepping {
       let moving = speed > 0.12 && remaining > 0.04
-      length = lateral ? min(0.57, 0.15 + speed * 0.13) : min(0.78, 0.21 + speed * 0.13)
+      let retreat = velocity.z*facing > abs(velocity.x)
+      length = lateral ? min(0.57, 0.15 + speed * 0.13)
+        : retreat ? min(0.48,0.19+speed*0.085) : min(0.78, 0.21 + speed * 0.13)
       if surface == .grass { length *= 0.84 }
       let lead = moving ? velocity / speed * min(remaining, length * 1.15) : .zero
       let goals = (left: centre - base + lead + strideBias, right: centre + base + lead + rightBias)
@@ -263,17 +300,24 @@ struct CourtFootwork {
       let slide = (centre-last)*0.54
       if leftSwings { right += slide } else { left += slide }
     }
-    if !replanting { shoe.y = (0.055 + min(speed, 6) * (lateral ? 0.010 : 0.025)) * sin(progress * .pi) }
+    if !replanting { shoe.y += (0.055 + min(speed, 6) * (lateral ? 0.010 : 0.025)) * sin(progress * .pi) }
     if leftSwings { left = shoe } else { right = shoe }
     // On a fast lateral shuffle the trailing toe pushes off before the
     // opening foot lands. Let it clear the surface rather than pulling the
     // pelvis down between shoes that are over a metre apart.
-    if lateral && speed > 2.7 && !replanting {
+    if lateral && speed > 0.65 && !replanting {
       let dir = velocity/speed
+      let openingShoe = leftSwings ? left : right
       func releaseToe(_ shoe: CourtPoint3D) -> CourtPoint3D {
-        let excess = simd_dot(centre-shoe,dir)-0.52
+        let trailing = simd_dot(centre-shoe,dir)-0.49
+        // When the opening shoe arrives, collect the pushing foot before
+        // the hips sink between two widely separated straight legs.
+        let spread = simd_dot(openingShoe-shoe,dir)-0.98
+        let excess = max(trailing,spread)
         guard excess > 0 else { return shoe }
-        return shoe+dir*excess+[0,max(0,min(0.09,excess*0.48)-shoe.y),0]
+        let push = min(excess,(speed+1.4)*dt)
+        let lift = min(dt*1.6,max(0,min(0.09,excess*0.48)-shoe.y))
+        return shoe+dir*push+[0,lift,0]
       }
       if leftSwings { right = releaseToe(right) } else { left = releaseToe(left) }
     }

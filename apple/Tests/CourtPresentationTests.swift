@@ -192,7 +192,7 @@ extension CourtPresentationTests {
     XCTAssertGreaterThan(finish[.rightShoe].y,finish[.leftShoe].y+0.10)
     func rearToeHeading(_ pose: AthletePose) -> Float {
       let hips = pose[.rightHip] - pose[.leftHip]
-      return 0.27 * atan2(-hips.z, hips.x) + pose.shoeYaw.y
+      return pose.soleHeading?.y ?? (0.27 * atan2(-hips.z, hips.x) + pose.shoeYaw.y)
     }
     XCTAssertLessThan(rearToeHeading(loaded), -1.1)
     XCTAssertLessThan(abs(rearToeHeading(finish)), 0.18)

@@ -1,22 +1,63 @@
 import Foundation
 
 enum NetStroke: String, Codable {
-  case volley, overhead, dive, jump
+  case volley, overhead, dive, jump, jumpLob
   var overhead: Bool { self == .overhead || self == .jump }
   var extended: Bool { self == .dive || self == .jump }
-  var recovery: Double { self == .dive ? 0.94 : 0.32 }
+  var recovery: Double { self == .dive ? 0.94 : self == .jumpLob ? 0.38 : 0.32 }
 }
 
 struct NetEffort: Codable {
-  let stroke: NetStroke
+  private let recordedStroke: NetStroke
+  private let runningLob: Bool?
+  var stroke: NetStroke { runningLob == true ? .jumpLob : recordedStroke }
   let serial: Int
   let startTime, impactTime, progress: Double
   let from, landing: Vec
   let target: CourtPoint3D
   let reachable: Bool
   var afterBounce: Bool?
+  var entryVelocity: Vec?
+
+  private enum CodingKeys: String, CodingKey {
+    case recordedStroke = "stroke", runningLob, serial, startTime, impactTime, progress
+    case from, landing, target, reachable, afterBounce, entryVelocity
+  }
+
+  init(stroke: NetStroke, serial: Int, startTime: Double, impactTime: Double, progress: Double,
+       from: Vec, landing: Vec, target: CourtPoint3D, reachable: Bool, afterBounce: Bool? = nil,
+       entryVelocity: Vec? = nil) {
+    // Cup snapshots also go to earlier builds. They can still decode the
+    // moving reach and the host's outgoing lob while a new client shows the jump.
+    self.recordedStroke = stroke == .jumpLob ? .volley : stroke
+    self.runningLob = stroke == .jumpLob ? true : nil
+    self.serial = serial
+    self.startTime = startTime
+    self.impactTime = impactTime
+    self.progress = progress
+    self.from = from
+    self.landing = landing
+    self.target = target
+    self.reachable = reachable
+    self.afterBounce = afterBounce
+    self.entryVelocity = entryVelocity
+  }
 
   func position(at time: Double) -> Vec {
+    if stroke == .jumpLob {
+      // Run through the takeoff, then carry the same momentum to landing.
+      let duration = max(0.001,impactTime-startTime)
+      let t = clamp((time-startTime)/duration,0,1)
+      // Accelerate early, brake over the last stride, then complete the
+      // landing with the same velocity on both sides of ball contact.
+      let elapsed = clamp((time-impactTime)/0.20,0,1)
+      let carry = 0.45/duration*0.20*elapsed*(1-0.5*elapsed)
+      let u = t*t*(3-2*t)+0.45*t*t*(t-1)+carry
+      let initial = entryVelocity ?? .zero
+      let tangent = duration*t*(1-t)*(1-t)
+      return Vec(x: from.x+(landing.x-from.x)*u+initial.x*tangent,
+                 y: from.y+(landing.y-from.y)*u+initial.y*tangent)
+    }
     let duration = impactTime - startTime + 0.10
     let u = StrokeAnimation.ease((time - startTime) / max(0.10, duration))
     return Vec(x: from.x + (landing.x - from.x) * u, y: from.y + (landing.y - from.y) * u)
@@ -24,7 +65,7 @@ struct NetEffort: Codable {
 }
 
 extension BallFlight {
-  var isDefensiveLob: Bool { contactQuality == .diving && kind == .lob }
+  var isDefensiveLob: Bool { kind == .lob && (contactQuality == .diving || jumpLob == true) }
 }
 
 /// One contact clock shared by the simulation, swing preparation and drawn ball.

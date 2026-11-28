@@ -55,12 +55,12 @@ struct GroundstrokePath {
     let drop = CourtPoint3D(s*(backhand ? 0.41 : 0.54),max(0.77,min(1.36,strike.y+0.14)),
       (backhand ? -0.19 : -0.42)+0.10*rush)
     let contact = strike-face*0.49
-    let extensionPoint = contact+CourtPoint3D(-s*0.055,0.115,power ? 0.23 : backhand ? 0.165 : 0.235)
+    let extensionPoint = contact+CourtPoint3D(-s*(backhand ? 0.115 : 0.14),0.135,power ? 0.23 : backhand ? 0.16 : 0.21)
     let finish = CourtPoint3D(-s*(backhand ? 0.32 : 0.29),backhand ? 1.66 : 1.70,0.19)
     let carry = finish+CourtPoint3D(-s*0.025,-0.035,-0.10)
     let setVelocity = backhand ? CourtPoint3D(-0.26,-0.38,-0.56) : CourtPoint3D(0.64,-0.64,-0.60)
     let dropVelocity = CourtPoint3D(-s*0.14,-0.10,1.45)
-    let contactVelocity = backhand ? CourtPoint3D(0.68,1.34,4.55) : CourtPoint3D(-0.75,2.1,power ? 8.5 : 7.2)
+    let contactVelocity = backhand ? CourtPoint3D(1.65,1.65,4.55) : CourtPoint3D(-2.1,2.35,power ? 8.5 : 7.2)
     let extensionVelocity = CourtPoint3D(-s*1.45,2.28,0.63)
     let finishVelocity = CourtPoint3D(-s*0.48,0.36,-1.05)
     let carryVelocity = CourtPoint3D(s*0.32,-0.76,0.22)

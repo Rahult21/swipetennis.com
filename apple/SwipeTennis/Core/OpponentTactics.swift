@@ -28,7 +28,7 @@ extension PracticeEngine {
     followingApproach[0] || (attacking[0] && players[0].pos.y < Self.net + 5.5)
   }
 
-  mutating func prepareApproachReply(random: () -> Double) -> Bool {
+  mutating func prepareApproachReply(contestEveryBall: Bool = false, random: () -> Double) -> Bool {
     guard let incoming = flight, incoming.hitter == 0, incoming.fault == nil,
       incoming.kind != .drop, playerIsApproaching else { return false }
     guard incoming.approachReply == nil else { return true }
@@ -39,7 +39,7 @@ extension PracticeEngine {
     flight!.missedChaseTarget = nil
     if reply == .miss {
       let distance = players[1].pos.distance(to: incoming.contact)
-      let errors: [OpponentError] = distance > 2.2 ? [.net, .wide, .long, .unreachable] : [.net, .wide, .long]
+      let errors: [OpponentError] = !contestEveryBall && distance > 2.2 ? [.net, .wide, .long, .unreachable] : [.net, .wide, .long]
       let error = errors[Int(clamp(random(), 0, 0.999999) * Double(errors.count))]
       flight!.opponentError = error
       if error == .unreachable {

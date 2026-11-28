@@ -39,7 +39,7 @@ final class AllCourtTests: XCTestCase {
           }
           engine.step(1 / 120, random: { 0.99 })
           XCTAssertLessThanOrEqual(
-            engine.players[1].velocity.length, style.speed * Difficulty.easy.speed + 0.001)
+            engine.players[1].velocity.length, engine.settings.opponentRunSpeed() + 0.001)
         }
         XCTAssertEqual(
           engine.contactSerial, 2,

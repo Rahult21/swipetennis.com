@@ -294,6 +294,7 @@ extension PracticeEngine {
     guard side != 0 || queuedPower == nil else { return false }
     guard side == 0 || settings.local else { return false }
     if phase == .serving { return servePreparation?.server != side }
+    if let effort = players[side].netEffort, effort.serial == contactSerial, effort.stroke == .jumpLob { return false }
     return phase == .live && flight?.hitter == 1 - side && flight?.fault == nil && flight?.missedSwingWindow != true
   }
 

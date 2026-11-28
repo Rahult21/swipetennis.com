@@ -5,7 +5,7 @@ final class SwipeTennisUITests: XCTestCase {
   private func playUntilHighlight(_ app: XCUIApplication, timeout: TimeInterval = 75) {
     let court = app.descendants(matching: .any)["livePracticeCourt"].firstMatch
     let end = Date().addingTimeInterval(timeout)
-    while Date() < end && !app.buttons["Skip"].exists && !app.buttons["nextPracticePoint"].exists {
+    while Date() < end && !app.buttons["Skip"].exists && !app.buttons["nextPracticePoint"].exists && !app.buttons["replayPracticePoint"].exists {
       if court.exists && court.value as? String == "Swipe to hit" {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.77))
         let finish = start.withOffset(CGVector(dx: -30, dy: -120))
@@ -200,8 +200,7 @@ final class SwipeTennisUITests: XCTestCase {
       start.tap()
       playUntilHighlight(app)
       let skip = app.buttons["Skip"]
-      XCTAssertTrue(skip.waitForExistence(timeout:75))
-      if skip.isHittable { skip.tap() }
+      if skip.exists && skip.isHittable { skip.tap() }
       let replay = app.buttons["replayPracticePoint"]
       XCTAssertTrue(replay.waitForExistence(timeout:75))
       replay.tap()
