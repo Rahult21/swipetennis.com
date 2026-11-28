@@ -126,6 +126,7 @@ struct CupInput: Codable {
   var shotEpoch: Int?
   var movementEpoch: Int?
   var shotDistance: Double?
+  var displayedLanding: Vec?
   var runPace: Double?
   var speed: ServeLevel?
   var spin: ServeLevel?
@@ -168,7 +169,9 @@ struct CupInput: Codable {
     case "serveTune": engine.adjustServe(speed: speed, spin: spin, side: side)
     default: break
     }
-    if let action { engine.apply(action, side: side, shotEpoch: shotEpoch, movementEpoch: movementEpoch, runPace: runPace, shotDistance: shotDistance) }
+    if let displayedLanding, !displayedLanding.x.isFinite || !displayedLanding.y.isFinite ||
+        displayedLanding != PracticeEngine.aim(side, displayedLanding) { return }
+    if let action { engine.apply(action, side: side, shotEpoch: shotEpoch, movementEpoch: movementEpoch, runPace: runPace, shotDistance: shotDistance, displayedLanding: displayedLanding) }
   }
 }
 

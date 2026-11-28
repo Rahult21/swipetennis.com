@@ -21,3 +21,10 @@ The two stereo audience cues use the public high-quality previews of three field
 - [Light Applause by ojosdedurazno](https://freesound.org/people/ojosdedurazno/sounds/391326/)
 - [Small Auditorium Crowd Applause and Cheering by ElevatorFan2020](https://freesound.org/people/ElevatorFan2020/sounds/859009/)
 - [Applause, small audience by nervousneal](https://freesound.org/people/nervousneal/sounds/500977/)
+
+## Winner celebration voices
+
+Both “Come on!” calls are human recordings, trimmed and levelled for playback as mono 24 kHz PCM.
+
+- The woman’s call uses **COME ON** by Legnalegna55. [Recording](https://freesound.org/people/Legnalegna55/sounds/536896/) · [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
+- The man’s call uses the opening words of **“Come on guys, let’s go!” — Excited Male** by Iceofdoom, from 2.34 to 2.76 seconds of the public preview. [Recording](https://freesound.org/people/Iceofdoom/sounds/499626/) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)

@@ -81,10 +81,12 @@ final class RallyFootworkTests: XCTestCase {
         var game = incoming(side: side)
         game.selectShotSwipe(Vec(x: 0, y: -length), side: side)
         game.players[side].velocity = Vec(x: 4.1, y: 0)
+        let intended = try XCTUnwrap(game.players[side].aim)
+        game.players[side].pos.x -= 0.3
         game.returnBall(side, volley: false, random: { 0.99 })
         let block = try XCTUnwrap(game.flight)
         XCTAssertEqual(block.contactQuality, .stretched)
-        XCTAssertTrue(PracticeEngine.isShortBall(block, receiving: 1-side))
+        XCTAssertEqual(block.landing, intended)
         let carry = abs(block.landing.y - PracticeEngine.net)
         XCTAssertGreaterThan(carry, lastCarry)
         lastCarry = carry

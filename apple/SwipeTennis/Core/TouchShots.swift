@@ -80,12 +80,12 @@ extension PracticeEngine {
     return target
   }
 
-  mutating func selectTouchShot(_ kind: ShotKind, side: Int, epoch: Int?, distance: Double? = nil) {
+  mutating func selectTouchShot(_ kind: ShotKind, side: Int, epoch: Int?, distance: Double? = nil, displayedLanding: Vec? = nil) {
     guard let epoch, epoch == shotGestureEpoch(side), canChooseShot(side),
       kind != .drop || canDrawDrop(side) else { return }
     choose(side, kind)
     if let distance, distance.isFinite {
-      let target = touchShotLanding(kind, side: side, distance: distance)
+      let target = displayedLanding ?? touchShotLanding(kind, side: side, distance: distance)
       players[side].aim = target
       players[side].swipeDepth = side == 0 ? target.y : Self.length - target.y
     }

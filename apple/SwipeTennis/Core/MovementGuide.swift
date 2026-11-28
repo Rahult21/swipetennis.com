@@ -88,7 +88,7 @@ extension PracticeEngine {
       side, CourtTactics.netCoverage(side: side, opponentContact: flight.contact))
   }
 
-  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil, runPace: Double? = nil, shotDistance: Double? = nil) {
+  mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil, runPace: Double? = nil, shotDistance: Double? = nil, displayedLanding: Vec? = nil) {
     guard !phase.isPlaying || side != 0 || (queuedPower == nil && flight?.power == nil) else { return }
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
@@ -101,14 +101,14 @@ extension PracticeEngine {
       } else { steer(side,to:point) }
     case .aim(let point): if canChooseShot(side) { players[side].aim = point }
     case .shot(let kind):
-      if kind == .drop || kind == .slice { selectTouchShot(kind, side: side, epoch: shotEpoch, distance: shotDistance) }
+      if kind == .drop || kind == .slice { selectTouchShot(kind, side: side, epoch: shotEpoch, distance: shotDistance, displayedLanding: displayedLanding) }
       else if canChooseShot(side) { choose(side, kind) }
     case .courtTap(let point): tapCourt(side, at: point)
     case .run(let delta):
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }
       players[side].runPace = clamp(runPace ?? 1, 0.75, 1.5)
       swipeCourt(side, delta: delta)
-    case .shotSwipe(let delta): selectShotSwipe(delta, side: side)
+    case .shotSwipe(let delta): selectShotSwipe(delta, side: side, displayedLanding: displayedLanding)
     case .guidedMove(let kind):
       // Resolve against the live target: the ball may have moved since the swipe began.
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }

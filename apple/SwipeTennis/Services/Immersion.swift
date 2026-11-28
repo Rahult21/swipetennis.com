@@ -170,31 +170,24 @@ import UIKit
     }
   }
 
-  private let winnerVoice = AVSpeechSynthesizer()
+  private var winnerCall: AVAudioPlayer?
 
-  private var preparedCall: AVSpeechUtterance?
-
-  func prepareWinnerCall() {
-    let call = AVSpeechUtterance(string:"Come on!")
-    let model = AthleteKit.current(side:0,localSide:0).model
-    let name = model == .man ? "Aaron" : "Samantha"
-    call.voice = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "en-US" && $0.name == name }
-      .max { $0.quality.rawValue < $1.quality.rawValue } ?? AVSpeechSynthesisVoice(language:"en-US")
-    call.rate = 0.54
-    preparedCall = call
+  func prepareWinnerCall(for model: AthleteModel) {
+    stopWinnerCall()
+    winnerCall = texture(model == .woman ? "winner-call-woman" : "winner-call-man")
   }
 
   func playWinnerCall() {
-    guard soundEnabled, volume > 0, let call = preparedCall else { return }
-    preparedCall = nil
+    guard soundEnabled, volume > 0, let call = winnerCall else { return }
     activateAudio()
     call.volume = volume
-    winnerVoice.speak(call)
+    call.currentTime = 0
+    call.play()
   }
 
   func stopWinnerCall() {
-    preparedCall = nil
-    winnerVoice.stopSpeaking(at:.immediate)
+    winnerCall?.stop()
+    winnerCall = nil
   }
 
   func point(_ text: String, announce: Bool = true) {

@@ -50,7 +50,9 @@ enum ReplayAngle: String, CaseIterable {
   func makeUIView(context: Context) -> Stage {
     let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide), ownsSurface:liveStadium == nil)
     if let celebration { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner,celebration:celebration) }
-    if celebration == .risingFist { Immersion.shared.prepareWinnerCall() }
+    if stage.winnerWalk?.celebration == .risingFist {
+      Immersion.shared.prepareWinnerCall(for: AthleteKit.current(side: winner, localSide: localSide).model)
+    }
     if stage.ownsSurface { stage.stadium.whenRendering(onReady) }
     else { DispatchQueue.main.async { if stage.stadium.isReviewing { onReady() } } }
     return stage

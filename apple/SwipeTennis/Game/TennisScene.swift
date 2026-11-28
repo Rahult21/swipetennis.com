@@ -147,7 +147,7 @@ import SwiftUI
   private let swipeHand = SKSpriteNode()
   private let swipeTouch = SKShapeNode(circleOfRadius: 6)
   private let demoGesturePath = SKShapeNode()
-  private let shotLine = SKShapeNode()
+  private let shotLine = SKSpriteNode()
   private var shotDirection: ShotDirection?
   private let trail = SKShapeNode()
   private var trails: [CourtPoint3D] = []
@@ -375,8 +375,8 @@ import SwiftUI
     followLabel.fontColor = .systemYellow
     openLabel.text = "OPEN"
     openLabel.fontColor = .systemYellow.withAlphaComponent(0.8)
-    shotLine.strokeColor = .white
-    shotLine.lineCap = .round
+    shotLine.texture = Self.shotRibbonTexture()
+    shotLine.anchorPoint = CGPoint(x: 0, y: 0.5)
     shotLine.zPosition = 35
     shotLine.isHidden = true
     dynamic.addChild(shotLine)
@@ -954,6 +954,27 @@ import SwiftUI
     swipeTouch.isHidden = false
   }
 
+  private static func shotRibbonTexture() -> SKTexture {
+    let size = CGSize(width: 256, height: 48)
+    let image = UIGraphicsImageRenderer(size: size).image { renderer in
+      let context = renderer.cgContext
+      let mid = size.height / 2
+      context.move(to: CGPoint(x: 0, y: mid))
+      context.addCurve(to: CGPoint(x: size.width, y: mid),
+        control1: CGPoint(x: 80, y: -8), control2: CGPoint(x: 176, y: -8))
+      context.addCurve(to: CGPoint(x: 0, y: mid),
+        control1: CGPoint(x: 176, y: 56), control2: CGPoint(x: 80, y: 56))
+      context.closePath()
+      context.clip()
+      let colors = [0.10, 0.50, 0.10].map { UIColor.white.withAlphaComponent($0).cgColor }
+      if let fade = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray,
+                               locations: [0, 0.5, 1]) {
+        context.drawLinearGradient(fade, start: .zero, end: CGPoint(x: size.width, y: 0), options: [])
+      }
+    }
+    return SKTexture(image: image)
+  }
+
   private func drawShotDirection() {
     let cue: ShotDirection
     let opacity: Double
@@ -962,7 +983,7 @@ import SwiftUI
       cue = preview.cue
       opacity = 1
     } else if let alpha = shotDirection?.opacity(at: ProcessInfo.processInfo.systemUptime,
-      serial: engine.contactSerial, hitter: engine.flight?.hitter), alpha > 0,
+      serial: engine.contactSerial, hitter: engine.flight?.hitter, launchPosition: engine.flight?.launchPosition), alpha > 0,
       let committed = shotDirection, engine.phase.isPlaying {
       cue = committed
       opacity = alpha
@@ -971,11 +992,12 @@ import SwiftUI
       shotLine.isHidden = true
       return
     }
-    let path = CGMutablePath()
-    path.move(to:projectWorld(cue.origin.world(height:0.04)))
-    path.addLine(to:projectWorld(cue.target.world(height:0.04)))
-    shotLine.path = path
-    shotLine.lineWidth = cue.lineWidth
+    let start = projectWorld(cue.startPoint(in: engine).world())
+    let end = projectWorld(cue.landing.world())
+    let dx = end.x - start.x, dy = end.y - start.y
+    shotLine.position = start
+    shotLine.size = CGSize(width: hypot(dx, dy), height: cue.lineWidth)
+    shotLine.zRotation = atan2(dy, dx)
     shotLine.alpha = opacity
     shotLine.isHidden = false
   }
@@ -1017,13 +1039,15 @@ import SwiftUI
     } else { aimPreview = nil }
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
+      var input = CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch,
+                           runPace: gesture.runPace, shotDistance: gesture.screenTravelled)
       if let cue = ShotDirection(action:action,side:gesture.side,epoch:gesture.shotEpoch,game:engine,
                                  time:ProcessInfo.processInfo.systemUptime, gestureDistance:gesture.screenTravelled) {
         shotDirection = cue
+        input.displayedLanding = cue.landing
         drawShotDirection()
       }
-      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch,
-                        runPace: gesture.runPace, shotDistance: gesture.screenTravelled), side: gesture.side)
+      cupInput(input, side: gesture.side)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }

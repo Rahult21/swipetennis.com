@@ -704,6 +704,7 @@ struct PracticeEngine: Codable {
     let gap = f.serve && !volley ? min(p.pos.distance(to: contact), p.pos.distance(to: ball)) : p.pos.distance(to: contact)
     let speed = p.velocity.length
     let bot = side == 1 && !settings.local
+    let swipeLanding = !bot && p.swipeDepth != nil ? p.aim : nil
     let easyBot = bot && settings.difficulty == .easy
     let netReply = bot ? f.approachReply : nil
     let dropReply = bot && f.kind == .drop
@@ -778,9 +779,6 @@ struct PracticeEngine: Codable {
     if !bot && (volley || overhead) && p.aim == nil {
       aim = CourtTactics.openCourt(side: side, opponent: players[1 - side].pos, overhead: overhead)
     }
-    if !bot, let depth = p.swipeDepth {
-      aim.y = side == 0 ? depth : Self.length - depth
-    }
     if let target = p.tappedLanding { aim = target }
     let effort = p.netEffort.flatMap { $0.serial == contactSerial && $0.reachable ? $0 : nil }
     var quality = demo == nil && !overhead ? p.rallyContact(gap: gap) : .neutral
@@ -792,11 +790,10 @@ struct PracticeEngine: Codable {
     } else if quality == .stretched && !dropReply && kind != .drop && queuedPower == nil {
       // A runner can borrow pace to block but cannot drive deep from full stretch.
       let depth = side == 0 ? aim.y : Self.length - aim.y
-      // Compress the requested swipe range on a block so a longer swipe
-      // still carries farther, even when the player cannot reach the baseline.
-      let short = p.swipeDepth != nil ? Self.net - 0.59 * (Self.net - depth) : max(5.3, depth)
+      let short = max(5.3, depth)
       aim.y = side == 0 ? short : Self.length - short
     }
+    if let swipeLanding { aim = swipeLanding }
     let risk = Self.red(aim)
     let settled = onTime && p.settled >= 0.18 && speed < 2.2
     attempts[side] += 1
@@ -811,16 +808,22 @@ struct PracticeEngine: Codable {
       shorterSide: redirect && CourtTactics.courtLength(from: p.pos, toward: aim, side: side) + 0.35
         < CourtTactics.courtLength(from: p.pos, toward: f.from, side: side),
       split: !bot && p.splitForReturn == contactSerial,
-      baseAccuracy: quality == .diving || demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect))
+      baseAccuracy: swipeLanding != nil || quality == .diving || demo != nil || controlledFeed ? 1 : CourtTactics.landingChance(kind: kind, redirects: redirect))
     if !bot { players[side].lastReturn = decision }
     let placementChance = decision.accuracy
     let forcedMiss = bot && f.opponentError != nil && queuedPower != .overhead
-    let miss = forcedMiss || (contactChance < 1 && random() >= contactChance)
+    let missedContact = contactChance < 1 && random() >= contactChance
+    if swipeLanding != nil && missedContact {
+      end(f.hitter, reason: "\(name(side)) didn't reach the ball in time.",
+          tip: "Move toward the contact circle earlier.", random: random)
+      return
+    }
+    let miss = forcedMiss || missedContact
       || (placementChance < 1 && random() < 1 - placementChance)
     let reason =
       miss ? "\(name(side)) missed the \(kind.rawValue.lowercased()) shot."
       : quality == .diving ? "A full-stretch dive lifted a defensive lob."
-      : quality == .stretched && !dropReply ? "A late contact left a shorter, blocked return."
+      : quality == .stretched && !dropReply ? "A late contact took pace off the return."
       : dropReply
       ? "Opponent chased your drop shot and lifted a deep lob."
       : netReply != nil

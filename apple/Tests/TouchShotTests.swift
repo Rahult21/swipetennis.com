@@ -87,11 +87,12 @@ final class TouchShotTests: XCTestCase {
         let packet = CupInput(.shot(kind), shotEpoch: epoch, movementEpoch: nil, shotDistance: length)
         try JSONDecoder().decode(CupInput.self, from: JSONEncoder().encode(packet)).apply(to: &game, side: 0)
         let target = try XCTUnwrap(game.players[0].aim)
-        XCTAssertEqual(cue.origin.distance(to: cue.target), 3 + 6 * (length - 16) / 132, accuracy: 0.001)
+        XCTAssertEqual(cue.startPoint(in: game).distance(to: cue.landing), 3 + 6 * (length - 16) / 132, accuracy: 0.001)
         game.players[0].pos = game.players[0].destination
         game.returnBall(0, volley: false, random: { 0.99 })
         let bounce = try XCTUnwrap(game.flight).landing
-        XCTAssertEqual(bounce.y, target.y, accuracy: 0.001)
+        XCTAssertEqual(bounce, target)
+        XCTAssertEqual(bounce, cue.landing)
         let carry = PracticeEngine.net - bounce.y
         XCTAssertGreaterThan(carry, previous)
         if kind == .drop { XCTAssertLessThan(carry, 2.5) }

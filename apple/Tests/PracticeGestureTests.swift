@@ -142,8 +142,7 @@ final class PracticeGestureTests: XCTestCase {
       XCTAssertNil(ShotDirection(action: .shotSwipe(swipe), side: side, epoch: nil, game: game, time: 5))
       game.selectShotSwipe(swipe, side: side)
       let aim = try XCTUnwrap(game.players[side].aim)
-      let dx = aim.x - cue.origin.x, dy = aim.y - cue.origin.y
-      XCTAssertEqual((cue.target.x - cue.origin.x) * dy, (cue.target.y - cue.origin.y) * dx, accuracy: 0.0001)
+      XCTAssertEqual(cue.landing, aim)
       var timeout = cue
       XCTAssertEqual(timeout.opacity(at: 5.86, serial: game.contactSerial, hitter: 1-side), 0.5, accuracy: 0.001)
       XCTAssertEqual(timeout.opacity(at: 6, serial: game.contactSerial, hitter: 1-side), 0)
@@ -171,22 +170,55 @@ final class PracticeGestureTests: XCTestCase {
         let action = PracticeGestureAction.shotSwipe(delta)
         let epoch = game.shotGestureEpoch(side)
         let line = try XCTUnwrap(ShotDirection(action: action, side: side, epoch: epoch, game: game, time: 0))
-        XCTAssertEqual(line.origin.distance(to: line.target), metres, accuracy: 0.0001)
+        XCTAssertEqual(line.startPoint(in: game).distance(to: line.landing), metres, accuracy: 0.0001)
         XCTAssertEqual(line.lineWidth, width, accuracy: 0.0001)
         let lob = try XCTUnwrap(ShotDirection(action: .shotSwipe(Vec(x: 0, y: distance)), side: side,
           epoch: epoch, game: game, time: 0))
         XCTAssertFalse(lob.isForwardSwipe)
         XCTAssertEqual(lob.lineWidth, 3)
-        game.apply(action, side: side, shotEpoch: epoch)
-        game.returnBall(side, volley: false, random: { 0.99 })
+        var packet = CupInput(action, shotEpoch: epoch, movementEpoch: nil)
+        packet.displayedLanding = line.landing
+        game.players[side].pos.x += 0.4
+        try JSONDecoder().decode(CupInput.self, from: JSONEncoder().encode(packet)).apply(to: &game, side: side)
+        game.flight!.elapsed = game.flight!.time(at: 0.92)
+        game.returnBall(side, volley: false, random: { 0 })
         let flight = try XCTUnwrap(game.flight)
         XCTAssertEqual(flight.hitter, side)
         XCTAssertNil(flight.fault)
+        XCTAssertEqual(flight.courtPosition(at: 0.8), line.landing)
+        let total = flight.launchPosition.distance(to: flight.landing)
+        let tipProgress = 0.8 * max(0, 1 - metres / total)
+        XCTAssertLessThan(flight.courtPosition(at: tipProgress).distance(to: line.startPoint(in: game)), 0.0001)
         let depth = abs(flight.landing.y - PracticeEngine.net)
         if distance <= 148 { XCTAssertGreaterThan(depth, previousDepth) }
         else { XCTAssertEqual(depth, previousDepth, accuracy: 0.0001) }
         previousDepth = depth
       }
+    }
+  }
+
+  func testCrosscourtRibbonStaysOnTheBounceLineThroughTheOpponentReturn() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      let player = game.players[side].pos
+      game.launch(1-side, aim: player, kind: .cross)
+      game.flight!.elapsed = game.flight!.time(at: 0.9)
+      game.flight!.contact = player
+      let delta = Vec(x: 65, y: -78)
+      var guide = try XCTUnwrap(ShotDirection(action: .shotSwipe(delta), side: side,
+        epoch: game.shotGestureEpoch(side), game: game, time: 0))
+      game.selectShotSwipe(delta, side: side)
+      game.returnBall(side, volley: false, random: { 0 })
+      let flight = try XCTUnwrap(game.flight)
+      XCTAssertEqual(flight.courtPosition(at: 0.8), guide.landing)
+      _ = guide.opacity(at: 0.2, serial: game.contactSerial, hitter: side, launchPosition: flight.launchPosition)
+      let tail = guide.startPoint(in: game)
+      let progress = 0.8 * (1 - guide.length / flight.launchPosition.distance(to: flight.landing))
+      XCTAssertLessThan(tail.distance(to: flight.courtPosition(at: progress)), 0.0001)
+      game.launch(1-side, aim: player, kind: .line)
+      _ = guide.opacity(at: 0.4, serial: game.contactSerial, hitter: 1-side)
+      XCTAssertEqual(guide.startPoint(in: game), tail)
     }
   }
 

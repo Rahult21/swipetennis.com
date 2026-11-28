@@ -125,12 +125,14 @@ struct PracticeGesture {
 
 /// A local aiming cue starts on the accepted swipe, even before racket contact.
 struct ShotDirection {
-  let origin, target, landing: Vec
+  let landing: Vec
+  let length: Double
   let isForwardSwipe: Bool
   let lineWidth: Double
   let side, serial: Int
   let start: Double
   private var opponentContact: Double?
+  private var strikePosition: Vec?
 
   init?(action: PracticeGestureAction, side: Int, epoch: Int?, game: PracticeEngine, time: Double, gestureDistance: Double? = nil) {
     guard game.canChooseShot(side), epoch == game.shotGestureEpoch(side) else { return nil }
@@ -147,21 +149,36 @@ struct ShotDirection {
       isForwardSwipe = false
     default: return nil
     }
-    origin = game.players[side].pos
-    let aimDistance = origin.distance(to: landing)
-    guard aimDistance > 0 else { return nil }
     let strength = ShotSwipe.strength(distance)
     lineWidth = isForwardSwipe ? 3 + 27 * strength : 3
-    let fraction = (3 + 6 * strength) / aimDistance
-    target = Vec(x: origin.x + (landing.x - origin.x) * fraction,
-                 y: origin.y + (landing.y - origin.y) * fraction)
+    length = 3 + 6 * strength
     self.side = side
     serial = game.contactSerial
     start = time
   }
 
-  mutating func opacity(at time: Double, serial current: Int, hitter: Int?) -> Double {
+  /// Draw the last metres of the flight so the far tip marks the first bounce.
+  func startPoint(in game: PracticeEngine) -> Vec {
+    let contact: Vec
+    if let strikePosition {
+      contact = strikePosition
+    } else if let flight = game.flight, flight.hitter == side, game.contactSerial > serial {
+      contact = flight.launchPosition
+    } else if let incoming = game.flight, incoming.hitter != side {
+      let progress = game.contactWindow(side)?.entry ?? 1
+      contact = incoming.courtPosition(at: max(incoming.progress, progress))
+    } else {
+      contact = game.players[side].pos
+    }
+    let distance = contact.distance(to: landing)
+    guard distance > length else { return contact }
+    return Vec(x: landing.x + (contact.x - landing.x) * length / distance,
+               y: landing.y + (contact.y - landing.y) * length / distance)
+  }
+
+  mutating func opacity(at time: Double, serial current: Int, hitter: Int?, launchPosition: Vec? = nil) -> Double {
     guard current >= serial else { return 0 }
+    if strikePosition == nil, current > serial, hitter == side { strikePosition = launchPosition }
     if opponentContact == nil && (current > serial + 1 || (current > serial && hitter == 1 - side)) {
       opponentContact = time
     }
@@ -213,13 +230,13 @@ extension PracticeEngine {
     return contactSerial + (phase == .serving ? 1 : 0)
   }
 
-  mutating func selectShotSwipe(_ delta: Vec, side: Int) {
+  mutating func selectShotSwipe(_ delta: Vec, side: Int, displayedLanding: Vec? = nil) {
     guard canChooseShot(side) else { return }
     if delta.length < 12 { beginSplit(side); return }
     guard let selection = ShotSwipe.read(delta) else { return }
     choose(side, selection.kind)
     // Distance inside the far baseline, in metres. A short angle stays shorter than a drive.
-    guard let landing = swipeLanding(delta, side:side) else { return }
+    guard let landing = displayedLanding ?? swipeLanding(delta, side:side) else { return }
     players[side].aim = landing
     players[side].swipeDepth = side == 0 ? landing.y : Self.length-landing.y
   }
@@ -232,7 +249,11 @@ extension PracticeEngine {
     let pos = players[side].pos
     var x = pos.x
     if selection.kind == .lob && selection.lateral == 0 { x = Self.width / 2 }
-    if selection.kind == .line && flight?.serve == true && flight?.serveNumber == 1 { x = players[1-side].pos.x }
+    if selection.kind == .line {
+      let firstServe = phase == .serving ? servePreparation?.number == 1
+                                        : flight?.serve == true && flight?.serveNumber == 1
+      x = firstServe ? players[1-side].pos.x : intercept(side).x
+    }
     if selection.lateral != 0 && selection.kind != .line {
       let lateral = side == 0 ? delta.x : -delta.x
       x = Self.width/2 + (Self.width/2 - 0.45) * clamp(lateral/72,-1,1)
