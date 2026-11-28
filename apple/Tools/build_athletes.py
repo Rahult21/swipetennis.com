@@ -1,8 +1,8 @@
 """Bake two fully clothed, GPU-skinned USD athletes from CC0 MakeHuman assets.
 
 Usage: build_athletes.py SOURCE_DIR SYSTEM_ASSETS_ZIP OUTPUT_DIR.
-SOURCE_DIR holds base.obj, default.mhskel, default_weights.mhw and the six
-adult *-young.target files. The converter only reads the supplied assets.
+SOURCE_DIR holds base.obj, default.mhskel, default_weights.mhw and the targets
+listed in athlete_targets(). The converter only reads the supplied assets.
 """
 import argparse
 from collections import defaultdict
@@ -220,15 +220,35 @@ class Part:
 '''
 
 
+def athlete_targets(model):
+    """Model-space, additive shapes in the pinned MakeHuman targets directory."""
+    woman = model == "female"
+    targets = [(f"macrodetails/{origin}-{model}-young", 1/3) for origin in ("african", "asian", "caucasian")]
+    targets += [
+        (f"macrodetails/universal-{model}-young-maxmuscle-averageweight", 0.76 if woman else 0.83),
+        ("torso/torso-muscle-dorsi-incr", 0.24 if woman else 0.38),
+        ("pelvis/pelvis-tone-incr", 0.32),
+        ("hip/hip-scale-horiz-incr", 0.16 if woman else 0.06),
+        ("chin/chin-width-decr", 0.30 if woman else 0.05),
+        ("chin/chin-prominent-incr", 0.09 if woman else 0.26),
+        ("eyebrows/eyebrows-angle-up", 0.19 if woman else 0.08),
+    ]
+    for side in ("l", "r"):
+        targets += [
+            (f"cheek/{side}-cheek-bones-incr", 0.37 if woman else 0.22),
+            (f"armslegs/{side}-upperleg-muscle-incr", 0.44 if woman else 0.34),
+            (f"armslegs/{side}-lowerleg-muscle-incr", 0.28 if woman else 0.36),
+        ]
+    return targets
+
+
 class Athlete:
     def __init__(self, source, archive, model):
         self.base = Obj((source / "base.obj").read_text())
         self.original = self.base.points
         self.points = list(self.original)
-        targets = [(f"{origin}-{model}-young.target",1/3) for origin in ("african","asian","caucasian")]
-        targets.append((f"universal-{model}-young-maxmuscle-averageweight.target",0.38))
-        for filename, blend in targets:
-            target = source / filename
+        for shape, blend in athlete_targets(model):
+            target = source / (Path(shape).name + ".target")
             for line in target.read_text().splitlines():
                 t = line.split()
                 if t and t[0].isdigit():
@@ -271,6 +291,9 @@ class Athlete:
             for seam, joint in [("deltoid","upperArm"),("elbowCap","forearm"),("hipCap","thigh"),("kneeCap","shin")]:
                 self.anchors[seam+side] = self.anchors[joint+side]
         self.anchors.update(digit_anchors)
+        self.shorts_length = .185 if model == "female" else .215
+        self.hair = "braid01" if model == "female" else "short01"
+        self.brow = "eyebrow005" if model == "female" else "eyebrow009"
         self.parts = {}
         self.archive = archive
         self.model = model
@@ -311,10 +334,12 @@ class Athlete:
 
     def textures(self, folder, tool):
         skin = f"skins/young_caucasian_{self.model}/young_lightskinned_{self.model}_diffuse.png"
-        hair = "short01" if self.model=="male" else "ponytail01"
+        hair = self.hair
         prefix = "Man" if self.model=="male" else "Woman"
-        sources = [(skin,prefix+"Skin.jpg",1024),(f"hair/{hair}/{hair}_diffuse.png",prefix+"Hair.png",512)]
+        sources = [(skin,prefix+"Skin.jpg",2048),(f"hair/{hair}/{hair}_diffuse.png",prefix+"Hair.png",512)]
+        sources.append((f"eyebrows/{self.brow}/{self.brow}.png",prefix+"Brows.png",256))
         if self.model=="male":
+            sources += [("eyelashes/eyelashes03/eyelashes03.png","CourtLashes.png",256)]
             sources += [("eyes/materials/brown_eye.png","AthleteEyes.jpg",256),
                         ("clothes/shoes05/shoes05_diffuse.png","CourtShoes.jpg",512),
                         ("teeth/teeth_base/teeth.png","CourtTeeth.jpg",256),
@@ -368,16 +393,28 @@ class Athlete:
             skinning.append(combined([(w,self.weights[i]) for w,i in zip(factors,sources)]))
         if kind == "Hair":
             head = self.anchors["head"]
-            self.anchors["tailBase"] = (0.,head[1]+.033,head[2]+.102)
-            self.anchors["tailTip"] = (0.,head[1]-.077,head[2]+.121)
+            # The braid hangs behind the collar and upper back. Give it
+            # clearance in bind space and anchor its lower length to the kit.
+            self.anchors["tailBase"] = (0.,head[1]-.060,head[2]+.092)
+            self.anchors["tailTip"] = (0.,head[1]-.200,head[2]+.170)
             skinning = []
-            for point in mapped:
-                _,y,z = world(point)
-                falls = min(1,max(0,(self.anchors["tailBase"][1]-y)/.066))
-                rear = min(1,max(0,(z-head[2]-.061)/.035))
-                hangs = falls*rear if self.model=="female" else 0
-                tip = min(1,max(0,(self.anchors["tailTip"][1]+.031-y)/.081))
-                skinning.append({"head":1-hangs,"tailBase":hangs*(1-tip),"tailTip":hangs*tip})
+            for i, point in enumerate(mapped):
+                x,y,z = world(point)
+                # Sweep the front lock over the brow so the player can see
+                # the ball. The nape and the tied length keep their own motion.
+                fringe = 0.
+                if self.model == "female":
+                    front = min(1,max(0,(head[2]-.040-z)/.026))
+                    across_face = min(1,max(0,(.080-abs(x))/.028))
+                    fringe = front*across_face*max(0.,head[1]+.067-y)*.88
+                hangs = min(1,max(0,(head[1]-.047-y)/.054)) if self.model=="female" else 0.
+                rear = min(1,max(0,(z-head[2]-.025)/.030))
+                hangs *= rear
+                tip = min(1,max(0,(head[1]-.105-y)/.160))
+                clearance = hangs*(.020+.044*tip)
+                mapped[i] = (point[0],point[1]+fringe*10,point[2]-(clearance+fringe*.20)*10)
+                skinning.append({"head":1-hangs,"tailBase":hangs*(1-tip),
+                                 "tailTip":hangs*tip*.55,"chest":hangs*tip*.45})
         if kind == "Teeth":
             weights = [sum(w for key,w in v.items() if key == "jaw") for v in skinning]
             adjacency = defaultdict(set)
@@ -412,6 +449,20 @@ class Athlete:
                     covered.update(range(int(tokens[i-1]),int(tokens[i+1])+1))
         # The source suit has two connected islands: exclude the lower trouser leg.
         groups = components(mesh, -6.8 if kind == "Shoe" else 4.0) if kind in ("Kit","Shoe") else {}
+        if kind == "Kit":
+            # Shape the trunk once per vertex so sleeves and shirt share seams.
+            # Taper at the waist and lift the tail, preserving waistband overlap.
+            waist = self.anchors["waist"][1]
+            hip = self.anchors["thighL"][1]
+            for i, (x,y,z) in enumerate(mapped):
+                if groups.get(i) != "top":
+                    continue
+                height = world(mapped[i])[1]
+                taper = math.exp(-((height-waist)/.115)**2)
+                fit = .095 if self.model == "female" else .060
+                hem_lift = max(0, min(1, (waist-height)/(waist-hip)))
+                mapped[i] = (x*(1-fit*taper), y+(.42 if self.model=="female" else .25)*hem_lift,
+                             z*(1-fit*.6*taper))
         for _,face in mesh.faces:
             vs = [Vertex(mapped[i],mesh.uv[t],skinning[i]) for i,t in face]
             if kind == "Shoe":
@@ -423,10 +474,38 @@ class Athlete:
                 self.emit(kind,vs); continue
             if groups[face[0][0]] == "top":
                 arm = sum(sum(w for bone,w in v.weights.items() if bone.startswith(("upperArm","forearm"))) for v in vs)/len(vs)
-                self.emit("Sleeves" if arm > 0.50 else "Shirt",vs)
+                if arm > 0.50:
+                    self.emit("Sleeves",vs)
+                else:
+                    shirt, insert = self.split_side_panel(vs)
+                    self.emit("Shirt",shirt)
+                    self.emit("SidePanel",insert)
             else:
-                hem = (self.anchors["thighL"][1]-0.25-0.88)*10
+                hem = (self.anchors["thighL"][1]-self.shorts_length-0.88)*10
                 self.emit("Shorts",clip_height(vs,hem))
+
+    def split_side_panel(self, face):
+        """Cut the inset along a curved seam shared by all shirt styles."""
+        def distance(v):
+            x,y,_ = world(v.position)
+            rise = min(1,max(0,(y-self.anchors["waist"][1])/.29))
+            edge = .122 if self.model=="female" else .141
+            return abs(x) - (edge + .028*rise - .015*math.sin(math.pi*rise))
+        shirt, insert = [], []
+        prev = face[-1]
+        a = distance(prev)
+        for curr in face:
+            b = distance(curr)
+            if (a>0) != (b>0):
+                edge = prev.between(curr,a/(a-b))
+                shirt.append(edge)
+                insert.append(edge)
+            if b > 0:
+                insert.append(curr)
+            else:
+                shirt.append(curr)
+            prev, a = curr, b
+        return shirt, insert
 
     def accessories(self):
         """Build optional, weighted kit pieces after fitting the common sportswear."""
@@ -557,8 +636,10 @@ class Athlete:
     def build(self):
         self.proxy("clothes","male_casualsuit06","Kit")
         self.proxy("clothes","shoes05","Shoe")
-        self.proxy("hair","short01" if self.model == "male" else "ponytail01","Hair")
+        self.proxy("hair",self.hair,"Hair")
         self.proxy("eyes","low-poly","Eyes")
+        self.proxy("eyebrows",self.brow,"Brows")
+        self.proxy("eyelashes","eyelashes03","Lashes")
         self.proxy("teeth","teeth_base","Teeth")
         arm_axes = {}
         for side in "LR":
@@ -580,7 +661,7 @@ class Athlete:
             name = "Skin"
             if all(i in self.under_kit for i in ids):
                 heights = [world(self.points[i])[1] for i in ids]
-                if min(heights) > self.anchors["thighL"][1]-0.24:
+                if min(heights) > self.anchors["thighL"][1]-self.shorts_length+.01:
                     if max(heights) < self.anchors["thighL"][1]+0.13:
                         continue
                     # Sleeveless kit reveals the same continuous arm surface.
@@ -600,7 +681,7 @@ class Athlete:
         # Sock and shorts enclose these faces for every selectable outfit. Cut
         # the underlying leg back a few millimetres inside the finished hems.
         skin = self.parts["Skin"]
-        hem = self.anchors["thighL"][1] - 0.25
+        hem = self.anchors["thighL"][1] - self.shorts_length
         def visible(triangle):
             vertices = [skin.vertices[i] for i in triangle]
             heights = [world(v.position)[1] for v in vertices]

@@ -155,6 +155,10 @@ import UIKit
         .espresso:UIColor(red:0.46,green:0.33,blue:0.28,alpha:1)]
       color = tones[kit.skinTone] ?? .white; image = body+"Skin.jpg"
       mat.roughness = .init(floatLiteral:0.63)
+    case "Brows","Lashes":
+      image = name == "Brows" ? body+"Brows.png" : "CourtLashes.png"
+      mat.faceCulling = .none
+      mat.opacityThreshold = 0.32
     case "Hair":
       image = body+"Hair.png"
       mat.faceCulling = .none
@@ -175,6 +179,9 @@ import UIKit
       case .match: color = kit.color.tint
       }
       image = "CourtKit.jpg"; hidden = name == "Skort" && !kit.skort
+    case "SidePanel":
+      color = kit.color.tint.sidePanelTint
+      image = "CourtKit.jpg"
     case "Shirt","Sleeves":
       color = kit.color.tint; image = "CourtKit.jpg"
       hidden = name == "Sleeves" && kit.shirt == .sleeveless
@@ -186,8 +193,8 @@ import UIKit
     default: break
     }
     mat.baseColor = .init(tint:color,texture:image.flatMap(texture))
-    if ["Shirt","Sleeves","Shorts","Skort","Sock","Collar","CollarEdge"].contains(name) { mat.faceCulling = .none }
-    if ["Shirt","Sleeves","Shorts"].contains(name), let normal = texture("CourtKitNormal.jpg") {
+    if ["Shirt","SidePanel","Sleeves","Shorts","Skort","Sock","Collar","CollarEdge"].contains(name) { mat.faceCulling = .none }
+    if ["Shirt","SidePanel","Sleeves","Shorts"].contains(name), let normal = texture("CourtKitNormal.jpg") {
       mat.normal = .init(texture:normal)
     }
     if hidden {
@@ -447,5 +454,14 @@ import UIKit
       soles[i] = SoleContact(toe:soles[i].toe+airborneOffset,heel:soles[i].heel+airborneOffset)
     }
     entity.jointTransforms = transforms
+  }
+}
+
+
+private extension UIColor {
+  var sidePanelTint: UIColor {
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+    getRed(&r, green:&g, blue:&b, alpha:&a)
+    return UIColor(red:r*0.65,green:g*0.75,blue:b*0.81,alpha:a)
   }
 }
