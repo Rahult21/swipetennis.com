@@ -86,12 +86,13 @@ extension PracticeEngine {
   /// A dead ball can still be chased while its out bounce is being shown.
   /// Scoring and shot selection stay closed; an affirmation keeps its tap-to-dismiss behavior.
   var acceptsCourtMovement: Bool {
-    phase.isPlaying || (isResolvingPoint && !showsAffirmation
+    guard flight?.isFirstServeFault != true else { return false }
+    return phase.isPlaying || (isResolvingPoint && !showsAffirmation
       && ["wide", "long"].contains(flight?.fault ?? ""))
   }
 
   var botChasesOut: Bool {
-    !settings.local && flight?.hitter == 0 && (flight?.fault == "wide" || flight?.fault == "long")
+    !settings.local && flight?.isFirstServeFault != true && flight?.hitter == 0 && (flight?.fault == "wide" || flight?.fault == "long")
   }
 
   func outBallChaseTarget(_ side: Int) -> Vec? {

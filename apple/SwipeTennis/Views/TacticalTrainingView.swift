@@ -178,11 +178,6 @@ struct TrainingCourtView: View {
               Link("Tennis-MoCap · Pulgarin-Giraldo and colleagues",destination:URL(string:"https://github.com/jdpulgarin/Tennis-MoCap")!)
               Link("Adapted movement data · CC BY-SA 3.0",destination:URL(string:"https://creativecommons.org/licenses/by-sa/3.0/")!)
             }
-            DisclosureGroup("Celebration voice credits") {
-              Link("Woman’s call · Legnalegna55", destination: URL(string: "https://freesound.org/people/Legnalegna55/sounds/536896/")!)
-              Link("Man’s call · Iceofdoom", destination: URL(string: "https://freesound.org/people/Iceofdoom/sounds/499626/")!)
-              Link("Man’s call excerpt · CC BY 4.0", destination: URL(string: "https://creativecommons.org/licenses/by/4.0/")!)
-            }
           }
         }
       }.navigationTitle(exercise.rawValue).navigationBarTitleDisplayMode(.inline)

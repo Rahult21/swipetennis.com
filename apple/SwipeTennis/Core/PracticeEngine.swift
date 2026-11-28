@@ -196,8 +196,17 @@ struct BallFlight: Codable {
   var serveAim: Vec?
   var serveSwipeStrength: Double?
   var serveReleaseTime: Double?
-  var swipeHoldTime: Double?
-  var waitingForSwipe: Bool?
+  // Flight-local times keep completed strokes tied to this incoming ball.
+  static let swingLead = 0.35
+  var expectedContactTime: Double?
+  var swipeFinishedAt: Double?
+  var missedSwingWindow: Bool?
+  var isFirstServeFault: Bool { serve && serveNumber == 1 && fault != nil }
+  func hasTimelySwing(at contactTime: Double) -> Bool {
+    guard missedSwingWindow != true, let swipeFinishedAt else { return false }
+    let lead = contactTime - swipeFinishedAt
+    return lead > 0 && lead <= Self.swingLead
+  }
   var bounceDestinations: [Vec]?
   var swingStrength: Double?
   var serveProfile: ServeProfile?
@@ -371,6 +380,9 @@ struct PracticeEngine: Codable {
     guard phase != .serving || servePreparation?.server != side else { return }
     players[side].tappedLanding = nil
     players[side].swipeDepth = nil
+    if phase == .live, let incoming = flight, incoming.hitter == 1 - side {
+      flight?.swipeFinishedAt = incoming.elapsed
+    }
     players[side].swingStrength = 0.5
     players[side].kind = kind
     players[side].aim = Self.preset(side, kind, players[side].pos)
@@ -930,7 +942,7 @@ struct PracticeEngine: Codable {
       let forward = kind == .line ? 1.5 : 1
       flight!.duration /= forward * quality.pace
     }
-    if !bot, f.swipeHoldTime != nil, let strength = p.swingStrength {
+    if !bot, f.expectedContactTime != nil, let strength = p.swingStrength {
       let pace: Double
       switch kind {
       case .drop: pace = 28 + 20 * strength
@@ -953,6 +965,12 @@ struct PracticeEngine: Codable {
   mutating func updateFootwork(_ dt: Double, humanReceiver: Int? = nil) {
     for i in 0...1 {
       if phase == .serving && servePreparation?.server == i { continue }
+      if let flight, flight.isFirstServeFault, flight.hitter != i {
+        players[i].destination = players[i].pos
+        players[i].velocity = .zero
+        players[i].netEffort = nil
+        continue
+      }
       if var landing = serveLanding, landing.server == i {
         landing.elapsed = min(ServeLanding.duration, landing.elapsed + dt)
         let fraction = StrokeAnimation.ease(landing.progress)
@@ -1057,7 +1075,7 @@ struct PracticeEngine: Codable {
     let receiver = 1 - flight!.hitter
     let humanReceiving = interactiveRally && (receiver == 0 || settings.local)
     let manualStrike = humanReceiving && flight!.power == nil && flight!.fault == nil && queuedPower == nil
-    if manualStrike && flight!.swipeHoldTime == nil {
+    if manualStrike && flight!.expectedContactTime == nil {
       var shot = flight!
       if shot.elapsed == 0 && !showsGoldenContact(receiver) {
         shot.extendReceiveWindow(to: players[receiver].pos.y, side: receiver)
@@ -1069,10 +1087,10 @@ struct PracticeEngine: Codable {
       dropGestureEpoch[receiver] = contactSerial
       players[receiver].recoveryFlight = nil
       let entry = BallContactWindow.next(flight: shot, player: target, side: receiver)?.entry ?? 1
-      flight?.swipeHoldTime = max(shot.elapsed, shot.time(at: entry) - 0.16)
+      flight?.expectedContactTime = shot.time(at: entry)
     }
     let current = flight!
-    let swingReady = !manualStrike || players[receiver].swingStrength != nil
+    let swingReady = !manualStrike || (current.swipeFinishedAt != nil && players[receiver].swingStrength != nil)
     if current.bounceDestinations == nil && swingReady && (settings.local || receiver == 0 || time >= reactAt) {
       prepareNetEffort(receiver, flight: current, dt: dt)
       attemptRunningDive(receiver, incoming: current)
@@ -1084,22 +1102,17 @@ struct PracticeEngine: Codable {
     updateFootwork(dt, humanReceiver: humanReceiving ? receiver : nil)
     updateCoachApproaches()
     updateCoachRecovery()
-    var nextTime = current.elapsed + dt
-    if manualStrike, let hold = flight?.swipeHoldTime {
-      let earlyContact = contactWindow(receiver, after: current.progress).map { current.time(at: $0.entry) - 0.16 } ?? hold
-      let stop = max(current.elapsed, min(earlyContact, hold))
-      let stillApproaching = players[receiver].pos.distance(to: players[receiver].destination) > Self.contactRadius
-      if nextTime >= stop && (!swingReady || stillApproaching) {
-        nextTime = stop
-        flight?.waitingForSwipe = !swingReady
-      } else { flight?.waitingForSwipe = false }
-    }
-    flight!.elapsed = nextTime
+    flight!.elapsed = current.elapsed + dt
     let f = flight!
     let progress = f.progress
     // Resolve a swept air contact before counting a bounce in the same display frame.
-    if swingReady, let window = contactWindow(receiver, after: current.progress), window.netStroke != nil,
-      progress + 0.000001 >= window.entry {
+    let window = contactWindow(receiver, after: current.progress)
+    var canStrike = swingReady
+    if manualStrike, let window, progress + 0.000001 >= window.entry {
+      canStrike = swingReady && f.hasTimelySwing(at: f.time(at: window.entry))
+      if !canStrike { flight?.missedSwingWindow = true }
+    }
+    if canStrike, let window, window.netStroke != nil, progress + 0.000001 >= window.entry {
       let impact = min(progress, max(window.entry, window.exit))
       flight!.elapsed = f.time(at:impact)
       let hit = f.worldBall(at: impact)
@@ -1140,13 +1153,18 @@ struct PracticeEngine: Codable {
           : "Aim farther inside the lines on your next shot.", random: random)
       return
     }
-    if swingReady, let window = contactWindow(receiver, after: current.progress), window.netStroke == nil,
+    if canStrike, let window, window.netStroke == nil,
       progress + 0.000001 >= window.entry
     {
       returnBall(receiver, volley: window.volley, overhead: window.overhead, random: random)
       return
     }
     if progress < 1 { return }
+    if manualStrike {
+      end(f.hitter, reason: "\(name(receiver)) missed the return.",
+        tip: "Reach yellow and finish your swipe just before the ball reaches your racket.", random: random)
+      return
+    }
     let gap = players[receiver].pos.distance(to: f.contact)
     if f.serve || (players[receiver].diveDecision == contactSerial && gap > Self.contactRadius) || gap > 1.35 || players[receiver].netEffort != nil || current.opponentError == .unreachable || current.dropReachable == false {
       if receiver == 1 && !settings.local { opponentErrors.resetAfterMiss() }

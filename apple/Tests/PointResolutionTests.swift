@@ -95,15 +95,41 @@ final class PointResolutionTests: XCTestCase {
         game.players[1].velocity = Vec(x: -1, y: 0)
         game.launch(0, aim: Vec(x: 1.2, y: serve ? 6.3 : 2), kind: .cross, fault: kind, serve: serve)
         let start = game.players[1].pos, serial = game.contactSerial
-        XCTAssertEqual(game.players[1].velocity.x, -1)
+        XCTAssertEqual(game.players[1].velocity.x, serve ? 0 : -1)
         reachImpact(&game)
         let bounce = game.players[1].pos
-        XCTAssertGreaterThan(start.distance(to:bounce),0.3)
+        if serve { XCTAssertEqual(bounce, start) } else { XCTAssertGreaterThan(start.distance(to: bounce), 0.3) }
         for _ in 0..<42 { game.step(1/120) }
-        XCTAssertGreaterThan(bounce.distance(to:game.players[1].pos),0.10)
+        if serve { XCTAssertEqual(game.players[1].pos, start) } else { XCTAssertGreaterThan(bounce.distance(to: game.players[1].pos), 0.10) }
         XCTAssertEqual(game.contactSerial,serial)
         XCTAssertEqual(game.phase,serve ? .serveFault : .point)
         XCTAssertEqual(game.scoring.points,serve ? [0,0] : [0,1])
+      }
+    }
+  }
+
+  func testFirstServeFaultIgnoresReceiverMovementThroughSecondServeSetup() {
+    for receiver in 0...1 {
+      for fault in ["wide", "net", "long"] {
+        let server = 1 - receiver
+        var game = PracticeEngine(settings: .init(local: true))
+        game.scoring = PracticeScore(format: .tennis, firstServer: server)
+        game.phase = .live
+        let feet = game.players[receiver].pos
+        game.players[receiver].velocity = Vec(x: 0, y: receiver == 0 ? -4 : 4)
+        let target = Vec(x: 4, y: PracticeEngine.net)
+        game.players[receiver].destination = target
+        game.launch(server, aim: target, kind: .line, fault: fault, serve: true)
+        for _ in 0..<600 where game.phase != .serving {
+          XCTAssertNil(game.outBallChaseTarget(receiver))
+          game.apply(.guidedMove(.receive), side: receiver)
+          game.apply(.position(target), side: receiver, movementEpoch: game.contactSerial)
+          game.step(1/120, interactiveRally: true)
+          XCTAssertEqual(game.players[receiver].pos, feet)
+          XCTAssertEqual(game.players[receiver].velocity, .zero)
+        }
+        XCTAssertEqual(game.servePreparation?.number, 2)
+        XCTAssertEqual(game.scoring.points, [0, 0])
       }
     }
   }

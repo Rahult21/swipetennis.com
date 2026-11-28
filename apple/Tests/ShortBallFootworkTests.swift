@@ -19,14 +19,14 @@ final class ShortBallFootworkTests: XCTestCase {
       let forward = side == 0 ? -1.0 : 1.0
       game.players[side].velocity.y = 4 * forward
       let original = try XCTUnwrap(game.flight)
-      for _ in 0..<300 {
+      for _ in 0..<300 where !game.promptsReturnSwipe {
         game.step(1/120, interactiveRally: true, random: { 0.99 })
         XCTAssertEqual(game.players[side].pos.y, feet.y, accuracy: 0.000001)
       }
-      let waiting = try XCTUnwrap(game.flight)
-      XCTAssertEqual(waiting.waitingForSwipe, true)
-      XCTAssertEqual(waiting.landing, original.landing)
-      XCTAssertEqual(waiting.contact.y, feet.y, accuracy: 0.000001)
+      let incoming = try XCTUnwrap(game.flight)
+      XCTAssertTrue(game.promptsReturnSwipe)
+      XCTAssertEqual(incoming.landing, original.landing)
+      XCTAssertEqual(incoming.contact.y, feet.y, accuracy: 0.000001)
       XCTAssertGreaterThan(game.players[side].pos.x, feet.x)
       game.apply(.shotSwipe(Vec(x: 0, y: -100)), side: side, shotEpoch: game.shotGestureEpoch(side))
       for _ in 0..<300 where game.flight?.hitter != side {

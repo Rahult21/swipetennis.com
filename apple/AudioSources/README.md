@@ -24,7 +24,7 @@ The two stereo audience cues use the public high-quality previews of three field
 
 ## Winner celebration voices
 
-Both “Come on!” calls are human recordings, trimmed and levelled for playback as mono 24 kHz PCM.
+The archived “Come on!” calls are human recordings, trimmed and levelled as mono 24 kHz PCM. The game uses a silent fist-pump animation.
 
 - The woman’s call uses **COME ON** by Legnalegna55. [Recording](https://freesound.org/people/Legnalegna55/sounds/536896/) · [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
 - The man’s call uses the opening words of **“Come on guys, let’s go!” — Excited Male** by Iceofdoom, from 2.34 to 2.76 seconds of the public preview. [Recording](https://freesound.org/people/Iceofdoom/sounds/499626/) · [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)

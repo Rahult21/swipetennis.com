@@ -7,6 +7,13 @@ struct CourtInstruction: Equatable {
 }
 
 extension PracticeEngine {
+  var promptsReturnSwipe: Bool {
+    guard phase == .live, let flight, let contact = flight.expectedContactTime,
+      flight.missedSwingWindow != true, !flight.hasTimelySwing(at: contact) else { return false }
+    let lead = contact - flight.elapsed
+    return lead > 0 && lead <= BallFlight.swingLead
+  }
+
   var instruction: CourtInstruction {
     if phase == .ready {
       return CourtInstruction(
@@ -39,7 +46,7 @@ extension PracticeEngine {
           : "The blue bounce target is moving into place. Make a short swipe toward yellow to prepare your return.",
         symbol: "scope")
     }
-    if flight?.waitingForSwipe == true {
+    if promptsReturnSwipe {
       return CourtInstruction(title: "Swipe to hit", detail: "Swipe farther for a deeper, harder return or shorter for a softer ball.", symbol: "hand.draw.fill")
     }
     if settings.local {

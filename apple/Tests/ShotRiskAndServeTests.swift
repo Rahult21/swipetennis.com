@@ -153,12 +153,14 @@ final class ShotRiskAndServeTests: XCTestCase {
       setup.start()
       setup.requestServe(side)
       for _ in 0..<60 { setup.step(1/120) }
-      let aim = try XCTUnwrap(setup.serveDirection(viewer: side))
-      XCTAssertEqual(aim.landing, setup.servePreparation?.target)
+      XCTAssertNil(setup.serveDirection(viewer: side))
+      setup.swingServe(Vec(x: 120, y: 0), side: side, tossID: setup.servePreparation?.tossID)
+      XCTAssertNil(setup.serveDirection(viewer: side))
       XCTAssertNil(setup.serveDirection(viewer: 1-side))
       for distance in [16.0, 82, 148] {
         var game = setup
         game.swingAtTestToss(side, length: distance)
+        XCTAssertNil(game.serveDirection(viewer: 1-side))
         let preview = try XCTUnwrap(game.serveDirection(viewer: side))
         XCTAssertEqual(preview.landing, game.servePreparation?.target)
         XCTAssertEqual(preview.length, 3 + 6 * ShotSwipe.strength(distance))
@@ -239,7 +241,7 @@ final class ShotRiskAndServeTests: XCTestCase {
     }
   }
 
-  func testInteractiveRallyMovesWaitsAndHitsOnceWithSwipeDepthAndPace() throws {
+  func testInteractiveRallyHitsOnceWithTimedSwipeDepthAndPace() throws {
     for side in 0...1 {
       var game = PracticeEngine(settings: .init(local: true, allCourtTraining: false))
       game.phase = .live
@@ -248,16 +250,11 @@ final class ShotRiskAndServeTests: XCTestCase {
       game.players[1-side].pos = Vec(x: 4, y: side == 0 ? 1 : 23)
       game.launch(1-side, aim: Vec(x: 6, y: side == 0 ? 20 : 3.77), kind: .cross)
       let initial = game.players[side].pos
-      for _ in 0..<500 { game.step(1/120, interactiveRally: true, random: { 0.99 }) }
+      for _ in 0..<500 where !game.promptsReturnSwipe {
+        game.step(1/120, interactiveRally: true, random: { 0.99 })
+      }
+      XCTAssertTrue(game.promptsReturnSwipe)
       XCTAssertGreaterThan(game.players[side].pos.distance(to: initial), 3)
-      XCTAssertLessThan(game.players[side].pos.distance(to: game.players[side].destination), 0.1)
-      XCTAssertEqual(game.flight?.waitingForSwipe, true)
-      let held = try XCTUnwrap(game.flight).elapsed
-      game.tapCourt(side, at: Vec(x: 4, y: side == 0 ? 2 : 22))
-      for _ in 0..<120 { game.step(1/120, interactiveRally: true, random: { 0.99 }) }
-      XCTAssertEqual(game.phase, .live)
-      XCTAssertEqual(game.flight?.elapsed, held)
-      XCTAssertEqual(game.contactSerial, 1)
       let saved = try JSONEncoder().encode(game)
       var strikes: [BallFlight] = []
       for length in [16.0, 82, 148] {
@@ -277,13 +274,49 @@ final class ShotRiskAndServeTests: XCTestCase {
         resumed.apply(.shotSwipe(swipe), side: side, shotEpoch: epoch)
         for _ in 0..<400 { resumed.step(1/120, interactiveRally: true, random: { 0.99 }) }
         XCTAssertEqual(resumed.contactSerial, 2)
-        XCTAssertEqual(resumed.flight?.waitingForSwipe, true)
+        XCTAssertEqual(resumed.phase, .point)
       }
       for (flight, expected) in zip(strikes, [55.0, 82.5, 110]) {
         XCTAssertEqual(Double(flight.launchSpeedKPH), expected, accuracy: 0.5)
       }
       let depths = strikes.map { abs($0.landing.y - PracticeEngine.net) }
       XCTAssertTrue(depths[0] < depths[1] && depths[1] < depths[2])
+    }
+  }
+
+  func testEarlyAbsentAndLateSwipesLetTheBallPassAndScoreOnlyOnce() throws {
+    for side in 0...1 {
+      for serve in [false, true] {
+        for timing in ["early", "absent", "late"] {
+          var game = PracticeEngine(settings: .init(local: true))
+          game.phase = .live
+          let hitter = 1 - side
+          game.players[hitter].pos = Vec(x: 4, y: side == 0 ? -0.5 : 24.27)
+          game.launch(hitter, aim: Vec(x: 4, y: side == 0 ? (serve ? 17 : 22) : (serve ? 6.77 : 1.77)),
+            kind: .line, serve: serve)
+          game.players[side].pos = try XCTUnwrap(game.flight).contact
+          game.players[side].destination = game.players[side].pos
+          let dt = side == 0 ? 1.0/120 : 1.0/30
+          var sent = false
+          for _ in 0..<600 where game.phase == .live {
+            if !sent && (timing == "early" || (timing == "late" && game.flight?.missedSwingWindow == true)) {
+              game.apply(.shotSwipe(Vec(x: 0, y: -85)), side: side, shotEpoch: game.shotGestureEpoch(side))
+              sent = true
+            }
+            let before = try XCTUnwrap(game.flight).elapsed
+            game.step(dt, interactiveRally: true, random: { 0.99 })
+            XCTAssertGreaterThan(try XCTUnwrap(game.flight).elapsed, before)
+          }
+          XCTAssertEqual(sent, timing != "absent")
+          XCTAssertEqual(game.phase, .point)
+          XCTAssertEqual(game.contactSerial, 1)
+          XCTAssertEqual(game.scoring.points[hitter], 1)
+          let end = game.worldBall
+          game.step(dt, interactiveRally: true)
+          XCTAssertGreaterThan((game.worldBall - end).courtPosition.length, 0)
+          XCTAssertEqual(game.scoring.points[hitter], 1)
+        }
+      }
     }
   }
 
@@ -303,7 +336,7 @@ final class ShotRiskAndServeTests: XCTestCase {
       game.players[hitter].destination = still
       game.players[hitter].velocity = .zero
       let f = try XCTUnwrap(game.flight)
-      game.flight?.swipeHoldTime = f.duration
+      game.flight?.expectedContactTime = f.duration
       game.flight?.elapsed = f.time(at: 0.8) - 0.001
       game.step(1/120, interactiveRally: true)
       XCTAssertEqual(game.bounceSerial, 1)

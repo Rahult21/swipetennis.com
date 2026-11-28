@@ -100,7 +100,7 @@ extension PracticeEngine {
 
   private mutating func positionDuringRally(_ side: Int, target: Vec, epoch: Int?, pace: Double?) {
     guard phase == .live, epoch == contactSerial, let flight, flight.fault == nil, flight.power == nil,
-          committedRun(side) == nil, flight.waitingForSwipe != true else { return }
+          committedRun(side) == nil else { return }
     let receiver = 1 - flight.hitter
     let contact = contactWindow(receiver)?.entry ?? 1
     guard flight.time(at: contact) - flight.elapsed > 0.16 else { return }

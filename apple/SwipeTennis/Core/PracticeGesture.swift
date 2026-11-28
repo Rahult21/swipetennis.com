@@ -219,10 +219,10 @@ struct ShotDirection {
     start = time
   }
 
-  init(serveTarget: Vec, origin: Vec, strength: Double?, side: Int, serial: Int, time: Double) {
+  init(serveTarget: Vec, origin: Vec, strength: Double, side: Int, serial: Int, time: Double) {
     landing = serveTarget
     strikePosition = origin
-    self.strength = strength ?? 0.5
+    self.strength = strength
     isForwardSwipe = true
     self.side = side
     self.serial = serial
@@ -294,7 +294,7 @@ extension PracticeEngine {
     guard side != 0 || queuedPower == nil else { return false }
     guard side == 0 || settings.local else { return false }
     if phase == .serving { return servePreparation?.server != side }
-    return phase == .live && flight?.hitter == 1 - side && flight?.fault == nil
+    return phase == .live && flight?.hitter == 1 - side && flight?.fault == nil && flight?.missedSwingWindow != true
   }
 
   func shotGestureEpoch(_ side: Int) -> Int? {

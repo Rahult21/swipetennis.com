@@ -159,6 +159,7 @@ import SwiftUI
   private var previousTime: TimeInterval = 0, accumulator = 0.0, publishAt = 0.0
   private var touchGestures: [UITouch: PracticeGesture] = [:]
   private var keyboardMoving = [false, false]
+  private var heldShotButtons = [Set<Int>(), Set<Int>()]
   var reduceMotion = false
   init(settings: PracticeSettings) {
     engine = PracticeEngine(settings: settings)
@@ -177,6 +178,7 @@ import SwiftUI
     shotDirection = nil
     shotLine.isHidden = true
     keyboardMoving = [false, false]
+    heldShotButtons = [Set<Int>(), Set<Int>()]
   }
   func configureMotion() {
     if UserDefaults.standard.bool(forKey: "tilt") && !engine.settings.local {
@@ -521,6 +523,7 @@ import SwiftUI
   private func applyInputs() {
     let controllers = GCController.controllers()
     for side in 0...(engine.settings.local ? 1 : 0) {
+      var shotButtons = Set<Int>()
       if engine.phase == .serving && engine.scoring.server == side { continue }
       let gain = engine.quickNetFeet(side) ? 1.8 : 1.0
       let reach = 1.8 * gain
@@ -537,7 +540,7 @@ import SwiftUI
           pad.buttonA.isPressed, pad.buttonB.isPressed, pad.buttonX.isPressed,
           pad.buttonY.isPressed,
         ]
-        for i in 0..<4 where pressed[i] && engine.canChooseShot(side) { engine.choose(side, ShotKind.allCases[i]) }
+        for i in pressed.indices where pressed[i] { shotButtons.insert(i) }
       } else if side == 0 && !engine.settings.local && UserDefaults.standard.bool(forKey: "tilt") {
         let t = Immersion.shared.tilt
         if t.length * gain > 0.12 {
@@ -567,10 +570,12 @@ import SwiftUI
         let shots: [GCKeyCode] =
           side == 0 ? [.keyZ, .keyX, .keyC, .keyV] : [.one, .two, .three, .four]
         for (index, key) in shots.enumerated()
-        where engine.canChooseShot(side) && keyboard.button(forKeyCode: key)?.isPressed == true {
-          engine.choose(side, ShotKind.allCases[index])
-        }
+        where keyboard.button(forKeyCode: key)?.isPressed == true { shotButtons.insert(index) }
       }
+      if engine.canChooseShot(side), let index = shotButtons.subtracting(heldShotButtons[side]).max() {
+        engine.choose(side, ShotKind.allCases[index])
+      }
+      heldShotButtons[side] = shotButtons
     }
   }
   func restorePresentation() {
@@ -646,7 +651,7 @@ import SwiftUI
 
   private func render() {
     swingLabel.isHidden = true
-    if let flight = engine.flight, flight.waitingForSwipe == true, engine.phase == .live,
+    if let flight = engine.flight, engine.promptsReturnSwipe,
        controlledSide == nil || controlledSide == 1 - flight.hitter {
       let p = projectWorld(engine.players[1 - flight.hitter].pos.world(height: 2.05))
       swingLabel.position = CGPoint(x: p.x, y: p.y + 5)
@@ -765,7 +770,7 @@ import SwiftUI
     let serveInFlight = engine.phase == .live && engine.flight?.serve == true && (engine.flight?.progress ?? 1) < 0.8
     serveRing.isHidden = engine.phase != .serving && !serveInFlight
     if serveInFlight, let flight = engine.flight { placeRing(serveRing, at: flight.serveAim ?? flight.landing, radius: 0.58) }
-    servePath.isHidden = engine.phase != .serving
+    servePath.isHidden = engine.phase != .serving || engine.servePreparation?.swingCommitted != true
     if engine.phase == .serving, let serve = engine.servePreparation {
       placeRing(serveRing, at: serve.target, radius: 0.58)
       serveRing.alpha = serve.isTossing ? 1 : 0.85
@@ -1154,17 +1159,16 @@ import SwiftUI
           break
         }
       }
-      let waiting = engine.flight?.waitingForSwipe == true
       let intent: CourtTouchIntent
       if interactiveRally && engine.demo == nil && engine.phase == .live && engine.flight?.fault == nil {
         intent = .rally
       } else {
-        intent = engine.canChooseShot(side) && (waiting || onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
+        intent = engine.canChooseShot(side) && (onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
       }
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
         movementGain: engine.quickNetFeet(side) ? 1.8 : 1,
-        targetGuide: waiting && intent == .shot ? nil : engine.swipeMovementGuide(side, onPlayer: intent == .shot),
+        targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot),
         movementOrigin: engine.players[side].pos, allowsApproach: engine.canFollowShot(side))
       applyTouch(touch)
     }

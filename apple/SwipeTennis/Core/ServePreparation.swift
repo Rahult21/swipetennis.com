@@ -241,14 +241,15 @@ extension PracticeEngine {
 
   func serveDirection(viewer: Int?) -> ShotDirection? {
     if phase == .serving, let serve = servePreparation {
-      guard !(settings.tournament && settings.local) || viewer == serve.server else { return nil }
+      guard serve.swingCommitted == true, let strength = serve.swipeStrength,
+        !(settings.tournament && settings.local) || viewer == serve.server else { return nil }
       let origin = serviceImpact(at: players[serve.server].pos, side: serve.server, explosive: queuedPower == .ace)
       return ShotDirection(serveTarget: serve.target, origin: origin.courtPosition,
-        strength: serve.swipeStrength, side: serve.server, serial: contactSerial, time: time)
+        strength: strength, side: serve.server, serial: contactSerial, time: time)
     }
-    guard phase == .live, let flight, flight.serve else { return nil }
+    guard phase == .live, let flight, flight.serve, let strength = flight.serveSwipeStrength else { return nil }
     return ShotDirection(serveTarget: flight.serveAim ?? flight.landing, origin: flight.launchPosition,
-      strength: flight.serveSwipeStrength, side: flight.hitter, serial: contactSerial - 1,
+      strength: strength, side: flight.hitter, serial: contactSerial - 1,
       time: flight.serveReleaseTime ?? time - flight.elapsed)
   }
 

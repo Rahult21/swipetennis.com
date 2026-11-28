@@ -160,7 +160,7 @@ struct PracticeGameView: View {
   var game: PracticeEngine { session.snapshot }
   private var movementControls: some View {
     LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil,reviewing:replayReview != nil)
-      .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : game.flight?.waitingForSwipe == true ? "Swipe to hit" : "On court")
+      .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : game.promptsReturnSwipe ? "Swipe to hit" : "On court")
       .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
       .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
       .accessibilityAction(named: "Move to contact") {

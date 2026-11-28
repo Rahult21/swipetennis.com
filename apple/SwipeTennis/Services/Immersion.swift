@@ -170,26 +170,6 @@ import UIKit
     }
   }
 
-  private var winnerCall: AVAudioPlayer?
-
-  func prepareWinnerCall(for model: AthleteModel) {
-    stopWinnerCall()
-    winnerCall = texture(model == .woman ? "winner-call-woman" : "winner-call-man")
-  }
-
-  func playWinnerCall() {
-    guard soundEnabled, volume > 0, let call = winnerCall else { return }
-    activateAudio()
-    call.volume = volume
-    call.currentTime = 0
-    call.play()
-  }
-
-  func stopWinnerCall() {
-    winnerCall?.stop()
-    winnerCall = nil
-  }
-
   func point(_ text: String, announce: Bool = true) {
     if hapticsEnabled { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     if announce && UserDefaults.standard.bool(forKey: "voice") {
@@ -222,7 +202,6 @@ import UIKit
   }
   func stop() {
     finishRally()
-    stopWinnerCall()
     speech.stopSpeaking(at: .immediate)
     endApplause()
     audio.forEach { $0.stop() }

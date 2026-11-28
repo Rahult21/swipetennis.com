@@ -26,7 +26,6 @@ enum ReplayAngle: String, CaseIterable {
   final class Stage: UIView {
     let stadium: CourtReplayView
     var winnerWalk: WinnerWalk?
-    var calledOut = false
     let ownsSurface: Bool
 
     init(stadium: CourtReplayView, ownsSurface: Bool) {
@@ -50,16 +49,12 @@ enum ReplayAngle: String, CaseIterable {
   func makeUIView(context: Context) -> Stage {
     let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide), ownsSurface:liveStadium == nil)
     if let celebration { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner,celebration:celebration) }
-    if stage.winnerWalk?.celebration == .risingFist {
-      Immersion.shared.prepareWinnerCall(for: AthleteKit.current(side: winner, localSide: localSide).model)
-    }
     if stage.ownsSurface { stage.stadium.whenRendering(onReady) }
     else { DispatchQueue.main.async { if stage.stadium.isReviewing { onReady() } } }
     return stage
   }
 
   static func dismantleUIView(_ stage: Stage, coordinator: ()) {
-    if stage.winnerWalk?.celebration == .risingFist { Immersion.shared.stopWinnerCall() }
     if stage.stadium.isReviewing { stage.stadium.finishReview() }
   }
 
@@ -68,14 +63,9 @@ enum ReplayAngle: String, CaseIterable {
     guard view.isReviewing else { return }
     if let walk = stage.winnerWalk {
       if let time = reactionTime {
-        if playing && !stage.calledOut && walk.celebration == .risingFist && (0.30..<0.70).contains(time) {
-          stage.calledOut = true
-          Immersion.shared.playWinnerCall()
-        } else if !playing && stage.calledOut { Immersion.shared.stopWinnerCall() }
         view.drawWinner(walk,at:time,reduceMotion:reduceMotion)
         return
       }
-      if walk.celebration == .risingFist { Immersion.shared.stopWinnerCall() }
       view.finishWinnerWalk()
       stage.winnerWalk = nil
     }
