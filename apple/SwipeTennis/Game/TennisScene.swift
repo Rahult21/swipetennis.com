@@ -619,10 +619,11 @@ import SwiftUI
     if let stadium, !stadium.isReviewing, let frame = performance.frame {
       let sharedScreen = engine.settings.local && controlledSide == nil
       let style: MatchViewpoint = sharedScreen || engine.demo != nil ? .wide : matchCamera
+      stadium.updateCourtside(for:engine,reduceMotion:reduceMotion)
       stadium.liveCamera(side:perspectiveSide,intro:Float(StrokeAnimation.ease(entrance/Self.entranceDuration)),
         player:engine.players[perspectiveSide].pos,trackedX:cameraPlayerX,ball:frame.ball,
         contact:engine.contactGuide(perspectiveSide),recovery:engine.recoveryGuide(perspectiveSide),
-        style:style,freeze:engine.phase.isPlaying && (!touchGestures.isEmpty || !serveTouches.isEmpty),reduceMotion:reduceMotion,time:animationTime)
+        style:style,freeze:engine.phase.isPlaying && (!touchGestures.isEmpty || !serveTouches.isEmpty),reduceMotion:reduceMotion,time:animationTime,ovation:engine.arenaOvationTime)
       stadium.draw(frame,angle:.neutral,reduceMotion:reduceMotion,powerBeat:nil,live:true)
     } else { positionPlayers() }
     actors.forEach { $0.isHidden = stadium != nil }

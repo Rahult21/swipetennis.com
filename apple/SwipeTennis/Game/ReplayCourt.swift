@@ -106,6 +106,7 @@ enum ReplayAngle: String, CaseIterable {
 
 @MainActor final class CourtReplayView: ARView {
   private let court = AnchorEntity(world: .zero)
+  private var courtside: ArenaCourtside?
   private var audience: GrandstandAudience?
   private let scenery = Entity()
   private var baselineStands: [Entity] = []
@@ -236,6 +237,7 @@ enum ReplayAngle: String, CaseIterable {
         Self.venueTemplate = (selected, guides, scenery.clone(recursive: true))
         court.addChild(scenery)
       }
+      courtside = ArenaCourtside(court:court)
       baselineStands = (0...1).compactMap { court.findEntity(named: "baseline-stand-" + String($0)) }
     }
   }
@@ -359,6 +361,11 @@ enum ReplayAngle: String, CaseIterable {
     if let bitmap = UIImage(named:"court-" + asset)?.cgImage,
        let texture = try? TextureResource.generate(from:bitmap,options:.init(semantic:.color)) {
       material.color = .init(tint:.white,texture:.init(texture))
+    }
+    if surface == .clay {
+      let apron = ModelEntity(mesh:.generatePlane(width:31.6,depth:45),materials:[material])
+      apron.position = [4.115,-0.011,11.885]
+      scenery.addChild(apron)
     }
     let playingSurface = ModelEntity(mesh:.generatePlane(width:10.97,depth:23.77),materials:[material])
     playingSurface.position = [4.115,-0.003,11.885]
@@ -552,10 +559,7 @@ enum ReplayAngle: String, CaseIterable {
       box([11.8,0.48,z],[0.62,0.12,2.25],chalk)
       for dz: Float in [-0.82,0.82] { box([11.8,0.22,z+dz],[0.46,0.44,0.085],wall) }
     }
-    let name = ModelEntity(mesh:.generateText(venue.rawValue.uppercased(),extrusionDepth:0.012,
-      font:.systemFont(ofSize:0.54,weight:.semibold)),materials:[SimpleMaterial(color:chalk,roughness:0.9,isMetallic:false)])
-    name.position = [4.115-name.visualBounds(relativeTo:nil).extents.x/2,1.08,-9.82]
-    ends[0].addChild(name)
+    ArenaCourtside.build(scenery:scenery,ends:ends)
     if let grove = Self.grove(night:night) { scenery.addChild(grove) }
   }
 
@@ -598,8 +602,10 @@ enum ReplayAngle: String, CaseIterable {
   private var previousIntro: Float = 0
   private var previousAspect: Float = 0
   private var previousDraw = 0.0
+  func updateCourtside(for game: PracticeEngine, reduceMotion: Bool) { courtside?.update(game,reduceMotion:reduceMotion) }
+
   func liveCamera(side: Int, intro: Float, player: Vec, trackedX: Float, ball: CourtPoint3D,
-                  contact: Vec?, recovery: Vec?, style: MatchViewpoint, freeze: Bool, reduceMotion: Bool, time: Double) {
+                  contact: Vec?, recovery: Vec?, style: MatchViewpoint, freeze: Bool, reduceMotion: Bool, time: Double, ovation: Double? = nil) {
     // The adaptive portrait camera can back through the gallery behind its baseline.
     hideBaselineStand(side == 0 ? 1 : 0)
     let aspect = max(0.32,Float(bounds.width/max(bounds.height,1)))
@@ -624,7 +630,7 @@ enum ReplayAngle: String, CaseIterable {
       let frame = freeze || reduceMotion ? trackedFrame : trackedFrame.including(ball,aspect:aspect)
       camera.camera.fieldOfViewInDegrees = frame.verticalFOV
       camera.look(at:frame.target,from:frame.eye,relativeTo:nil)
-      audience?.face(camera:frame.eye)
+      audience?.face(camera:frame.eye,ovation:ovation,reduceMotion:reduceMotion)
     }
   }
   func portraitCamera(azimuth: Float) {

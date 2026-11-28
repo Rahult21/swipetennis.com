@@ -68,6 +68,37 @@ final class PlayerCameraTests: XCTestCase {
       } }
     } }
   }
+  func testLandscapeRailFramesBothBaselinesTheWallScoreAndTheChair() {
+    for side in 0...1 {
+      let aspect: Float = 2.17, base = side == 0 ? Float(23.77) : 0
+      let sign: Float = side == 0 ? 1 : -1
+      let feet = Vec(x:4.1,y:Double(base+sign*0.5))
+      let camera = PlayerCamera.frame(side:side,player:feet,trackedX:4.1,receiver:nil,recovery:nil,
+        ball:feet.world(height:1),aspect:aspect,intro:1,reduceMotion:false,style:.baseline)
+      let near = camera.projected([4.115,0,base],aspect:aspect)
+      let far = camera.projected([4.115,0,23.77-base],aspect:aspect)
+      XCTAssertGreaterThan(far.y-near.y,1.18)
+      XCTAssertLessThan(near.y,-0.58)
+      for landmark: CourtPoint3D in [[4.115,2.78,23.77-base-sign*9.68],[11.1,3.1,11.8]] {
+        let p = camera.projected(landmark,aspect:aspect)
+        XCTAssertLessThan(max(abs(p.x),abs(p.y)),1)
+      }
+    }
+  }
+
+  func testSpeedGunMeasuresInitialThreeDimensionalBallVelocity() throws {
+    var game = PracticeEngine(settings:.init(local:true))
+    game.phase = .live
+    for kind: ShotKind in [.cross,.lob,.drop] {
+      game.launch(0,aim:Vec(x:2.4,y:4.2),kind:kind)
+      let flight = try XCTUnwrap(game.flight)
+      let t = 0.001
+      let distance = simd_distance(flight.worldBall(at:t),flight.launchPoint)
+      let measured = Int((Double(distance)*3.6/flight.time(at:t)).rounded())
+      XCTAssertEqual(flight.launchSpeedKPH,measured,accuracy:1)
+    }
+  }
+
   func testPortraitReturnFramesTheTwoBaselinesAndNearAthlete() {
     let aspect: Float = 0.46
     for end in 0...1 {

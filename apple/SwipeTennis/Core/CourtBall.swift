@@ -46,6 +46,13 @@ enum CourtRunoff {
 
 extension BallFlight {
   var launchPoint: CourtPoint3D { strikeOrigin ?? from.world(height: serve ? 2.73 : 0.93) }
+  // Magnitude of the initial 3D velocity of the simulated flight, in km/h.
+  var launchSpeedKPH: Int {
+    let toBounce = max(0.001,time(at:0.8))
+    let horizontal = launchPosition.distance(to:landing)
+    let vertical = (fault == "net" ? 0.45 : 0)-Double(launchPoint.y)+Double.pi*loft*1.7
+    return Int((3.6*hypot(horizontal,vertical)/toBounce).rounded())
+  }
   var launchPosition: Vec { strikeOrigin?.courtPosition ?? from }
 
   /// The return window ends here. Older saved flights sometimes stored an

@@ -67,7 +67,28 @@ struct PlayerCamera {
         include([x,0,z],margin:1.08)
       } }
     } else { include(ball,margin:1.12) }
-    return Self(eye:goal+view*(distance+(1-t)*2.8),target:goal,verticalFOV:fov)
+    let opening = Self(eye:goal+view*(distance+(1-t)*2.8),target:goal,verticalFOV:fov)
+    guard aspect > 1, !reduceMotion else { return opening }
+    // From the baseline rail both courts stay in shot. Only the lateral
+    // framing follows play, so rushing the net does not drag the lens forward.
+    let centre: Float = 4.115
+    let pan = style == .baseline ? min(0.65,max(-0.65,(trackedX-centre)*0.16)) : 0
+    let end = side == 0 ? Float(PracticeEngine.length) : 0
+    let extra: Float = style == .wide ? 2.3 : 0
+    var rail = Self(eye:[centre+pan*0.40,8.1+extra*0.38,end+sign*(10.7+extra)],
+                    target:[centre+pan,0.45,end-sign*7.7],verticalFOV:36.5)
+    for x: Float in [-1.37,9.60] {
+      rail = rail.including([x,0,end],aspect:aspect,margin:1.04)
+      rail = rail.including([x,1.9,Float(PracticeEngine.length)-end],aspect:aspect,margin:1.05)
+    }
+    for target in [player,receiver,recovery].compactMap({ $0 }) {
+      rail = rail.including(target.world()+[0,0,sign*0.24],aspect:aspect,margin:1.06)
+      rail = rail.including(target.world(height:2.95),aspect:aspect)
+    }
+    rail = rail.including(ball,aspect:aspect)
+    let blend = min(1,(aspect-1)/0.40)*t*t*(3-2*t)
+    return Self(eye:opening.eye+(rail.eye-opening.eye)*blend,target:opening.target+(rail.target-opening.target)*blend,
+                verticalFOV:opening.verticalFOV+(rail.verticalFOV-opening.verticalFOV)*blend)
   }
 
   /// Keep the entire player-side swing inside a narrow portrait frame, even

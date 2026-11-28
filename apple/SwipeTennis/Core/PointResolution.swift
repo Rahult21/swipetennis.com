@@ -68,6 +68,14 @@ struct FaultImpact: Codable {
 }
 
 extension PracticeEngine {
+  // The scored point already has a random UUID shared by both Cup peers.
+  // Use one stable draw per point so render ticks and reconnects cannot reroll it.
+  var arenaOvationTime: Double? {
+    guard isResolvingPoint, phase == .point || phase == .finished, let point = coach.records.last,
+          point.id.uuid.0 < 85, let time = pointResolution?.elapsed, time < 1.45 else { return nil }
+    return time
+  }
+
   var isResolvingPoint: Bool { pointResolution?.isWaiting == true }
   var needsSimulation: Bool { phase.isPlaying || isResolvingPoint }
   var showsPointResult: Bool { demo == nil && (phase == .point || phase == .finished) && !isResolvingPoint }

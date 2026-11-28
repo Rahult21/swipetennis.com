@@ -10,6 +10,11 @@ final class SwipeTennisUITests: XCTestCase {
       let quick = app.buttons["matchdayQuickMatch"]
       XCTAssertTrue(quick.waitForExistence(timeout: 15))
       quick.tap()
+      // Hold the player's service turn so the result sheet cannot cover the
+      // court during the orientation, framing and pause assertions.
+      let next = app.buttons["nextPracticePoint"]
+      XCTAssertTrue(next.waitForExistence(timeout:90))
+      next.tap()
       let pause = app.buttons["Pause practice"]
       XCTAssertTrue(pause.waitForExistence(timeout: 18))
       let court = app.descendants(matching: .any)["livePracticeCourt"].firstMatch
