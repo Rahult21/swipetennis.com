@@ -97,7 +97,63 @@ final class PracticeGestureTests: XCTestCase {
     }
   }
 
-  func testCourtSwipesOnlyEmitMovementOnReleaseAtAnySpeed() {
+  func testContinuousRunFollowsUpThenLeftBeforeLiftOnEitherEnd() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      let facing = side == 0 ? 1.0 : -1.0
+      let origin = Vec(x: 4, y: side == 0 ? 22 : 2)
+      game.players[side].pos = origin
+      let epoch = game.contactSerial
+      var drag = PracticeGesture(side: side, movementEpoch: epoch, movementOrigin: origin)
+      _ = drag.update(at: .zero, timestamp: 0)
+      let up = Vec(x: 0, y: -facing)
+      let left = Vec(x: -facing, y: -facing)
+      let first = try XCTUnwrap(drag.update(at: up, timestamp: 0.10))
+      CupInput(first, shotEpoch: nil, movementEpoch: epoch).apply(to: &game, side: side)
+      XCTAssertEqual(game.players[side].destination, Vec(x: origin.x, y: origin.y - 1.5 * facing))
+      let turn = try XCTUnwrap(drag.update(at: left, timestamp: 0.18))
+      CupInput(turn, shotEpoch: nil, movementEpoch: epoch).apply(to: &game, side: side)
+      XCTAssertEqual(game.players[side].destination, Vec(x: origin.x - 1.5 * facing, y: origin.y - 1.5 * facing))
+      XCTAssertNil(drag.update(at: left, ended: true, timestamp: 0.19))
+    }
+  }
+
+  func testHeldGuidedRunCanTurnIntoFreeMovement() {
+    let origin = Vec(x: 4, y: 22)
+    let guide = MovementGuide(kind: .receive, from: origin, to: Vec(x: 4, y: 18))
+    var drag = PracticeGesture(side: 0, targetGuide: guide, movementOrigin: origin)
+    _ = drag.update(at: .zero)
+    XCTAssertEqual(drag.update(at: Vec(x: 0, y: -0.4)), .guidedMove(.receive))
+    XCTAssertNil(drag.update(at: Vec(x: 0, y: -0.8)))
+    XCTAssertEqual(drag.update(at: Vec(x: -1, y: -0.8), playerPosition: Vec(x: 4, y: 19)),
+      .move(Vec(x: 2.5, y: 19)))
+  }
+
+  func testShotDirectionTracksSelectedAimAndFadesOnOpponentContactOrTimeout() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      game.launch(1-side, aim: Vec(x: 2, y: side == 0 ? 22 : 2), kind: .cross)
+      let epoch = game.shotGestureEpoch(side)
+      let swipe = Vec(x: 42, y: -40)
+      var cue = try XCTUnwrap(ShotDirection(action: .shotSwipe(swipe), side: side, epoch: epoch, game: game, time: 5))
+      XCTAssertNil(ShotDirection(action: .courtTap(.zero), side: side, epoch: epoch, game: game, time: 5))
+      XCTAssertNil(ShotDirection(action: .shotSwipe(swipe), side: side, epoch: nil, game: game, time: 5))
+      game.selectShotSwipe(swipe, side: side)
+      XCTAssertEqual(cue.target, game.players[side].aim)
+      var timeout = cue
+      XCTAssertEqual(timeout.opacity(at: 5.86, serial: game.contactSerial, hitter: 1-side), 0.5, accuracy: 0.001)
+      XCTAssertEqual(timeout.opacity(at: 6, serial: game.contactSerial, hitter: 1-side), 0)
+      XCTAssertEqual(cue.opacity(at: 5, serial: game.contactSerial, hitter: 1-side), 1)
+      XCTAssertEqual(cue.opacity(at: 5.1, serial: game.contactSerial + 1, hitter: side), 1)
+      _ = cue.opacity(at: 5.2, serial: game.contactSerial + 2, hitter: 1-side)
+      XCTAssertEqual(cue.opacity(at: 5.25, serial: game.contactSerial + 2, hitter: 1-side), 0.5, accuracy: 0.001)
+      XCTAssertEqual(cue.opacity(at: 5.31, serial: game.contactSerial + 2, hitter: 1-side), 0)
+    }
+  }
+
+  func testUnanchoredCourtSwipesResolveOnReleaseAtAnySpeed() {
     for side in 0...1 {
       for delta in [Vec(x: 0, y: -3), Vec(x: 3, y: 0), Vec(x: -2, y: 2)] {
         var gesture = PracticeGesture(side: side)

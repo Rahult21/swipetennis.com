@@ -159,7 +159,7 @@ struct PracticeGameView: View {
   }
   var game: PracticeEngine { session.snapshot }
   private var movementControls: some View {
-    LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil)
+    LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil,reviewing:replayReview != nil)
       .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : "On court")
       .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
       .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
@@ -197,67 +197,63 @@ struct PracticeGameView: View {
   var body: some View {
     ZStack {
       courtView.ignoresSafeArea()
-      if !session.paused, !session.scene.isIntroducingCourt, game.humanServing,
-         let serve = game.displayedServeGauges, serve.canTune {
-        GeometryReader { geometry in
-          // The outer thirds leave room for the athlete and racket on both service sides.
-          let width = min(144, geometry.size.width * 0.34)
-          HStack(spacing: 0) {
-            ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime,
-              editable: true) { setServe(speed: $0, side: serve.server) }
-              .frame(width: width)
-            Spacer(minLength: 0)
-            ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint,
-              editable: true) { setServe(spin: $0, side: serve.server) }
-              .frame(width: width)
+      if replayReview == nil {
+        if !session.paused, !session.scene.isIntroducingCourt, game.humanServing,
+           let serve = game.displayedServeGauges, serve.canTune {
+          GeometryReader { geometry in
+            // The outer thirds leave room for the athlete and racket on both service sides.
+            let width = min(144, geometry.size.width * 0.34)
+            HStack(spacing: 0) {
+              ServeGauge(title: "Speed", level: serve.profile.speed, tint: TennisTheme.lime,
+                editable: true) { setServe(speed: $0, side: serve.server) }
+                .frame(width: width)
+              Spacer(minLength: 0)
+              ServeGauge(title: "Spin", level: serve.profile.spin, tint: .mint,
+                editable: true) { setServe(spin: $0, side: serve.server) }
+                .frame(width: width)
+            }
+            .environment(\.layoutDirection, .leftToRight)
+            .padding(.horizontal, 12)
+            .padding(serve.server == 0 ? .bottom : .top, serve.server == 0 ? 2 : 44)
+            .rotationEffect(.degrees(serve.server == 1 && game.settings.local ? 180 : 0))
+            .frame(maxHeight: .infinity, alignment: serve.server == 0 ? .bottom : .top)
           }
-          .environment(\.layoutDirection, .leftToRight)
-          .padding(.horizontal, 12)
-          .padding(serve.server == 0 ? .bottom : .top, serve.server == 0 ? 2 : 44)
-          .rotationEffect(.degrees(serve.server == 1 && game.settings.local ? 180 : 0))
-          .frame(maxHeight: .infinity, alignment: serve.server == 0 ? .bottom : .top)
         }
-      }
-      if let power = game.inventory.held, !game.settings.tournament, game.phase.isPlaying && !session.paused {
-        Button {
-          session.scene.engine.usePower()
-          session.scene.publish?(session.scene.engine)
-        } label: {
-          Image(systemName: game.inventory.armed == true ? "checkmark" : power.symbol)
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(Color.black)
-            .frame(width: 30, height: 30)
-            .background(Color.mint, in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1))
-            .frame(width: 44, height: 44).contentShape(Rectangle())
+        if let power = game.inventory.held, !game.settings.tournament, game.phase.isPlaying && !session.paused {
+          Button {
+            session.scene.engine.usePower()
+            session.scene.publish?(session.scene.engine)
+          } label: {
+            Image(systemName: game.inventory.armed == true ? "checkmark" : power.symbol)
+              .font(.system(size: 14, weight: .bold))
+              .foregroundStyle(Color.black)
+              .frame(width: 30, height: 30)
+              .background(Color.mint, in: Circle())
+              .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1))
+              .frame(width: 44, height: 44).contentShape(Rectangle())
+          }
+          .buttonStyle(.plain).disabled(!game.canUsePower)
+          .accessibilityLabel(power.rawValue).accessibilityValue(game.inventory.armed == true ? "Armed" : "Ready")
+          .accessibilityHint(power.hint).accessibilityIdentifier("courtPower")
+          .padding(.trailing, 2).padding(.bottom, game.displayedServeGauges?.server == 0 ? 35 : 1)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         }
-        .buttonStyle(.plain).disabled(!game.canUsePower)
-        .accessibilityLabel(power.rawValue).accessibilityValue(game.inventory.armed == true ? "Armed" : "Ready")
-        .accessibilityHint(power.hint).accessibilityIdentifier("courtPower")
-        .padding(.trailing, 2).padding(.bottom, game.displayedServeGauges?.server == 0 ? 35 : 1)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-      }
-      if let event = game.coach.events.last, event.success, game.phase.isPlaying && game.time - game.coach.lastEventAt < 1.5 {
-        VStack {
-          Text("\(event.success ? "+2" : "−1") CP · \(event.rule.title)")
-            .font(.caption.weight(.semibold)).foregroundStyle(.white)
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(event.success ? TennisTheme.green.opacity(0.94) : Color.black.opacity(0.8), in: Capsule())
-            .padding(.top, 8)
-          Spacer()
-        }.allowsHitTesting(false)
-      }
-      if !session.paused && game.phase != .ready && !game.showsPointResult {
-        Button { session.pause() } label: { CourtControlIcon(symbol: "pause.fill") }
-          .buttonStyle(.plain).accessibilityLabel("Pause practice")
-          .padding(.trailing, 6).padding(.top, 2)
-          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        if let event = game.coach.events.last, event.success, game.phase.isPlaying && !session.paused {
+          LiveCoachAward(event: event, recent: game.time - game.coach.lastEventAt < 1.5)
+            .id(event.id)
+        }
+        if !session.paused && game.phase != .ready && !game.showsPointResult {
+          Button { session.pause() } label: { CourtControlIcon(symbol: "pause.fill") }
+            .buttonStyle(.plain).accessibilityLabel("Pause practice")
+            .padding(.trailing, 6).padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
       }
     }.frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(Color.black.ignoresSafeArea()).statusBarHidden(true)
       .accessibilityHidden(game.showsPointResult && !session.paused)
       .overlay {
-        if game.showsPointResult && !session.paused && highlightFinished {
+        if replayReview == nil && game.showsPointResult && !session.paused && highlightFinished {
           PointResultOverlay(game: game, onContinue: advance, onDetails: { showPointDetails = true },
             onRetry: retrySeed == nil || game.coach.records.last?.winner != 1 || game.settings.local ? nil : { training = .retry },
             contact: session.scene.performance.replay.heights[0]?.label,
@@ -275,9 +271,15 @@ struct PracticeGameView: View {
       .fullScreenCover(item:$training) { mode in
         if let seed = retrySeed { TrainingCourtView(mode,surface:game.settings.surface,original:seed,comparison:game.feedback.title + " " + game.feedback.reason) }
       }
-      .sheet(item: $replayReview, onDismiss: {
-        if let pendingHighlight { shownHighlight = pendingHighlight; self.pendingHighlight = nil }
-      }) { PointReplayView(review: $0).presentationDetents([.large]) }
+      .overlay {
+        if let active = replayReview {
+          PointReplayView(review:active) {
+            session.scene.returnFromReplay()
+            if let pendingHighlight { shownHighlight = pendingHighlight; self.pendingHighlight = nil }
+            replayReview = nil
+          }.id(active.id)
+        }
+      }
       .sheet(isPresented: $showPointDetails) {
         NavigationStack {
           List {
@@ -555,6 +557,38 @@ struct PracticeSessionSheet: View {
   }
 }
 
+private struct LiveCoachAward: View {
+  let event: CoachEvent
+  let recent: Bool
+  @State private var expanded = false
+
+  var body: some View {
+    GeometryReader { area in
+      let landscape = area.size.width > area.size.height
+      if landscape || recent {
+        HStack(spacing: 4) {
+          if landscape {
+            Button { expanded.toggle() } label: { CourtControlIcon(symbol: expanded ? "minus" : "plus") }
+              .accessibilityLabel(expanded ? "Hide Coachability point" : "Show Coachability point")
+              .buttonStyle(.plain)
+          }
+          if !landscape || expanded {
+            Text("+2 CP · " + (landscape ? event.reason : event.rule.title))
+              .font(.caption.weight(.semibold)).foregroundStyle(.white)
+              .fixedSize(horizontal: false, vertical: true)
+              .padding(.horizontal, 12).padding(.vertical, 7)
+              .background(TennisTheme.green.opacity(0.94), in: RoundedRectangle(cornerRadius: 14))
+              .allowsHitTesting(false)
+          }
+        }
+        .frame(maxWidth: min(420, area.size.width - 96))
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity)
+      }
+    }
+  }
+}
+
 struct PointResultOverlay: View {
   let game: PracticeEngine
   let onContinue: () -> Void
@@ -567,17 +601,17 @@ struct PointResultOverlay: View {
       ZStack {
         Color.black.opacity(0.42).ignoresSafeArea()
         ViewThatFits(in: .vertical) {
-          card(compact: false)
-          card(compact: true)
+          card(compact: false, landscape: geometry.size.width > geometry.size.height)
+          card(compact: true, landscape: geometry.size.width > geometry.size.height)
           // Only unusually large accessibility text needs a scroll fallback.
-          ScrollView { card(compact: true) }
+          ScrollView { card(compact: true, landscape: geometry.size.width > geometry.size.height) }
         }.frame(maxWidth: 460).padding(.horizontal, 16).padding(.vertical, 12)
           .frame(width: geometry.size.width, height: geometry.size.height)
       }
     }.accessibilityAddTraits(.isModal)
   }
-  private func card(compact: Bool) -> some View {
-    PointResultCard(game: game, compact: compact,
+  private func card(compact: Bool, landscape: Bool) -> some View {
+    PointResultCard(game: game, compact: compact, landscape: landscape,
       onContinue: onContinue, onDetails: onDetails, onRetry:onRetry, contact:contact, onReplay: onReplay)
   }
 }
@@ -586,6 +620,7 @@ struct PointResultOverlay: View {
 struct PointResultCard: View {
   let game: PracticeEngine
   var compact = false
+  var landscape = false
   let onContinue: () -> Void
   let onDetails: () -> Void
   var onRetry: (() -> Void)? = nil
@@ -631,33 +666,38 @@ struct PointResultCard: View {
       Rectangle().fill(.white.opacity(0.16)).frame(height: 1)
       HStack {
         Text("Coachability").font(.subheadline.weight(.semibold))
-        if !rows.isEmpty {
-          Button(action: onDetails) { Image(systemName: "info.circle").frame(width: 44,height: 44) }
-            .buttonStyle(.plain).accessibilityLabel("All Coachability actions for this point")
+        if landscape || !rows.isEmpty {
+          Button(action: onDetails) {
+            Image(systemName: landscape ? "plus.circle" : "info.circle").frame(width: 44, height: 44)
+          }
+          .buttonStyle(.plain).accessibilityLabel("All Coachability actions for this point")
+          .accessibilityIdentifier("pointCoachDetails")
         }
         Spacer()
         Text("\(game.coach.pointScore >= 0 ? "+" : "")\(game.coach.pointScore) CP")
           .font(.headline.monospacedDigit()).foregroundStyle(TennisTheme.lime)
       }
-      VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-        if rows.isEmpty {
-          Text("No CP opportunities this point.").font(.subheadline).foregroundStyle(.white.opacity(0.8))
-        }
-        ForEach(rows) { row in
-          HStack(alignment: .top, spacing: 10) {
-            Text(row.score).font((compact ? Font.caption : .subheadline).weight(.bold).monospacedDigit())
-              .foregroundStyle(row.misses == 0 ? TennisTheme.lime : row.successes == 0 ? Color(red: 1, green: 0.66, blue: 0.62) : .white)
-              .frame(width: 68, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(row.reason).font(compact ? .caption : .subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-              if let tally = row.tally {
-                Text(tally).font(.caption2).foregroundStyle(.white.opacity(0.7))
+      if !landscape {
+        VStack(alignment: .leading, spacing: compact ? 7 : 10) {
+          if rows.isEmpty {
+            Text("No CP opportunities this point.").font(.subheadline).foregroundStyle(.white.opacity(0.8))
+          }
+          ForEach(rows) { row in
+            HStack(alignment: .top, spacing: 10) {
+              Text(row.score).font((compact ? Font.caption : .subheadline).weight(.bold).monospacedDigit())
+                .foregroundStyle(row.misses == 0 ? TennisTheme.lime : row.successes == 0 ? Color(red: 1, green: 0.66, blue: 0.62) : .white)
+                .frame(width: 68, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+              VStack(alignment: .leading, spacing: 2) {
+                Text(row.reason).font(compact ? .caption : .subheadline)
+                  .fixedSize(horizontal: false, vertical: true)
+                if let tally = row.tally {
+                  Text(tally).font(.caption2).foregroundStyle(.white.opacity(0.7))
+                }
               }
-            }
-          }.accessibilityElement(children: .combine)
-        }
-      }.frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("pointCoachSummary")
+            }.accessibilityElement(children: .combine)
+          }
+        }.frame(maxWidth: .infinity, alignment: .leading).accessibilityIdentifier("pointCoachSummary")
+      }
       HStack(spacing: 10) {
         if let onReplay {
           Button(action: onReplay) {

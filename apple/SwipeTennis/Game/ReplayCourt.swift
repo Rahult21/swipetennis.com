@@ -27,46 +27,43 @@ enum ReplayAngle: String, CaseIterable {
     let stadium: CourtReplayView
     var winnerWalk: WinnerWalk?
     var calledOut = false
-    weak var liveHost: UIView?
+    let ownsSurface: Bool
 
-    init(stadium: CourtReplayView) {
+    init(stadium: CourtReplayView, ownsSurface: Bool) {
       self.stadium = stadium
-      self.liveHost = stadium.superview
+      self.ownsSurface = ownsSurface
       super.init(frame: .zero)
+      isOpaque = false
+      backgroundColor = .clear
       stadium.isReviewing = true
       stadium.playbackID = -1
       stadium.lastTime = -1
-      addSubview(stadium)
+      if ownsSurface { addSubview(stadium) }
     }
     required init?(coder: NSCoder) { fatalError() }
     override func layoutSubviews() {
       super.layoutSubviews()
-      stadium.frame = bounds
+      if ownsSurface { stadium.frame = bounds }
     }
   }
 
   func makeUIView(context: Context) -> Stage {
-    let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide))
+    let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide), ownsSurface:liveStadium == nil)
     if let celebration { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner,celebration:celebration) }
     if celebration == .risingFist { Immersion.shared.prepareWinnerCall() }
-    stage.stadium.whenRendering(onReady)
+    if stage.ownsSurface { stage.stadium.whenRendering(onReady) }
+    else { DispatchQueue.main.async { if stage.stadium.isReviewing { onReady() } } }
     return stage
   }
 
   static func dismantleUIView(_ stage: Stage, coordinator: ()) {
     if stage.winnerWalk?.celebration == .risingFist { Immersion.shared.stopWinnerCall() }
-    let stadium = stage.stadium
-    stadium.isHidden = false
-    stadium.finishReview()
-    if let host = stage.liveHost {
-      host.insertSubview(stadium, at: 0)
-      stadium.frame = host.bounds
-      host.setNeedsLayout()
-    }
+    if stage.stadium.isReviewing { stage.stadium.finishReview() }
   }
 
   func updateUIView(_ stage: Stage, context: Context) {
     let view = stage.stadium
+    guard view.isReviewing else { return }
     if let walk = stage.winnerWalk {
       if let time = reactionTime {
         if playing && !stage.calledOut && walk.celebration == .risingFist && (0.30..<0.70).contains(time) {

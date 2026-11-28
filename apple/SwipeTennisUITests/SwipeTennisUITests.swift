@@ -14,6 +14,12 @@ final class SwipeTennisUITests: XCTestCase {
       // court during the orientation, framing and pause assertions.
       let next = app.buttons["nextPracticePoint"]
       XCTAssertTrue(next.waitForExistence(timeout:90))
+      if orientation == .landscapeLeft {
+        XCTAssertFalse(app.descendants(matching: .any)["pointCoachSummary"].exists)
+        app.buttons["pointCoachDetails"].tap()
+        XCTAssertTrue(app.navigationBars["Point details"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+      }
       next.tap()
       let pause = app.buttons["Pause practice"]
       XCTAssertTrue(pause.waitForExistence(timeout: 18))

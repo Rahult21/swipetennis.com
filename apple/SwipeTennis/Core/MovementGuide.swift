@@ -92,7 +92,13 @@ extension PracticeEngine {
     guard !phase.isPlaying || side != 0 || (queuedPower == nil && flight?.power == nil) else { return }
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
-    case .move(let point): steer(side, to: point)
+    case .move(let point):
+      if let movementEpoch {
+        guard movementEpoch == contactSerial, acceptsCourtMovement,
+              flight?.fault == nil || outBallChaseTarget(side) != nil else { return }
+        players[side].runPace = clamp(runPace ?? 1,0.75,1.5)
+        move(side,to:point)
+      } else { steer(side,to:point) }
     case .aim(let point): if canChooseShot(side) { players[side].aim = point }
     case .shot(let kind):
       if kind == .drop || kind == .slice { selectTouchShot(kind, side: side, epoch: shotEpoch) }

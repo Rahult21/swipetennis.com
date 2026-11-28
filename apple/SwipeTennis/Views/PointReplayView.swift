@@ -28,7 +28,7 @@ struct ReplayReview: Identifiable {
 }
 
 struct PointReplayView: View {
-  @Environment(\.dismiss) private var dismiss
+  let close: () -> Void
   @Environment(\.scenePhase) private var phase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let review: ReplayReview
@@ -42,10 +42,10 @@ struct PointReplayView: View {
   @State private var ready = false
   @State private var highlight: Image?
 
-  init(review: ReplayReview) {
+  init(review: ReplayReview, close: @escaping () -> Void) {
+    self.close = close
     self.review = review
     _offset = State(initialValue: 0)
-
   }
   private var clock: TimeInterval { ProcessInfo.processInfo.systemUptime }
   private var length: Double { review.automatic ? review.broadcast.duration : review.clip.duration }
@@ -73,22 +73,22 @@ struct PointReplayView: View {
   }
 
   var body: some View {
-    NavigationStack {
-      VStack(spacing: 0) {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
-          let elapsed = cursor
-          let reacting = review.automatic && elapsed < review.broadcast.reactionDuration
-          let time = review.automatic ? review.broadcast.sourceTime(at:elapsed) : elapsed
-          ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
-            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, celebration:review.broadcast.celebration, winner:review.winner, liveStadium:review.stadium) {
-              ready = true
-              if (review.automatic || !reduceMotion) && phase == .active { play() }
-            }
-            .overlay { if !ready { ProgressView().tint(.white).padding(14).background(.black.opacity(0.52),in:Circle()).accessibilityLabel("Preparing replay") } }
-            .accessibilityLabel(reacting ? (review.winner == review.side ? "You celebrate on court" : "Opponent celebrates on court") : "\(angle.rawValue) camera")
-            .onChange(of: elapsed >= length) { _, ended in if ended { pause(); if review.automatic { dismiss() } } }
-        }
-        if !review.automatic {
+    VStack(spacing: 0) {
+      header
+      TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
+        let elapsed = cursor
+        let reacting = review.automatic && elapsed < review.broadcast.reactionDuration
+        let time = review.automatic ? review.broadcast.sourceTime(at:elapsed) : elapsed
+        ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
+          playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, celebration:review.broadcast.celebration, winner:review.winner, liveStadium:review.stadium) {
+            ready = true
+            if (review.automatic || !reduceMotion) && phase == .active { play() }
+          }
+          .overlay { if !ready { ProgressView().tint(.white).padding(14).background(.black.opacity(0.52),in:Circle()).accessibilityLabel("Preparing replay") } }
+          .accessibilityLabel(reacting ? (review.winner == review.side ? "You celebrate on court" : "Opponent celebrates on court") : "\(angle.rawValue) camera")
+          .onChange(of: elapsed >= length) { _, ended in if ended { pause(); if review.automatic { close() } } }
+      }
+      if !review.automatic {
         VStack(spacing: 10) {
           HStack(spacing: 4) {
             ForEach(ReplayAngle.allCases, id: \.self) { view in
@@ -150,28 +150,11 @@ struct PointReplayView: View {
             }
           }
         }.disabled(!ready).padding(.horizontal, 16).padding(.vertical, 10).background(.bar)
-        }
       }
-      .navigationTitle(review.automatic ? "Point highlight" : "Point-ending shot").navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement:.topBarLeading) {
-          if review.automatic && ready {
-            TimelineView(.animation(minimumInterval:0.1,paused:anchor == nil)) { _ in
-              Text(cursor < review.broadcast.reactionDuration ? "Courtside" : "Player view")
-                .font(.subheadline.weight(.semibold)).accessibilityIdentifier("playingHighlight")
-            }
-          }
-          else if let highlight {
-            ShareLink(item:highlight,preview:SharePreview("SwipeTennis point",image:highlight)) {
-              Label("Share highlight",systemImage:"square.and.arrow.up")
-            }
-          }
-        }
-        if !review.automatic, review.clip.decisions[review.side] != nil {
-          ToolbarItem(placement:.topBarTrailing) { Button("Decision",systemImage:"scope") { pause(); decision = true }.accessibilityLabel("Replay the decision") }
-        }
-        ToolbarItem(placement: .confirmationAction) { Button(review.automatic ? "Skip" : "Done") { dismiss() } } }
     }
+    .frame(maxWidth:.infinity,maxHeight:.infinity)
+    .contentShape(Rectangle())
+    .accessibilityAddTraits(.isModal)
     .sheet(isPresented:$decision) {
       if let moment = review.clip.decisions[review.side] {
         NavigationStack {
@@ -195,6 +178,29 @@ struct PointReplayView: View {
       else if review.automatic && ready { play() }
     }
   }
+  private var header: some View {
+    HStack(spacing:12) {
+      if review.automatic && ready {
+        TimelineView(.animation(minimumInterval:0.1,paused:anchor == nil)) { _ in
+          Text(cursor < review.broadcast.reactionDuration ? "Courtside" : "Player view")
+            .font(.subheadline).accessibilityIdentifier("playingHighlight")
+        }
+      } else if let highlight {
+        ShareLink(item:highlight,preview:SharePreview("SwipeTennis point",image:highlight)) {
+          Label("Share highlight",systemImage:"square.and.arrow.up").labelStyle(.iconOnly)
+        }
+      }
+      Spacer()
+      Text(review.automatic ? "Point highlight" : "Point-ending shot").font(.headline)
+      Spacer()
+      if !review.automatic, review.clip.decisions[review.side] != nil {
+        Button { pause(); decision = true } label: { Image(systemName:"scope") }
+          .accessibilityLabel("Replay the decision")
+      }
+      Button(review.automatic ? "Skip" : "Done",action:close).frame(minHeight:44)
+    }.padding(.horizontal,16).background(.regularMaterial)
+  }
+
 }
 
 private struct RallyHighlight: View {

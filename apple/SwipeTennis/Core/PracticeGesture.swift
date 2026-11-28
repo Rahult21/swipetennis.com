@@ -22,7 +22,12 @@ struct PracticeGesture {
   var allowsDrop = false
   var movementGain = 1.0
   var targetGuide: MovementGuide?
-  private var movementCommitted = false
+  var movementOrigin: Vec?
+  var allowsApproach = false
+  private var guidedHeading: Vec?
+  private var guideSample: Vec?
+  private var lastTarget: Vec?
+  private var lastSent: Double?
   private var start: Vec?
   private var travelled = 0.0
   private var screenStart: Vec?
@@ -32,10 +37,9 @@ struct PracticeGesture {
   private(set) var runPace = 1.0
   private var startedAt: Double?
 
-  mutating func update(at point: Vec, screenPoint: Vec? = nil, ended: Bool = false, timestamp: Double? = nil)
+  mutating func update(at point: Vec, screenPoint: Vec? = nil, ended: Bool = false, timestamp: Double? = nil, playerPosition: Vec? = nil)
     -> PracticeGestureAction?
   {
-    guard !movementCommitted else { return nil }
     if start == nil { start = point }
     guard let start else { return nil }
     travelled = max(travelled, start.distance(to: point))
@@ -46,16 +50,51 @@ struct PracticeGesture {
       let speed = screenStart.distance(to: screen) / max(1.0 / 120, timestamp - startedAt)
       runPace = clamp(1 + (speed - 340) / 1050, 0.75, 1.5)
     }
-    if intent != .slice, let guide = targetGuide {
-      let delta = Vec(x: point.x - start.x, y: point.y - start.y)
-      let path = Vec(x: guide.to.x - guide.from.x, y: guide.to.y - guide.from.y)
-      let enough = screenPoint == nil ? delta.length >= 0.2 : screen.distance(to: screenStart!) >= 8
-      let alignment = (delta.x * path.x + delta.y * path.y) / max(0.000001, delta.length * path.length)
-      if enough && alignment >= 0.65 {
-        previewDelta = nil
-        movementCommitted = true
-        return .guidedMove(guide.kind)
+    var delta = Vec(x: (point.x - start.x) * movementGain, y: (point.y - start.y) * movementGain)
+    let enough = screenPoint == nil ? delta.length >= 0.2 : screen.distance(to:screenStart!) >= 8
+    if let heading = guidedHeading, let previous = guideSample {
+      let segment = Vec(x:point.x-previous.x,y:point.y-previous.y)
+      guard movementOrigin != nil, segment.length >= 0.18 else { return nil }
+      guideSample = point
+      if segment.x*heading.x + segment.y*heading.y >= 0.55*segment.length { return nil }
+      // A deliberate turn takes over from the automatic run on the same touch.
+      if let playerPosition {
+        movementOrigin = playerPosition
+        self.start = previous
+        delta = Vec(x: segment.x * movementGain, y: segment.y * movementGain)
       }
+      guidedHeading = nil
+      targetGuide = nil
+      allowsApproach = false
+      intent = .movement
+    } else if lastTarget == nil, enough, intent != .slice {
+      var command: MovementGuideKind?
+      if let guide = targetGuide {
+        let direction = Vec(x:guide.to.x-guide.from.x,y:guide.to.y-guide.from.y)
+        if delta.x*direction.x+delta.y*direction.y >= 0.65*delta.length*direction.length {
+          command = guide.kind
+        }
+      }
+      if command == nil && intent == .movement && allowsApproach {
+        let forward = delta.y*(side == 0 ? -1 : 1)
+        if forward >= 0.55 && abs(delta.x) <= forward*0.75 { command = .approach }
+      }
+      if let command, delta.length > 0 {
+        guidedHeading = Vec(x:delta.x/delta.length,y:delta.y/delta.length)
+        guideSample = point
+        previewDelta = nil
+        return .guidedMove(command)
+      }
+    }
+    if let origin = movementOrigin, intent == .movement, lastTarget != nil || enough {
+      // Use an absolute destination anchored at touch-down. Repeated samples
+      // or network packets must never add the same displacement twice.
+      let target = PracticeEngine.own(side,Vec(x:origin.x+1.5*delta.x,y:origin.y+1.5*delta.y))
+      if let lastTarget, target.distance(to:lastTarget) < (ended ? 0.001 : 0.08) { return nil }
+      if !ended, let timestamp, let lastSent, timestamp-lastSent < 1.0/30 { return nil }
+      lastTarget = target
+      lastSent = timestamp
+      return .move(target)
     }
     if circlePoints.last.map({ $0.distance(to: screen) >= 2 }) ?? true, circlePoints.count < 160 {
       circlePoints.append(screen)
@@ -80,8 +119,41 @@ struct PracticeGesture {
     }
     guard ended else { return nil }
     if travelled * movementGain < 0.55 { return .courtTap(point) }
-    let delta = Vec(x: (point.x - start.x) * movementGain, y: (point.y - start.y) * movementGain)
     return delta.length >= 0.55 ? .run(delta) : nil
+  }
+}
+
+/// A local aiming cue starts on the accepted swipe, even before racket contact.
+struct ShotDirection {
+  let origin, target: Vec
+  let side, serial: Int
+  let start: Double
+  private var opponentContact: Double?
+
+  init?(action: PracticeGestureAction, side: Int, epoch: Int?, game: PracticeEngine, time: Double) {
+    guard game.canChooseShot(side), epoch == game.shotGestureEpoch(side) else { return nil }
+    switch action {
+    case .shotSwipe(let delta):
+      guard let landing = game.swipeLanding(delta,side:side) else { return nil }
+      target = landing
+    case .shot(let kind) where kind == .slice || (kind == .drop && game.canDrawDrop(side)):
+      target = PracticeEngine.preset(side,kind,game.players[side].pos)
+    default: return nil
+    }
+    origin = game.players[side].pos
+    self.side = side
+    serial = game.contactSerial
+    start = time
+  }
+
+  mutating func opacity(at time: Double, serial current: Int, hitter: Int?) -> Double {
+    guard current >= serial else { return 0 }
+    if opponentContact == nil && (current > serial + 1 || (current > serial && hitter == 1 - side)) {
+      opponentContact = time
+    }
+    let remaining = clamp((start + 1 - time) / 0.28, 0, 1)
+    let contactFade = opponentContact.map { clamp(1 - (time - $0) / 0.10, 0, 1) } ?? 1
+    return min(remaining, contactFade)
   }
 }
 

@@ -6,6 +6,7 @@ import SwiftUI
 struct LiveCourt: UIViewRepresentable {
   let scene: TennisScene
   var paused = false
+  var reviewing = false
 
   final class Container: UIView {
     let stadium: CourtReplayView
@@ -29,7 +30,12 @@ struct LiveCourt: UIViewRepresentable {
     }
   }
   func makeUIView(context: Context) -> Container { Container(scene:scene) }
-  func updateUIView(_ view: Container, context: Context) { view.controls.isPaused = paused }
+  func updateUIView(_ view: Container, context: Context) {
+    view.controls.isPaused = paused
+    // The live RealityKit drawable stays mounted while replay controls drive its camera.
+    view.controls.alpha = reviewing ? 0 : 1
+    view.controls.isUserInteractionEnabled = !reviewing
+  }
   static func dismantleUIView(_ view: Container, coordinator: ()) {
     (view.controls.scene as? TennisScene)?.stadium = nil
     view.controls.presentScene(nil)

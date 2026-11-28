@@ -147,6 +147,8 @@ import SwiftUI
   private let swipeHand = SKSpriteNode()
   private let swipeTouch = SKShapeNode(circleOfRadius: 6)
   private let demoGesturePath = SKShapeNode()
+  private let shotLine = SKShapeNode()
+  private var shotDirection: ShotDirection?
   private let trail = SKShapeNode()
   private var trails: [CourtPoint3D] = []
   private var previousTime: TimeInterval = 0, accumulator = 0.0, publishAt = 0.0
@@ -167,6 +169,8 @@ import SwiftUI
     serveTouches.removeAll()
     affirmationTouches.removeAll()
     aimPreview = nil
+    shotDirection = nil
+    shotLine.isHidden = true
     keyboardMoving = [false, false]
   }
   func configureMotion() {
@@ -371,6 +375,12 @@ import SwiftUI
     followLabel.fontColor = .systemYellow
     openLabel.text = "OPEN"
     openLabel.fontColor = .systemYellow.withAlphaComponent(0.8)
+    shotLine.strokeColor = UIColor(red:1,green:0.06,blue:0.73,alpha:1)
+    shotLine.lineWidth = 3
+    shotLine.lineCap = .round
+    shotLine.zPosition = 35
+    shotLine.isHidden = true
+    dynamic.addChild(shotLine)
     trail.strokeColor = UIColor(red: 0.86, green: 0.93, blue: 0.46, alpha: 0.5)
     trail.lineWidth = 2
     dynamic.addChild(trail)
@@ -585,10 +595,17 @@ import SwiftUI
     else { input.apply(to: &engine, side: side) }
   }
 
+  func returnFromReplay() {
+    stadium?.finishReview()
+    render()
+  }
+
   func discardReplay() { performance.discardReplay() }
 
   func resetRallyPresentation() {
     Immersion.shared.endApplause()
+    shotDirection = nil
+    shotLine.isHidden = true
     swipeCoach.dismiss()
     actors.forEach { $0.reset() }
     trails.removeAll()
@@ -680,6 +697,7 @@ import SwiftUI
       if connected { path.addLine(to:point) } else { path.move(to:point) }
       connected = true
     }
+    drawShotDirection()
     trail.path = path
     trail.isHidden = reduceMotion || !showingFlight
     faultRing.isHidden = engine.pointResolution?.showsMarker != true
@@ -936,6 +954,22 @@ import SwiftUI
     swipeTouch.isHidden = false
   }
 
+  private func drawShotDirection() {
+    guard let opacity = shotDirection?.opacity(at: ProcessInfo.processInfo.systemUptime,
+      serial: engine.contactSerial, hitter: engine.flight?.hitter), let cue = shotDirection else { return }
+    guard opacity > 0, engine.phase.isPlaying else {
+      shotDirection = nil
+      shotLine.isHidden = true
+      return
+    }
+    let path = CGMutablePath()
+    path.move(to:projectWorld(cue.origin.world(height:0.8)))
+    path.addLine(to:projectWorld(cue.target.world(height:0.04)))
+    shotLine.path = path
+    shotLine.alpha = opacity
+    shotLine.isHidden = false
+  }
+
   private func applyTouch(_ touch: UITouch, ended: Bool = false) {
     guard engine.acceptsCourtMovement && !suspended && engine.demo?.demonstration != true else { return }
     if var serveTouch = serveTouches[touch] {
@@ -961,7 +995,10 @@ import SwiftUI
     let action = gesture.update(
       at: unproject(touch.location(in: self)),
       screenPoint: CupPerspective.screen(Vec(x: touch.location(in: self).x, y: -touch.location(in: self).y), side: perspectiveSide),
-      ended: ended, timestamp: touch.timestamp)
+      ended: ended, timestamp: touch.timestamp, playerPosition: engine.players[gesture.side].pos)
+    // Only a fresh steering sample may cross a contact boundary. A late lift
+    // or a queued network command still belongs to its original exchange.
+    if !ended, case .move = action { gesture.movementEpoch = engine.contactSerial }
     touchGestures[touch] = gesture
     if ended { aimPreview = nil }
     else if let delta = gesture.previewDelta, gesture.shotEpoch == engine.shotGestureEpoch(gesture.side),
@@ -970,6 +1007,11 @@ import SwiftUI
     } else { aimPreview = nil }
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
+      if let cue = ShotDirection(action:action,side:gesture.side,epoch:gesture.shotEpoch,game:engine,
+                                 time:ProcessInfo.processInfo.systemUptime) {
+        shotDirection = cue
+        drawShotDirection()
+      }
       cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch, runPace: gesture.runPace), side: gesture.side)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
@@ -1023,7 +1065,8 @@ import SwiftUI
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
         movementGain: engine.quickNetFeet(side) ? 1.8 : 1,
-        targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot))
+        targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot),
+        movementOrigin: engine.players[side].pos, allowsApproach: engine.canFollowShot(side))
       applyTouch(touch)
     }
   }
