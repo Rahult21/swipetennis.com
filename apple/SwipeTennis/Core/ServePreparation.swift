@@ -340,6 +340,10 @@ extension PracticeEngine {
     players[server].destination = players[server].pos
     players[server].velocity = .zero
     players[server].aim = nil
+    let receiver = 1 - server
+    players[receiver].swipeDepth = nil
+    players[receiver].swingStrength = nil
+    players[receiver].aim = nil
     let target = ServeGeometry.target(.body, from: players[server].pos,
       receiver: players[1 - server].pos, server: server, fromRight: scoring.serveFromRight, number: 2)
     servePreparation = ServePreparation(server: server, number: 2, target: target, destination: target, placement: .body)

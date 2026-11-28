@@ -6,15 +6,22 @@ struct ReturnDecision: Codable {
   let shorterSide: Bool
   let split: Bool
   let baseAccuracy: Double
-  var accuracy: Double { min(1, baseAccuracy * (split ? 1.2 : 1)) }
+  var swipeTiming: ReturnSwipeTiming? = nil
+  var accuracy: Double {
+    if let swipeTiming { return 1 - swipeTiming.mishitChance }
+    return min(1, baseAccuracy * (split ? 1.2 : 1))
+  }
 
   var splitSummary: String {
+    if swipeTiming == .slightlyLate { return "Slightly late swipe · 1 in 3 mishit chance" }
+    if swipeTiming == .clean { return "Swipe ready by the bounce · clean contact" }
     let base = Int((baseAccuracy * 100).rounded()), final = Int((accuracy * 100).rounded())
     if split && final == base { return "Timed split on your last shot · already at \(final)%" }
     return split ? "Timed split on your last shot · \(base)% → \(final)%"
       : "No timed split on your last shot · \(base)% placement"
   }
   var lesson: String {
+    if swipeTiming == .slightlyLate { return "The swipe was slightly late. Finish by the bounce to avoid a timing mishit." }
     if redirected {
       let change = shorterSide ? "Changing direction to the shorter side was the lower-percentage play." : "Changing direction was the lower-percentage play."
       return change + " Rally crosscourt and wait for a short ball."

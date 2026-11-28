@@ -9,9 +9,9 @@ struct CourtInstruction: Equatable {
 extension PracticeEngine {
   var promptsReturnSwipe: Bool {
     guard phase == .live, let flight, let contact = flight.expectedContactTime,
-      canChooseShot(1-flight.hitter), !flight.hasTimelySwing(at: contact) else { return false }
-    let lead = contact - flight.elapsed
-    return lead > 0 && lead <= BallFlight.swingLead
+      canChooseShot(1-flight.hitter), flight.returnSwipeTiming == nil || players[1-flight.hitter].swingStrength == nil else { return false }
+    let cueTime = min(contact, flight.time(at: 0.8)) - 0.35
+    return flight.elapsed >= cueTime && flight.elapsed <= flight.swipeDeadline
   }
 
   var instruction: CourtInstruction {
@@ -47,7 +47,7 @@ extension PracticeEngine {
         symbol: "scope")
     }
     if promptsReturnSwipe {
-      return CourtInstruction(title: "Swipe to hit", detail: "Swipe farther for a deeper, harder return or shorter for a softer ball.", symbol: "hand.draw.fill")
+      return CourtInstruction(title: "Swipe to hit", detail: "Swipe by the bounce for clean contact. Swipe farther for a deeper, harder return.", symbol: "hand.draw.fill")
     }
     if settings.local {
       return CourtInstruction(
