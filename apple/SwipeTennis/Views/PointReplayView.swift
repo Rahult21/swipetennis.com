@@ -32,7 +32,7 @@ struct PointReplayView: View {
   @Environment(\.scenePhase) private var phase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   let review: ReplayReview
-  @State private var angle = ReplayAngle.you
+  @State private var angle = ReplayAngle.stroke
   @State private var offset: Double
   @State private var anchor: TimeInterval?
   @State private var resumeAfterScrub = false
@@ -79,8 +79,8 @@ struct PointReplayView: View {
         let elapsed = cursor
         let reacting = review.automatic && elapsed < review.broadcast.reactionDuration
         let time = review.automatic ? review.broadcast.sourceTime(at:elapsed) : elapsed
-        ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
-          playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, celebration:review.broadcast.celebration, winner:review.winner, liveStadium:review.stadium) {
+        ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && (angle == .you || angle == .opponent) ? (angle == .you ? .opponent : .you) : angle, seconds: time,
+          playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, reactionTime:reacting ? elapsed : nil, celebration:review.broadcast.celebration, winner:review.winner, liveStadium:review.stadium) {
             ready = true
             if (review.automatic || !reduceMotion) && phase == .active { play() }
           }
@@ -182,7 +182,7 @@ struct PointReplayView: View {
     HStack(spacing:12) {
       if review.automatic && ready {
         TimelineView(.animation(minimumInterval:0.1,paused:anchor == nil)) { _ in
-          Text(cursor < review.broadcast.reactionDuration ? "Courtside" : "Player view")
+          Text(cursor < review.broadcast.reactionDuration ? "Courtside" : "Shot replay")
             .font(.subheadline).accessibilityIdentifier("playingHighlight")
         }
       } else if let highlight {

@@ -123,6 +123,58 @@ struct PlayerCamera {
   }
 }
 
+/// A fixed courtside shot composed from the recorded swing, including its
+/// backswing and finish. Scrubbing and changing playback speed keep the same lens.
+struct ReplayStrokeCamera {
+  let cutToCourt: Double
+  private let points: [CourtPoint3D]
+  private let direction: CourtPoint3D
+
+  init?(_ replay: PointReplay) {
+    guard let hit = replay.strikes.last, let impact = replay.frame(at:hit.time) else { return nil }
+    cutToCourt = hit.time+0.38
+    let body = hit.hitter == 0 ? impact.near : impact.far
+    let hip = (body[.rightHip]+body[.leftHip])*0.5
+    let facing: Float = hit.hitter == 0 ? 1 : -1
+    let side: Float = abs(hit.point.x-hip.x) < 0.12 ? facing : (hit.point.x >= hip.x ? 1 : -1)
+    // At net, stay behind the volleyer's shoulder so the mesh never crosses the face.
+    let netSide: Float = abs(hip.z-Float(PracticeEngine.net)) < 2.3 ? 0.44 : -0.60
+    direction = simd_normalize([side*0.82,0.14,facing*netSide])
+    let first = max(0,Int(floor((hit.time-hit.preparation)/PointReplay.tick)))
+    let last = min(replay.frames.count-1,Int(ceil(cutToCourt/PointReplay.tick)))
+    var envelope: [CourtPoint3D] = []
+    for index in first...last {
+      let frame = replay.frames[index]
+      let pose = hit.hitter == 0 ? frame.near : frame.far
+      for joint in BodyJoint.allCases { envelope.append(pose[joint]) }
+      envelope.append(pose[.head]+[0,0.17,0])
+      envelope.append(pose[.leftShoe]-[0,0.08,0])
+      envelope.append(pose[.rightShoe]-[0,0.08,0])
+      let tip = pose[.strings]-pose[.grip]
+      envelope.append(pose[.strings]+tip*0.42)
+      if hit.serve && Double(index)*PointReplay.tick <= hit.time { envelope.append(frame.ball) }
+    }
+    points = envelope
+  }
+
+  func frame(aspect: Float) -> PlayerCamera {
+    let across = simd_normalize(simd_cross([0,1,0],direction))
+    let up = simd_cross(direction,across)
+    var low = SIMD3<Float>(repeating:.infinity), high = -low
+    for point in points {
+      let view = SIMD3(simd_dot(point,across),simd_dot(point,up),simd_dot(point,direction))
+      low = simd_min(low,view)
+      high = simd_max(high,view)
+    }
+    let mid = (low+high)*0.5
+    let target = across*mid.x+up*mid.y+direction*mid.z
+    let lens: Float = 33
+    let halfHeight = max((high.y-low.y)*0.5,(high.x-low.x)*0.5/max(0.25,aspect))
+    let distance = max(3.9,halfHeight*1.16/tan(lens * .pi/360)+(high.z-mid.z))
+    return PlayerCamera(eye:target+direction*distance,target:target,verticalFOV:lens)
+  }
+}
+
 /// Replay seconds run at half real time. Hold the hands in frame before lifting
 /// clear of the seat backs and completing an orbit over the spectators.
 enum MatchCeremony {

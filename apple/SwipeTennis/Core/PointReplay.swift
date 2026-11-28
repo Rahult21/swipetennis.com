@@ -37,6 +37,8 @@ struct RecordedStrike {
   let point: CourtPoint3D
   let gain: Double
   let power: CourtPower?
+  var serve = false
+  var preparation: Double { serve || power == .ace ? 1.05 : 0.55 }
   var blocked = false
   var fault = false
 }
@@ -102,7 +104,7 @@ struct PointReplay {
       }
       if !flight.serve { heights[flight.hitter] = ContactReading(frame: frame, hitter: flight.hitter, flight: flight) }
       strikes.append(RecordedStrike(time: duration, hitter: flight.hitter, point: frame.ball,
-        gain: flight.power?.contactGain ?? 1, power: flight.power, blocked: flight.contactQuality == .stretched || flight.contactQuality == .diving, fault:flight.fault != nil))
+        gain: flight.power?.contactGain ?? 1, power: flight.power, serve: flight.serve, blocked: flight.contactQuality == .stretched || flight.contactQuality == .diving, fault:flight.fault != nil))
     }
   }
 
@@ -116,7 +118,7 @@ struct PointReplay {
     let origin = Double(first) * Self.tick
     clip.bounceTimes = bounceTimes.filter { $0 >= origin && $0 < Double(limit)*Self.tick }.map { $0 - origin }
     clip.strikes = strikes.filter { $0.time >= origin - 0.000001 && $0.time < Double(limit)*Self.tick - 0.000001 }.map {
-      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, blocked: $0.blocked, fault:$0.fault)
+      RecordedStrike(time: max(0,$0.time-origin), hitter: $0.hitter, point: $0.point, gain: $0.gain, power: $0.power, serve: $0.serve, blocked: $0.blocked, fault:$0.fault)
     }
     clip.cuts = Set(cuts.filter { $0 >= first && $0 < limit }.map { $0 - first })
     return clip
@@ -131,21 +133,31 @@ struct PointReplay {
     let index = strikes.indices.last { strikes[$0].time >= since && strikes[$0].hitter == winner && !strikes[$0].fault } ?? last
     let hit = strikes[index]
     let prior = index > 0 ? strikes[index-1].time+Self.tick : 0
-    let first = Int(ceil(max(since,prior,hit.time-(hit.power == .ace ? 1.05 : 0.55))/Self.tick))
+    let first = Int(ceil(max(since,prior,hit.time-hit.preparation)/Self.tick))
     let end = index < last ? Int((strikes[index+1].time/Self.tick).rounded()) : frames.count
     return suffix(from:min(first,end-1),through:end)
   }
 
   mutating func discard() { self = Self() }
 
-  func frame(at seconds: Double) -> RallyFrame? {
+  private func samples(at seconds: Double) -> (Int,Int,Float)? {
     guard !frames.isEmpty else { return nil }
     let index = clamp(seconds, 0, duration) / Self.tick
     let left = min(Int(index), frames.count - 1)
     let right = min(left + 1, frames.count - 1)
     let fraction = Float(index - Double(left))
-    if left == right || fraction <= 0.00001 || cuts.contains(right) { return frames[left] }
-    return frames[left].blended(to: frames[right], by: fraction)
+    if left == right || fraction <= 0.00001 || cuts.contains(right) { return (left,left,0) }
+    return (left,right,fraction)
+  }
+
+  func frame(at seconds: Double) -> RallyFrame? {
+    guard let (left,right,t) = samples(at:seconds) else { return nil }
+    return left == right ? frames[left] : frames[left].blended(to:frames[right],by:t)
+  }
+
+  func ball(at seconds: Double) -> CourtPoint3D? {
+    guard let (left,right,t) = samples(at:seconds) else { return nil }
+    return frames[left].ball+(frames[right].ball-frames[left].ball)*t
   }
 }
 

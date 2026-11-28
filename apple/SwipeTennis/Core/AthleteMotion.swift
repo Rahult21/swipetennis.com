@@ -33,6 +33,8 @@ struct AthletePose {
   }
 
   func blended(to other: Self, by fraction: Float) -> Self {
+    if fraction <= 0 { return self }
+    if fraction >= 1 { return other }
     var result = self
     if let a = sampleTime, let b = other.sampleTime { result.sampleTime = a+(b-a)*Double(fraction) }
     result.airborneReach += (other.airborneReach-airborneReach)*fraction
@@ -55,6 +57,48 @@ struct AthletePose {
     result.footRoll += (other.footRoll-footRoll)*fraction
     result.heelPitch += (other.heelPitch - heelPitch) * fraction
     for joint in BodyJoint.allCases { result[joint] += (other[joint] - self[joint]) * fraction }
+    // Rotate across each shoulder/hip line instead of shrinking its width on a turn.
+    for (left,right) in [(BodyJoint.leftHip,BodyJoint.rightHip),(.leftShoulder,.rightShoulder)] {
+      let a = self[right]-self[left], b = other[right]-other[left]
+      let la = simd_length(a), lb = simd_length(b)
+      guard min(la,lb) > 0.0001 else { continue }
+      let turn = simd_quatf(from:a/la,to:b/lb)
+      let axis = simd_slerp(simd_quatf(real:1,imag:.zero),turn,fraction).act(a/la)
+      let centre = (result[right]+result[left])*0.5
+      let halfWidth = axis*((la+(lb-la)*fraction)*0.5)
+      result[left] = centre-halfWidth
+      result[right] = centre+halfWidth
+    }
+    // Keep the recorded grip path and planted soles. Rebuild each hinge on
+    // the shoulder–wrist or hip–ankle axis with the recorded segment lengths.
+    for (root,mid,end) in [(BodyJoint.leftHip,BodyJoint.leftKnee,BodyJoint.leftShoe),
+                            (.rightHip,.rightKnee,.rightShoe),(.leftShoulder,.leftElbow,.leftHand),
+                            (.rightShoulder,.rightElbow,.grip)] {
+      let start = result[root], ray = result[end]-start
+      let distance = simd_length(ray)
+      guard distance > 0.0001 else { continue }
+      let axis = ray/distance
+      func bend(_ p: Self) -> CourtPoint3D {
+        let line = p[end]-p[root], bone = p[mid]-p[root]
+        let projected = bone-line*(simd_dot(line,bone)/max(simd_length_squared(line),0.0000001))
+        // Transport each recorded bend plane onto the interpolated axis.
+        guard simd_length_squared(line) > 0.0000001 else { return .zero }
+        return simd_quatf(from:simd_normalize(line),to:axis).act(projected)
+      }
+      let a = bend(self), b = bend(other)
+      let direction: CourtPoint3D
+      if min(simd_length_squared(a),simd_length_squared(b)) > 0.0000001 {
+        let turn = atan2(simd_dot(axis,simd_cross(a,b)),simd_dot(a,b))
+        direction = simd_quatf(angle:turn*fraction,axis:axis).act(simd_normalize(a))
+      } else {
+        let pole = simd_length_squared(a) > simd_length_squared(b) ? a : b
+        direction = unit(pole,fallback:simd_normalize(simd_cross(axis,abs(axis.x)<0.8 ? [1,0,0] : [0,0,1])))
+      }
+      let upper = simd_mix(simd_distance(self[root],self[mid]),simd_distance(other[root],other[mid]),fraction)
+      let lower = simd_mix(simd_distance(self[end],self[mid]),simd_distance(other[end],other[mid]),fraction)
+      let along = max(-upper,min(upper,(upper*upper-lower*lower+distance*distance)/(2*distance)))
+      result[mid] = start+axis*along+direction*sqrt(max(0,upper*upper-along*along))
+    }
     // The racket is a rigid object between samples, including slow-motion scrubbing.
     // Blend its orientation as one frame around the already interpolated hand.
     func rotation(_ p: Self) -> simd_quatf? {

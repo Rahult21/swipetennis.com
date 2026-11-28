@@ -5,6 +5,49 @@ import simd
 final class PointReplayTests: XCTestCase {
   private let tick = PointReplay.tick
 
+  func testReplayBlendsBentLimbsWithoutShorteningBonesOrMovingTheGrip() {
+    var before = AthletePose(), after = AthletePose()
+    for (root, middle, end) in [(BodyJoint.leftHip,BodyJoint.leftKnee,BodyJoint.leftShoe),
+                                (.rightHip,.rightKnee,.rightShoe),(.leftShoulder,.leftElbow,.leftHand),
+                                (.rightShoulder,.rightElbow,.grip)] {
+      let x: Float = root == .leftHip || root == .leftShoulder ? -0.2 : 0.2
+      let start = CourtPoint3D(x,root == .leftHip || root == .rightHip ? 1 : 1.5,0)
+      before[root] = start; after[root] = start
+      before[end] = start+[0,-0.6,0]; after[end] = before[end]
+      before[middle] = start+[0.20,-0.30,0]
+      after[middle] = start+[0,-0.30,0.20]
+    }
+    let halfway = before.blended(to:after,by:0.5)
+    for (root, middle, end) in [(BodyJoint.leftHip,BodyJoint.leftKnee,BodyJoint.leftShoe),
+                                (.rightHip,.rightKnee,.rightShoe),(.leftShoulder,.leftElbow,.leftHand),
+                                (.rightShoulder,.rightElbow,.grip)] {
+      XCTAssertEqual(halfway[end],before[end])
+      XCTAssertEqual(simd_distance(halfway[root],halfway[middle]),simd_distance(before[root],before[middle]),accuracy:0.00001)
+      XCTAssertEqual(simd_distance(halfway[end],halfway[middle]),simd_distance(before[end],before[middle]),accuracy:0.00001)
+    }
+  }
+
+  func testStrokeCameraFramesTheWholeRecordedSwingInBothOrientations() throws {
+    for stroke in [StudioStroke.serve,.forehand,.backhand,.volley] {
+      let clip = try XCTUnwrap(StrokeStudioClip(stroke)).recording.winningShot(for:0)
+      let shot = try XCTUnwrap(ReplayStrokeCamera(clip))
+      let hit = try XCTUnwrap(clip.strikes.last)
+      for aspect: Float in [0.48,2.17] {
+        let lens = shot.frame(aspect:aspect)
+        for time in stride(from:0.0,through:min(clip.duration,shot.cutToCourt),by:1.0/90) {
+          let p = try XCTUnwrap(clip.frame(at:time)).near
+          for point in [p[.head]+[0,0.15,0],p[.leftShoe],p[.rightShoe],p[.leftHand],
+                        p[.strings]+(p[.strings]-p[.grip])*0.42,p[.racketEdge]] {
+            let screen = lens.projected(point,aspect:aspect)
+            XCTAssertLessThan(max(abs(screen.x),abs(screen.y)),0.99)
+          }
+        }
+        let p = try XCTUnwrap(clip.frame(at:hit.time)).near
+        XCTAssertGreaterThan(lens.projected(p[.head],aspect:aspect).y-lens.projected(p[.rightShoe],aspect:aspect).y,0.40)
+      }
+    }
+  }
+
   func testLowGroundstrokesKeepTheLegsLoadedThroughContact() throws {
     for shot in [StudioStroke.forehand,.backhand] {
       let clip = try XCTUnwrap(StrokeStudioClip(shot))

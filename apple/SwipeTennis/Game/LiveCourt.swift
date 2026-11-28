@@ -25,7 +25,7 @@ struct LiveCourt: UIViewRepresentable {
     required init?(coder: NSCoder) { fatalError() }
     override func layoutSubviews() {
       super.layoutSubviews()
-      if stadium.superview === self { stadium.frame = bounds }
+      if stadium.superview === self && !stadium.isReviewing { stadium.frame = bounds }
       controls.frame = bounds
     }
   }

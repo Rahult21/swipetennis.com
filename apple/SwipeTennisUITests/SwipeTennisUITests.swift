@@ -243,7 +243,13 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertTrue(contact.waitForExistence(timeout:20))
     contact.tap()
     let capture = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
-    capture.name = "Player-view replay at contact"; capture.lifetime = .keepAlways; add(capture)
+    capture.name = "Stroke replay at contact in portrait"; capture.lifetime = .keepAlways; add(capture)
+    XCTAssertTrue(app.buttons["replayCameraStroke"].isSelected)
+    XCUIDevice.shared.orientation = .landscapeLeft
+    defer { XCUIDevice.shared.orientation = .portrait }
+    XCTAssertTrue(contact.isHittable)
+    let wide = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+    wide.name = "Stroke replay at contact in landscape"; wide.lifetime = .keepAlways; add(wide)
     app.buttons["Done"].tap()
     result.tap()
     XCTAssertFalse(app.buttons["replayPracticePoint"].exists)

@@ -3,7 +3,7 @@ import RealityKit
 import SwiftUI
 
 enum ReplayAngle: String, CaseIterable {
-  case you = "You", opponent = "Opponent", neutral = "Neutral"
+  case stroke = "Stroke", you = "You", opponent = "Opponent", neutral = "Neutral"
 }
 
 @MainActor struct ReplayCourt: UIViewRepresentable {
@@ -16,7 +16,6 @@ enum ReplayAngle: String, CaseIterable {
   let playing: Bool
   let playbackID: Int
   let reduceMotion: Bool
-  var automatic = false
   var reactionTime: Double?
   var celebration: WinnerCelebration?
   var winner = 0
@@ -27,8 +26,20 @@ enum ReplayAngle: String, CaseIterable {
     let stadium: CourtReplayView
     var winnerWalk: WinnerWalk?
     let ownsSurface: Bool
+    let stroke: ReplayStrokeCamera?
+    private var cameraAspect: Float = 0
+    private(set) var strokeCamera: PlayerCamera?
+    var redraw: ((Stage) -> Void)?
 
-    init(stadium: CourtReplayView, ownsSurface: Bool) {
+    func fitCamera() {
+      let aspect = Float(stadium.bounds.width/max(1,stadium.bounds.height))
+      guard aspect > 0, aspect != cameraAspect else { return }
+      strokeCamera = stroke?.frame(aspect:aspect)
+      cameraAspect = aspect
+    }
+
+    init(stadium: CourtReplayView, ownsSurface: Bool, replay: PointReplay) {
+      stroke = ReplayStrokeCamera(replay)
       self.stadium = stadium
       self.ownsSurface = ownsSurface
       super.init(frame: .zero)
@@ -42,12 +53,17 @@ enum ReplayAngle: String, CaseIterable {
     required init?(coder: NSCoder) { fatalError() }
     override func layoutSubviews() {
       super.layoutSubviews()
+      guard stadium.isReviewing, !bounds.isEmpty else { return }
       if ownsSurface { stadium.frame = bounds }
+      else if let parent = stadium.superview, window != nil, parent.window === window {
+        stadium.frame = convert(bounds,to:parent)
+      }
+      if cameraAspect != Float(stadium.bounds.width/max(1,stadium.bounds.height)) { redraw?(self) }
     }
   }
 
   func makeUIView(context: Context) -> Stage {
-    let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide), ownsSurface:liveStadium == nil)
+    let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide), ownsSurface:liveStadium == nil, replay:replay)
     if let celebration { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner,celebration:celebration) }
     if stage.ownsSurface { stage.stadium.whenRendering(onReady) }
     else { DispatchQueue.main.async { if stage.stadium.isReviewing { onReady() } } }
@@ -59,6 +75,11 @@ enum ReplayAngle: String, CaseIterable {
   }
 
   func updateUIView(_ stage: Stage, context: Context) {
+    stage.redraw = draw
+    draw(stage)
+  }
+
+  private func draw(_ stage: Stage) {
     let view = stage.stadium
     guard view.isReviewing else { return }
     if let walk = stage.winnerWalk {
@@ -76,12 +97,14 @@ enum ReplayAngle: String, CaseIterable {
     let ceremony = replay.ceremonyStart.flatMap { seconds >= $0 ? seconds-$0 : nil }
     Immersion.shared.updateOvation(at:ceremony.map { $0 / PointReplay.speed },playing:playing)
     let handshake = ceremony != nil
+    stage.fitCamera()
+    let strokeCamera = seconds <= (stage.stroke?.cutToCourt ?? -1) ? stage.strokeCamera : nil
     view.draw(frame, angle: angle, reduceMotion: reduceMotion, powerBeat: beat, handshake:handshake,
-      featuredStrike: automatic && angle == .neutral ? replay.strikes.last : nil, time:seconds, ceremony:ceremony)
+      strokeCamera: strokeCamera, ceremony:ceremony)
     for (index, dot) in view.powerTrail.enumerated() {
       let lag = Double(index + 1) * PointReplay.tick * 1.5
       dot.isEnabled = !reduceMotion && (beat ?? -1) >= lag && (beat ?? 2) <= 0.48
-      if dot.isEnabled, let past = replay.frame(at: seconds - lag) { dot.position = past.ball }
+      if dot.isEnabled, let past = replay.ball(at: seconds - lag) { dot.position = past }
     }
     if playing, playbackID == view.playbackID, seconds > view.lastTime {
       for hit in replay.strikes where hit.time > view.lastTime && hit.time <= seconds {
@@ -293,6 +316,8 @@ enum ReplayAngle: String, CaseIterable {
     firstFrame?.cancel()
     firstFrame = nil
     isReviewing = false
+    superview?.setNeedsLayout()
+    superview?.layoutIfNeeded()
     Immersion.shared.updateOvation(at:nil,playing:false)
     powerTrail.forEach { $0.isEnabled = false }
   }
@@ -683,7 +708,7 @@ enum ReplayAngle: String, CaseIterable {
     }
   }
 
-  func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?, handshake: Bool = false, featuredStrike: RecordedStrike? = nil, time: Double = 0, live: Bool = false, ceremony: Double? = nil) {
+  func draw(_ frame: RallyFrame, angle: ReplayAngle, reduceMotion: Bool, powerBeat: Double?, handshake: Bool = false, strokeCamera: PlayerCamera? = nil, time: Double = 0, live: Bool = false, ceremony: Double? = nil) {
     players[0].draw(frame.near,handshake:handshake); players[1].draw(frame.far,handshake:handshake)
     ball.isEnabled = !handshake; shadow.isEnabled = !handshake
     impression.isEnabled = frame.bounce != nil && !handshake
@@ -702,15 +727,19 @@ enum ReplayAngle: String, CaseIterable {
       ball.scale = .init(repeating:max(0.044,min(0.084,simd_distance(camera.position,frame.ball)*0.0025)))
       return
     }
-    hideBaselineStand(handshake || angle == .neutral ? nil : angle == .you ? 1 : 0)
+    hideBaselineStand(handshake || angle == .neutral || angle == .stroke ? nil : angle == .you ? 1 : 0)
     let near = (frame.near[.leftHip] + frame.near[.rightHip]) / 2
     let far = (frame.far[.leftHip] + frame.far[.rightHip]) / 2
     let position: CourtPoint3D, target: CourtPoint3D
-    let beat = featuredStrike.map { time - $0.time } ?? powerBeat
+    let beat = powerBeat
     let focus = reduceMotion ? 0 : Float(beat.map {
       StrokeAnimation.ease(($0 + 1.65) / 0.80) * (1 - StrokeAnimation.ease(($0 - 0.085) / 0.74))
     } ?? 0)
-    if angle == .neutral {
+    if angle == .stroke, let strokeCamera, !handshake {
+      position = strokeCamera.eye
+      target = strokeCamera.target
+      camera.camera.fieldOfViewInDegrees = strokeCamera.verticalFOV
+    } else if angle == .neutral || angle == .stroke {
       let wideTarget = CourtPoint3D(4.115,0.48,14.0)
       let direction = simd_normalize(CourtPoint3D(0.13,1.04,1))
       let right = simd_normalize(simd_cross([0,1,0],direction)), up = simd_cross(direction,right)
@@ -725,16 +754,9 @@ enum ReplayAngle: String, CaseIterable {
       let ends: [Float] = reduceMotion ? [-7.5,31.27] : [-2.2,26.2]
       for x in sides { for z in ends { fit([x,0,z]) } }
       if !reduceMotion { fit(frame.ball) }
-      let widePosition = wideTarget + direction * distance
-      // An independent three-quarter view reads the shoulder turn and airborne feet,
-      // then eases back into the full-court shot as the winner travels away.
-      let hitter = featuredStrike?.hitter == 1 ? far : near
-      let facing: Float = featuredStrike?.hitter == 1 ? -1 : 1
-      let courtside = hitter + CourtPoint3D(3.55*facing,1.35,-3.15*facing)
-      let strikeTarget = CourtPoint3D(hitter.x,1.40,hitter.z-0.26*facing)
-      position = widePosition + (courtside - widePosition) * focus
-      target = wideTarget + (strikeTarget - wideTarget) * focus
-      camera.camera.fieldOfViewInDegrees = 60 - 12 * focus
+      position = wideTarget + direction * distance
+      target = wideTarget
+      camera.camera.fieldOfViewInDegrees = 60
     } else {
       let own = angle == .you ? near : far, other = angle == .you ? far : near
       let sign: Float = angle == .you ? 1 : -1
@@ -746,13 +768,14 @@ enum ReplayAngle: String, CaseIterable {
     }
     let aspect = Float(bounds.width/max(1,bounds.height))
     var replayCamera = PlayerCamera(eye:position,target:target,verticalFOV:camera.camera.fieldOfViewInDegrees)
-    if reduceMotion && angle != .neutral {
+    let playerView = angle == .you || angle == .opponent
+    if reduceMotion && playerView {
       let z: Float = angle == .you ? 31.27 : -7.5
       for x: Float in [-4,12.23] { replayCamera = replayCamera.including([x,0,z],aspect:aspect) }
-    } else if !reduceMotion && (angle != .neutral || (beat ?? 0) >= 0) {
+    } else if !reduceMotion && playerView {
       replayCamera = replayCamera.including(frame.ball,aspect:aspect)
     }
-    if angle != .neutral && !handshake && !reduceMotion {
+    if playerView && !handshake && !reduceMotion {
       replayCamera = replayCamera.including(angle == .you ? frame.near : frame.far,aspect:aspect)
     }
     camera.look(at:replayCamera.target,from:replayCamera.eye,relativeTo:nil)

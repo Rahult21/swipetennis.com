@@ -23,7 +23,7 @@ extension PointReplay {
   var finishingShot: PointReplay {
     guard let hit = strikes.last else { return self }
     // Keep the wind-up, but stop the clip from including an earlier contact.
-    let lead = hit.power == .ace ? 1.05 : 0.55
+    let lead = hit.preparation
     let afterPrevious = strikes.dropLast().last.map { $0.time + Self.tick } ?? 0
     let first = min(frames.count - 1, max(0, Int(ceil(max(afterPrevious, hit.time - lead) / Self.tick))))
     return suffix(from: first)
@@ -42,10 +42,10 @@ struct PointBroadcast {
   init(_ shot: PointReplay, celebration: WinnerCelebration?) {
     self.celebration = celebration
     let contact = shot.strikes.last?.time ?? 0
-    start = max(0,contact-0.49)
+    start = max(0,contact-(shot.strikes.last?.preparation ?? 0.55))
     let landing = shot.lastShotBounceTime.map { $0+0.13 } ?? 0
     end = min(shot.duration,max(start+Self.shotDuration*PointReplay.speed,landing))
-    contactEnd = min(end,contact+0.19)
+    contactEnd = min(end,contact+0.36)
   }
   func sourceTime(at elapsed: Double) -> Double {
     let u = clamp((elapsed-reactionDuration)/Self.shotDuration,0,1)
