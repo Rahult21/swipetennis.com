@@ -75,6 +75,31 @@ final class TouchShotTests: XCTestCase {
     }
   }
 
+  func testSpecialShotGestureSizeControlsCarryAndGuideLength() throws {
+    for kind in [ShotKind.drop, .slice] {
+      var previous = 0.0
+      for length in [16.0, 82, 148] {
+        var game = receiving()
+        game.apply(.guidedMove(.receive), side: 0)
+        let epoch = game.shotGestureEpoch(0)
+        let cue = try XCTUnwrap(ShotDirection(action: .shot(kind), side: 0, epoch: epoch,
+          game: game, time: 0, gestureDistance: length))
+        let packet = CupInput(.shot(kind), shotEpoch: epoch, movementEpoch: nil, shotDistance: length)
+        try JSONDecoder().decode(CupInput.self, from: JSONEncoder().encode(packet)).apply(to: &game, side: 0)
+        let target = try XCTUnwrap(game.players[0].aim)
+        XCTAssertEqual(cue.origin.distance(to: cue.target), 3 + 6 * (length - 16) / 132, accuracy: 0.001)
+        game.players[0].pos = game.players[0].destination
+        game.returnBall(0, volley: false, random: { 0.99 })
+        let bounce = try XCTUnwrap(game.flight).landing
+        XCTAssertEqual(bounce.y, target.y, accuracy: 0.001)
+        let carry = PracticeEngine.net - bounce.y
+        XCTAssertGreaterThan(carry, previous)
+        if kind == .drop { XCTAssertLessThan(carry, 2.5) }
+        previous = carry
+      }
+    }
+  }
+
   func testDropIsShortWithLowSecondBounceAndSliceIsSlower() throws {
     for side in 0...1 {
       var engine = PracticeEngine(settings: .init(local: true))

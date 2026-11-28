@@ -277,6 +277,10 @@ struct AthleteMotion {
     let receiveLift = min(receiver.left.y,receiver.right.y)
     let hop: Float = reduceMotion ? 0 : max(0,0.115*sin(split * .pi)-receiveLift)+toeBounce
     let landing = game.serveLanding.flatMap { $0.server == side ? $0.progress : nil }
+    // The landing travels into court at running speed, but it is still part of
+    // the service jump. Use one leg action until both shoes can resume footwork.
+    let serviceWeight = service.map { ramp(Float($0.elapsed), 0, 0.30) }
+      ?? (swing.style == .serve && elapsed != nil ? 1 - ramp(time, 0.42, 0.64) : 0)
     let effort = player.netEffort
     let effortTime = effort.map { Float(game.time - $0.impactTime) } ?? 1
     let windup = effort.map { Float(min(-0.001, $0.startTime - $0.impactTime)) } ?? -0.21
@@ -298,9 +302,9 @@ struct AthleteMotion {
     let gather, extend, depth: Float
     switch swing.style {
     case .serve:
-      gather = ramp(time, -0.54, -0.30)
-      extend = ramp(time, -0.27, -0.075)
-      depth = activePower == .ace ? 0.25 : 0.205
+      gather = ramp(time, -0.62, -0.28)
+      extend = ramp(time, -0.235, -0.075)
+      depth = activePower == .ace ? 0.265 : 0.235
     case .overhead:
       gather = ramp(time,-0.39,-0.23)
       extend = ramp(time,-0.23,-0.045)
@@ -321,12 +325,12 @@ struct AthleteMotion {
     let kneeLoad = readiness * gather * (1 - extend)
     let pushOff = readiness * gather * extend * (1 - ramp(time, 0.06, 0.22))
     // The lead knee softens as the server touches down, then returns to standing height.
-    let landingLoad = swing.style == .serve ? ramp(time, 0.28, 0.42) * (1 - ramp(time, 0.42, 0.56)) : 0
+    let landingLoad = swing.style == .serve ? ramp(time, 0.25, 0.41) * (1 - ramp(time, 0.41, 0.63)) : 0
     let sinceSplit = Float(game.time - game.splitStarted[side])
     let splitLanding = readiness * ramp(sinceSplit, 0.125, 0.204) * (1 - ramp(sinceSplit, 0.204, 0.34))
     // Absorb the last adjustment step, then drive off that leg before contact.
     let plantFlex: Float = fullForehand ? 0.025*(1-ramp(time,-0.15,-0.035)) : 0
-    let bend = (depth + plantFlex) * kneeLoad + 0.016 * rush + 0.065 * landingLoad + 0.075 * splitLanding
+    let bend = (depth + plantFlex) * kneeLoad + 0.016 * rush + 0.105 * landingLoad + 0.075 * splitLanding
     let volleyStep = volley ? drive : 0
     let step = (forward * 0.36 + right * (sideOfBall * 0.15)) * volleyStep
     let stance = max(rush, kneeLoad)
@@ -385,16 +389,6 @@ struct AthleteMotion {
       pose[.leftShoe] += reachDirection*(0.23*landingBrace)
       pose[.leftShoe].y += (0.10-pose[.leftShoe].y)*landingBrace
     }
-    if let measured, swing.style == .serve {
-      // Platform stance: the front shoe points toward the net post. The back
-      // foot trails, releases, and swings behind the hip as the front foot lands.
-      let weight = motionWeight * actionScale
-      let depth = min(0.42,max(-0.42,measured.rearFoot.z))
-      pose[.leftShoe] -= forward * depth * (0.42*weight)
-      pose[.rightShoe] += forward * depth * (0.58*weight)
-      pose[.rightShoe].y += max(0,min(0.19,measured.rearFoot.y))*weight
-      pose.shoeYaw = SIMD2<Float>(0.39,1.12)*weight
-    }
     if !reduceMotion {
       // Keep the support foot anchored. Retarget the captured crossover onto the airborne shoe.
       let movingRight = player.velocity.x*Double(sign) >= 0
@@ -406,8 +400,21 @@ struct AthleteMotion {
         pose[joint] += (right*cross + forward * abs(cross)*0.55 + up*max(-0.035,min(0.10,delta.y))) * weight
       }
     }
-    if let landing {
-      pose[.rightShoe] += (up * 0.32 - forward * 0.24) * Float(sin(landing * .pi))
+    let heelRelease = ramp(time, -0.24, -0.10) * (1 - ramp(time, 0.23, 0.48))
+    let rearKick = ramp(time, -0.045, 0.18) * (1 - ramp(time, 0.24, 0.51))
+    if serviceWeight > 0 {
+      // A staggered platform stays planted through the load. Extend both
+      // legs first, then fold the trailing leg behind the lead-foot landing.
+      let lift = up * ankleHeight
+      var leadShoe = centre - right * 0.16 + forward * 0.19 + lift
+      if let touchdown = game.serveLanding, touchdown.server == side {
+        let remaining = touchdown.to.world() - player.pos.world()
+        leadShoe += remaining * ramp(time, 0.12, 0.30)
+      }
+      let rearShoe = centre + right * 0.20 - forward * (0.22 + 0.21 * rearKick)
+        + lift + up * (0.265 * rearKick * actionScale)
+      pose[.leftShoe] += (leadShoe - pose[.leftShoe]) * serviceWeight
+      pose[.rightShoe] += (rearShoe - pose[.rightShoe]) * serviceWeight
     }
     // Uncoil the pelvis first, the ribcage second, and release the racket last.
     // On a two-handed backhand the right shoulder points toward the net in preparation.
@@ -540,6 +547,16 @@ struct AthleteMotion {
       let height = sqrt(max(0.30, legLength * legLength - leg.x * leg.x - leg.z * leg.z))
       pelvis.y = min(pelvis.y, shoe.y + height)
     }
+    if serviceWeight > 0 {
+      // Turn the back shoe toward the net as its heel unloads. Express
+      // the heading relative to the same pelvic rotation used by the skin.
+      let open = ramp(time, -0.205, 0.10)
+      let pivot = SIMD2<Float>(-0.37 * (1 - open), -1.27 + 1.20 * open)
+      let hipHeading = SIMD2<Float>(repeating: 0.27 * (lastHipYaw ?? 0))
+      pose.shoeYaw += (pivot - hipHeading - pose.shoeYaw) * serviceWeight
+      let roll = SIMD2<Float>(0.10 * heelRelease, 0.38 * heelRelease + 0.22 * rearKick)
+      pose.footRoll += (roll - pose.footRoll) * serviceWeight
+    }
     // Drive the torso in the direction of the first step. When braking into
     // the outside leg the acceleration reverses before the feet do.
     var movingLean = velocity*0.006+acceleration*0.0065
@@ -555,7 +572,10 @@ struct AthleteMotion {
     if swing.style == .serve {
       let arch = ramp(time,-0.55,-0.26)*(1-ramp(time,-0.195,-0.012))
       let carry = ramp(time,-0.095,0.082)*(1-ramp(time,0.17,0.45))
-      chest += forward*(-0.087*arch+0.10*carry)-right*0.048*arch
+      // Hinge over the loaded hips, keep the tossing side high, then
+      // straighten through the toss and absorb the landing over the lead knee.
+      chest += forward * (0.055*kneeLoad + 0.10*carry + 0.105*landingLoad)
+        - right * (0.080*arch) - up * (0.035*kneeLoad + 0.025*landingLoad)
     }
     if volley { chest += (right * sideOfBall * 0.10 + forward * 0.12) * kneeLoad }
     if approaching { chest += forward * (0.12 * forwardRun) }

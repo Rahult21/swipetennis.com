@@ -70,10 +70,25 @@ extension PracticeEngine {
     guard let epoch = shotGestureEpoch(side) else { return false }
     return dropGestureEpoch[side] == epoch
   }
-  mutating func selectTouchShot(_ kind: ShotKind, side: Int, epoch: Int?) {
+  func touchShotLanding(_ kind: ShotKind, side: Int, distance: Double?) -> Vec {
+    var target = Self.preset(side, kind, players[side].pos)
+    if let distance, distance.isFinite {
+      let strength = ShotSwipe.strength(distance)
+      let carry = kind == .drop ? 0.9 + 1.4 * strength : 3.1 + 7.3 * strength
+      target.y = Self.net + (side == 0 ? -carry : carry)
+    }
+    return target
+  }
+
+  mutating func selectTouchShot(_ kind: ShotKind, side: Int, epoch: Int?, distance: Double? = nil) {
     guard let epoch, epoch == shotGestureEpoch(side), canChooseShot(side),
       kind != .drop || canDrawDrop(side) else { return }
     choose(side, kind)
+    if let distance, distance.isFinite {
+      let target = touchShotLanding(kind, side: side, distance: distance)
+      players[side].aim = target
+      players[side].swipeDepth = side == 0 ? target.y : Self.length - target.y
+    }
     dropGestureEpoch[side] = nil
   }
 }

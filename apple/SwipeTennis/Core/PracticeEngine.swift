@@ -789,7 +789,9 @@ struct PracticeEngine: Codable {
     } else if quality == .stretched && !dropReply && kind != .drop && queuedPower == nil {
       // A runner can borrow pace to block but cannot drive deep from full stretch.
       let depth = side == 0 ? aim.y : Self.length - aim.y
-      let short = max(5.3, depth)
+      // Compress the requested swipe range on a block so a longer swipe
+      // still carries farther, even when the player cannot reach the baseline.
+      let short = p.swipeDepth != nil ? Self.net - 0.59 * (Self.net - depth) : max(5.3, depth)
       aim.y = side == 0 ? short : Self.length - short
     }
     let risk = Self.red(aim)

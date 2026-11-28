@@ -31,7 +31,7 @@ struct PracticeGesture {
   private var start: Vec?
   private var travelled = 0.0
   private var screenStart: Vec?
-  private var screenTravelled = 0.0
+  private(set) var screenTravelled = 0.0
   private var circlePoints: [Vec] = []
   private(set) var previewDelta: Vec?
   private(set) var runPace = 1.0
@@ -45,6 +45,7 @@ struct PracticeGesture {
     travelled = max(travelled, start.distance(to: point))
     let screen = screenPoint ?? point
     if screenStart == nil { screenStart = screen }
+    screenTravelled = max(screenTravelled, screenStart!.distance(to: screen))
     if startedAt == nil { startedAt = timestamp }
     if let timestamp, let startedAt, let screenStart, screenPoint != nil, timestamp > startedAt {
       let speed = screenStart.distance(to: screen) / max(1.0 / 120, timestamp - startedAt)
@@ -110,7 +111,6 @@ struct PracticeGesture {
       let origin = screenStart!
       let facing = side == 0 ? 1.0 : -1.0
       previewDelta = Vec(x:(screen.x-origin.x)*facing,y:(screen.y-origin.y)*facing)
-      screenTravelled = max(screenTravelled, origin.distance(to: screen))
       guard ended else { return nil }
       if screenTravelled < 8 { return .courtTap(point) }
       let direction = side == 0 ? 1.0 : -1.0
@@ -130,17 +130,26 @@ struct ShotDirection {
   let start: Double
   private var opponentContact: Double?
 
-  init?(action: PracticeGestureAction, side: Int, epoch: Int?, game: PracticeEngine, time: Double) {
+  init?(action: PracticeGestureAction, side: Int, epoch: Int?, game: PracticeEngine, time: Double, gestureDistance: Double? = nil) {
     guard game.canChooseShot(side), epoch == game.shotGestureEpoch(side) else { return nil }
+    let landing: Vec
+    let distance: Double
     switch action {
     case .shotSwipe(let delta):
-      guard let landing = game.swipeLanding(delta,side:side) else { return nil }
-      target = landing
+      guard let aim = game.swipeLanding(delta, side: side) else { return nil }
+      landing = aim
+      distance = delta.length
     case .shot(let kind) where kind == .slice || (kind == .drop && game.canDrawDrop(side)):
-      target = PracticeEngine.preset(side,kind,game.players[side].pos)
+      landing = game.touchShotLanding(kind, side: side, distance: gestureDistance)
+      distance = gestureDistance ?? 0
     default: return nil
     }
     origin = game.players[side].pos
+    let aimDistance = origin.distance(to: landing)
+    guard aimDistance > 0 else { return nil }
+    let fraction = (3 + 6 * ShotSwipe.strength(distance)) / aimDistance
+    target = Vec(x: origin.x + (landing.x - origin.x) * fraction,
+                 y: origin.y + (landing.y - origin.y) * fraction)
     self.side = side
     serial = game.contactSerial
     start = time
@@ -160,6 +169,11 @@ struct ShotDirection {
 struct ShotSwipe: Equatable {
   let kind: ShotKind
   let lateral: Int
+
+  /// A 16-point swipe is the shortest shot. At 148 points it reaches full depth.
+  static func strength(_ distance: Double) -> Double {
+    clamp((distance - 16) / 132, 0, 1)
+  }
 
   /// Player-relative screen coordinates: toward the net is negative y.
   static func read(_ delta: Vec) -> ShotSwipe? {
@@ -207,7 +221,7 @@ extension PracticeEngine {
 
   func swipeLanding(_ delta: Vec, side: Int) -> Vec? {
     guard let selection = ShotSwipe.read(delta) else { return nil }
-    let reach = clamp((delta.length - 16) / 132, 0, 1)
+    let reach = ShotSwipe.strength(delta.length)
     let deep = selection.kind == .angle ? 3.6 : 0.85
     let depth = 8.8 + (deep - 8.8) * reach
     let pos = players[side].pos

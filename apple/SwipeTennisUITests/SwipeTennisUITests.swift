@@ -435,10 +435,18 @@ final class SwipeTennisUITests: XCTestCase {
     XCTAssertEqual(XCTWaiter.wait(for:[rotated],timeout:10),.completed)
     XCTAssertGreaterThan(control.frame.minX,court.frame.maxX)
     XCTAssertLessThan(court.frame.maxY,app.tabBars.firstMatch.frame.minY)
-    control.tap()
-    XCTAssertTrue(app.buttons["Share pose"].waitForExistence(timeout:20))
-    let image = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
-    image.name = "Landscape stroke studio"; image.lifetime = .keepAlways; add(image)
+    app.buttons["Side"].tap()
+    for phase in ["Load", "Contact", "Finish"] {
+      app.buttons[phase].tap()
+      let displayed = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "value == %@", "Serve-Side-" + phase), object: court)
+      XCTAssertEqual(XCTWaiter.wait(for: [displayed], timeout: 20), .completed)
+      XCTAssertTrue(app.buttons["Share pose"].exists)
+      let image = XCTAttachment(screenshot: court.screenshot())
+      image.name = "Landscape serve " + phase
+      image.lifetime = .keepAlways
+      add(image)
+    }
   }
 
   func testCareerResumesAtSavedPointAfterQuickPlay() throws {

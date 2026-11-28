@@ -65,8 +65,15 @@ struct ServeLanding: Codable {
 
 enum ServeMotion {
   static func jumpHeight(tossProgress: Double?, landingProgress: Double?) -> Double {
-    if let landingProgress { return 10 * (1 - StrokeAnimation.ease(landingProgress)) }
-    return tossProgress.map { 10 * StrokeAnimation.ease(($0 - 0.76) / 0.24) } ?? 0
+    // Push against the court through knee extension. Leave the ground late,
+    // reach the apex at contact, then land before the front knee absorbs the load.
+    if let landingProgress {
+      let descent = clamp(landingProgress / 0.82, 0, 1)
+      return 10 * (1 - descent * descent)
+    }
+    guard let tossProgress else { return 0 }
+    let ascent = clamp((tossProgress - 0.86) / 0.14, 0, 1)
+    return 10 * ascent * (2 - ascent)
   }
 }
 

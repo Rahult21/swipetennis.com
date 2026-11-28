@@ -375,7 +375,7 @@ import SwiftUI
     followLabel.fontColor = .systemYellow
     openLabel.text = "OPEN"
     openLabel.fontColor = .systemYellow.withAlphaComponent(0.8)
-    shotLine.strokeColor = UIColor(red:1,green:0.06,blue:0.73,alpha:1)
+    shotLine.strokeColor = .white
     shotLine.lineWidth = 3
     shotLine.lineCap = .round
     shotLine.zPosition = 35
@@ -963,7 +963,7 @@ import SwiftUI
       return
     }
     let path = CGMutablePath()
-    path.move(to:projectWorld(cue.origin.world(height:0.8)))
+    path.move(to:projectWorld(cue.origin.world(height:0.04)))
     path.addLine(to:projectWorld(cue.target.world(height:0.04)))
     shotLine.path = path
     shotLine.alpha = opacity
@@ -1008,11 +1008,12 @@ import SwiftUI
     if let action {
       let showedGauges = engine.displayedServeGauges != nil
       if let cue = ShotDirection(action:action,side:gesture.side,epoch:gesture.shotEpoch,game:engine,
-                                 time:ProcessInfo.processInfo.systemUptime) {
+                                 time:ProcessInfo.processInfo.systemUptime, gestureDistance:gesture.screenTravelled) {
         shotDirection = cue
         drawShotDirection()
       }
-      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch, runPace: gesture.runPace), side: gesture.side)
+      cupInput(CupInput(action, shotEpoch: gesture.shotEpoch, movementEpoch: gesture.movementEpoch,
+                        runPace: gesture.runPace, shotDistance: gesture.screenTravelled), side: gesture.side)
       if engine.inventory.held != nil || showedGauges != (engine.displayedServeGauges != nil) { publish?(engine) }
     }
   }

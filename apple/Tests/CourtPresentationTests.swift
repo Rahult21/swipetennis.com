@@ -189,7 +189,21 @@ extension CourtPresentationTests {
     XCTAssertGreaterThan(hit[.leftShoe].y,0.13)
     XCTAssertLessThan(hit[.leftShoe].y,0.30)
     XCTAssertGreaterThan(finish[.rightShoe].y,finish[.leftShoe].y+0.10)
-    XCTAssertGreaterThan(loaded.shoeYaw.y,loaded.shoeYaw.x+0.35)
+    func rearToeHeading(_ pose: AthletePose) -> Float {
+      let hips = pose[.rightHip] - pose[.leftHip]
+      return 0.27 * atan2(-hips.z, hips.x) + pose.shoeYaw.y
+    }
+    XCTAssertLessThan(rearToeHeading(loaded), -1.1)
+    XCTAssertLessThan(abs(rearToeHeading(finish)), 0.18)
+    XCTAssertGreaterThan(hit[.rightHip].y - loaded[.rightHip].y, 0.23)
+    XCTAssertGreaterThan(hit[.head].y - loaded[.head].y, 0.25)
+    var lastHeading = rearToeHeading(loaded)
+    for t in stride(from: -0.28, through: 0.15, by: 1.0/60) {
+      let heading = rearToeHeading(try pose(t))
+      XCTAssertGreaterThanOrEqual(heading, lastHeading - 0.005)
+      XCTAssertLessThan(heading - lastHeading, 0.14)
+      lastHeading = heading
+    }
     for kind: CapturedStroke.Kind in [.serve,.smash,.forehand,.backhand,.volley] {
       let sample = try XCTUnwrap(CapturedStroke.sample(kind,at:-0.1))
       XCTAssertGreaterThan(simd_length(sample.elbow),0.04)

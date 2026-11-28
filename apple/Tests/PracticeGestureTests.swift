@@ -141,7 +141,9 @@ final class PracticeGestureTests: XCTestCase {
       XCTAssertNil(ShotDirection(action: .courtTap(.zero), side: side, epoch: epoch, game: game, time: 5))
       XCTAssertNil(ShotDirection(action: .shotSwipe(swipe), side: side, epoch: nil, game: game, time: 5))
       game.selectShotSwipe(swipe, side: side)
-      XCTAssertEqual(cue.target, game.players[side].aim)
+      let aim = try XCTUnwrap(game.players[side].aim)
+      let dx = aim.x - cue.origin.x, dy = aim.y - cue.origin.y
+      XCTAssertEqual((cue.target.x - cue.origin.x) * dy, (cue.target.y - cue.origin.y) * dx, accuracy: 0.0001)
       var timeout = cue
       XCTAssertEqual(timeout.opacity(at: 5.86, serial: game.contactSerial, hitter: 1-side), 0.5, accuracy: 0.001)
       XCTAssertEqual(timeout.opacity(at: 6, serial: game.contactSerial, hitter: 1-side), 0)
@@ -150,6 +152,36 @@ final class PracticeGestureTests: XCTestCase {
       _ = cue.opacity(at: 5.2, serial: game.contactSerial + 2, hitter: 1-side)
       XCTAssertEqual(cue.opacity(at: 5.25, serial: game.contactSerial + 2, hitter: 1-side), 0.5, accuracy: 0.001)
       XCTAssertEqual(cue.opacity(at: 5.31, serial: game.contactSerial + 2, hitter: 1-side), 0)
+    }
+  }
+
+  func testShortMediumAndLongSwipesScaleTheLineAndActualBounceOnBothEnds() throws {
+    for side in 0...1 {
+      let incomingY = side == 0 ? 22.0 : 2.0
+      var previousDepth = 0.0
+      for (distance, metres) in [(16.0, 3.0), (82.0, 6.0), (148.0, 9.0), (240.0, 9.0)] {
+        var game = PracticeEngine(settings: .init(local: true))
+        game.phase = .live
+        let player = Vec(x: 4.1, y: incomingY)
+        game.players[side].pos = player
+        game.players[side].destination = player
+        game.launch(1-side, aim: player, kind: .cross)
+        game.flight!.contact = player
+        let delta = Vec(x: 0, y: -distance)
+        let action = PracticeGestureAction.shotSwipe(delta)
+        let epoch = game.shotGestureEpoch(side)
+        let line = try XCTUnwrap(ShotDirection(action: action, side: side, epoch: epoch, game: game, time: 0))
+        XCTAssertEqual(line.origin.distance(to: line.target), metres, accuracy: 0.0001)
+        game.apply(action, side: side, shotEpoch: epoch)
+        game.returnBall(side, volley: false, random: { 0.99 })
+        let flight = try XCTUnwrap(game.flight)
+        XCTAssertEqual(flight.hitter, side)
+        XCTAssertNil(flight.fault)
+        let depth = abs(flight.landing.y - PracticeEngine.net)
+        if distance <= 148 { XCTAssertGreaterThan(depth, previousDepth) }
+        else { XCTAssertEqual(depth, previousDepth, accuracy: 0.0001) }
+        previousDepth = depth
+      }
     }
   }
 
