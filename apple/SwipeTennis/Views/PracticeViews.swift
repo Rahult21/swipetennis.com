@@ -89,7 +89,7 @@ struct PracticeSetupView: View {
       } header: { Text("Match") } footer: { Text(settings.scoring.detail) }
       Section {
         Button { showGuide = true } label: { Label("How to play", systemImage: "hand.draw") }
-      } footer: { Text("Your player moves to receive. Swipe from your player as you approach, or swipe on your half when set. A longer swipe hits deeper and harder.") }
+      } footer: { Text("Flick in one direction to aim your return. A longer flick hits deeper and harder. Hold and drag slowly to approach after your shot or adjust your receiving position.") }
     }.navigationTitle("Play & practice")
       .fullScreenCover(item:$training) { TrainingCourtView($0,surface:settings.surface) }
       .safeAreaInset(edge: .bottom) {

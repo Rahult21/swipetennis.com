@@ -45,7 +45,7 @@ extension PracticeEngine {
     if settings.local {
       return CourtInstruction(
         title: "Yellow: receive. White: recover.",
-        detail: "Swipe from your player to aim; swipe elsewhere on your half to move.", symbol: "person.2.fill")
+        detail: "Flick in one direction to aim. Hold and drag slowly to position your player.", symbol: "person.2.fill")
     }
     guard let flight else {
       return CourtInstruction(

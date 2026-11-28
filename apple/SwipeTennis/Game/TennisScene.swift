@@ -444,6 +444,10 @@ import SwiftUI
         return
       }
     }
+    let now = ProcessInfo.processInfo.systemUptime
+    for (touch, gesture) in touchGestures where gesture.needsHoldSample(at: now) {
+      applyTouch(touch, sampleTime: now)
+    }
     let oldInventory = engine.inventory
     let oldPhase = engine.phase
     let showedGauges = engine.displayedServeGauges != nil
@@ -1023,7 +1027,7 @@ import SwiftUI
     shotLine.isHidden = false
   }
 
-  private func applyTouch(_ touch: UITouch, ended: Bool = false) {
+  private func applyTouch(_ touch: UITouch, ended: Bool = false, sampleTime: Double? = nil) {
     guard engine.acceptsCourtMovement && !suspended && engine.demo?.demonstration != true else { return }
     if var serveTouch = serveTouches[touch] {
       let point = touch.location(in: self)
@@ -1065,10 +1069,16 @@ import SwiftUI
       return
     }
     guard var gesture = touchGestures[touch] else { return }
+    // A rally touch belongs to the exchange on which the finger went down.
+    if gesture.intent == .rally && gesture.movementEpoch != engine.contactSerial {
+      touchGestures.removeValue(forKey: touch)
+      aimPreview = nil
+      return
+    }
     let action = gesture.update(
       at: unproject(touch.location(in: self)),
       screenPoint: CupPerspective.screen(Vec(x: touch.location(in: self).x, y: -touch.location(in: self).y), side: perspectiveSide),
-      ended: ended, timestamp: touch.timestamp, playerPosition: engine.players[gesture.side].pos)
+      ended: ended, timestamp: sampleTime ?? touch.timestamp, playerPosition: engine.players[gesture.side].pos)
     // Only a fresh steering sample may cross a contact boundary. A late lift
     // or a queued network command still belongs to its original exchange.
     if !ended, case .move = action { gesture.movementEpoch = engine.contactSerial }
@@ -1138,7 +1148,12 @@ import SwiftUI
         }
       }
       let waiting = engine.flight?.waitingForSwipe == true
-      let intent: CourtTouchIntent = engine.canChooseShot(side) && (waiting || onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
+      let intent: CourtTouchIntent
+      if interactiveRally && engine.demo == nil && engine.phase == .live && engine.flight?.fault == nil {
+        intent = .rally
+      } else {
+        intent = engine.canChooseShot(side) && (waiting || onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
+      }
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
         movementGain: engine.quickNetFeet(side) ? 1.8 : 1,

@@ -88,10 +88,28 @@ extension PracticeEngine {
       side, CourtTactics.netCoverage(side: side, opponentContact: flight.contact))
   }
 
+  private mutating func positionDuringRally(_ side: Int, target: Vec, epoch: Int?, pace: Double?) {
+    guard phase == .live, epoch == contactSerial, let flight, flight.fault == nil, flight.power == nil,
+          committedRun(side) == nil, flight.waitingForSwipe != true else { return }
+    let receiver = 1 - flight.hitter
+    let contact = contactWindow(receiver)?.entry ?? 1
+    guard flight.time(at: contact) - flight.elapsed > 0.16 else { return }
+    let to = Self.own(side, target)
+    let forward = (to.y - players[side].pos.y) * (side == 0 ? -1 : 1)
+    if canFollowShot(side) && forward >= 0.55 && abs(to.x - players[side].pos.x) <= forward {
+      if !followingApproach[side] { followShot(side) }
+      players[side].destination = to
+    } else {
+      move(side, to: to)
+    }
+    players[side].runPace = clamp(pace ?? 0.8, 0.6, 1.2)
+  }
+
   mutating func apply(_ action: PracticeGestureAction, side: Int, shotEpoch: Int? = nil, movementEpoch: Int? = nil, runPace: Double? = nil, shotDistance: Double? = nil, displayedLanding: Vec? = nil) {
     guard !phase.isPlaying || side != 0 || (queuedPower == nil && flight?.power == nil) else { return }
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
+    case .position(let point): positionDuringRally(side, target: point, epoch: movementEpoch, pace: runPace)
     case .move(let point):
       guard committedRun(side) == nil else { return }
       if let movementEpoch {

@@ -141,6 +141,7 @@ struct CupInput: Codable {
     self.init(kind: "", shotEpoch: shotEpoch, movementEpoch: movementEpoch)
     self.runPace = runPace
     switch action {
+    case .position(let p): kind = "position"; point = p
     case .move(let p): kind = "move"; point = p
     case .aim(let p): kind = "aim"; point = p
     case .shot(let s): kind = "shot"; shot = s; self.shotDistance = shotDistance
@@ -155,6 +156,7 @@ struct CupInput: Codable {
     if let point, !point.x.isFinite || !point.y.isFinite || abs(point.x) > 10000 || abs(point.y) > 10000 { return }
     var action: PracticeGestureAction?
     switch kind {
+    case "position": if let point { action = .position(point) }
     case "move": if let point { action = .move(point) }
     case "aim": if let point { action = .aim(point) }
     case "shot": if let shot { action = .shot(shot) }

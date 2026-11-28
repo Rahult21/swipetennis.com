@@ -3,6 +3,77 @@ import XCTest
 @testable import TennisCore
 
 final class PracticeGestureTests: XCTestCase {
+  func testRallyFlickAndHeldDragWithSameDirectionHaveDifferentResults() throws {
+    for side in 0...1 {
+      let origin = Vec(x: 4, y: side == 0 ? 20 : 4)
+      let direction = side == 0 ? -1.0 : 1.0
+      let court = Vec(x: 0, y: direction * 2)
+      let screen = Vec(x: 0, y: direction * 40)
+      func touch(receiving: Bool) -> PracticeGesture {
+        var g = PracticeGesture(side: side, intent: .rally, movementEpoch: 3,
+          shotEpoch: receiving ? 3 : nil, movementOrigin: origin)
+        XCTAssertNil(g.update(at: .zero, screenPoint: .zero, timestamp: 1))
+        return g
+      }
+      var flick = touch(receiving: true)
+      XCTAssertNil(flick.update(at: court, screenPoint: screen, timestamp: 1.08))
+      XCTAssertEqual(flick.previewDelta?.y, -40)
+      XCTAssertEqual(flick.update(at: court, screenPoint: screen, ended: true, timestamp: 1.09), .shotSwipe(Vec(x: 0, y: -40)))
+      var outgoing = touch(receiving: false)
+      XCTAssertNil(outgoing.update(at: court, screenPoint: screen, ended: true, timestamp: 1.09))
+      for receiving in [true, false] {
+        var drag = touch(receiving: receiving)
+        XCTAssertNil(drag.update(at: court, screenPoint: screen, timestamp: 1.06))
+        XCTAssertTrue(drag.needsHoldSample(at: 1.30))
+        let target = Vec(x: 4, y: origin.y + direction * 2.4)
+        XCTAssertEqual(drag.update(at: court, screenPoint: screen, timestamp: 1.30), .position(target))
+        XCTAssertNil(drag.previewDelta)
+        XCTAssertEqual(drag.runPace, 0.8 * (1 + (40 / 0.30 - 340) / 1050), accuracy: 0.001)
+        let turn = drag.update(at: Vec(x: -1, y: court.y), screenPoint: Vec(x: -25, y: screen.y), timestamp: 1.45)
+        XCTAssertEqual(turn, .position(Vec(x: 2.8, y: target.y)))
+        XCTAssertNil(drag.update(at: Vec(x: -1, y: court.y), screenPoint: Vec(x: -25, y: screen.y), ended: true, timestamp: 1.48))
+      }
+      var fastOutgoing = touch(receiving: false)
+      XCTAssertNil(fastOutgoing.update(at: court, screenPoint: Vec(x: 0, y: -140), ended: true, timestamp: 1.29))
+      var bent = touch(receiving: true)
+      XCTAssertNil(bent.update(at: court, screenPoint: Vec(x: 30, y: 0), timestamp: 1.04))
+      XCTAssertNil(bent.update(at: court, screenPoint: Vec(x: 30, y: -40), ended: true, timestamp: 1.11))
+    }
+  }
+
+  func testRallyDragUsesExchangeAndContactWindowOnBothPlayers() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      game.players[side].pos = Vec(x: 4, y: side == 0 ? 22 : 2)
+      game.players[1-side].pos = Vec(x: 4, y: side == 0 ? 2 : 22)
+      game.launch(side, aim: game.players[1-side].pos, kind: .line)
+      let to = Vec(x: 4, y: side == 0 ? 19 : 5)
+      let epoch = game.contactSerial
+      let command = CupInput(.position(to), shotEpoch: nil, movementEpoch: epoch, runPace: 0.7)
+      let encoded = try JSONEncoder().encode(command)
+      try JSONDecoder().decode(CupInput.self, from: encoded).apply(to: &game, side: side)
+      XCTAssertEqual(game.players[side].destination, to)
+      XCTAssertTrue(game.followingApproach[side])
+      XCTAssertEqual(game.players[side].runPace, 0.7)
+      game.launch(1-side, aim: game.players[side].pos, kind: .line)
+      let adjust = Vec(x: 3, y: to.y)
+      game.apply(.position(adjust), side: side, movementEpoch: epoch)
+      XCTAssertNotEqual(game.players[side].destination, adjust)
+      game.apply(.position(adjust), side: side, movementEpoch: game.contactSerial)
+      XCTAssertEqual(game.players[side].destination, adjust)
+      XCTAssertFalse(game.followingApproach[side])
+      XCTAssertNil(game.players[side].swingStrength)
+      let f = try XCTUnwrap(game.flight)
+      let entry = game.contactWindow(side)?.entry ?? 1
+      game.flight?.elapsed = f.time(at: entry) - 0.1
+      game.apply(.position(to), side: side, movementEpoch: game.contactSerial)
+      XCTAssertEqual(game.players[side].destination, adjust)
+      game.apply(.shotSwipe(Vec(x: 0, y: -90)), side: side, shotEpoch: game.shotGestureEpoch(side))
+      XCTAssertNotNil(game.players[side].swingStrength)
+    }
+  }
+
   func testEightPointSwipeStartsFullGuideRunBeforeReleaseAndOnlyOnce() throws {
     for side in 0...1 {
       for kind in [MovementGuideKind.receive, .recover] {

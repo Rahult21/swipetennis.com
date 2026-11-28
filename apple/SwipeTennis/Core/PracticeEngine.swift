@@ -990,7 +990,7 @@ struct PracticeEngine: Codable {
       let effort = bot ? (chase ? 1 + 0.5 * clamp((d - 2) / 5, 0, 1) : 1) : p.runPace ?? 1
       let fatigue = 0.70 + 0.30 * min(1, p.energyLevel / 0.9)
       // The bot can sprint up to its existing style speed instead of stacking movement bonuses.
-      let gait = bot ? min(1, 0.90 * effort) : quickNetFeet(i) ? 2 : shortBallBoost * clamp(effort, 0.75, 1.5)
+      let gait = bot ? min(1, 0.90 * effort) : quickNetFeet(i) ? 2 * min(1, effort) : shortBallBoost * clamp(effort, 0.6, 1.5)
       let maxSpeed = baseSpeed * gait * fatigue * (turning ? 0.6 : 1)
       let braking = p.velocity.length > 1 && (p.velocity.x * (p.destination.x-p.pos.x) + p.velocity.y * (p.destination.y-p.pos.y) < 0 || d < p.velocity.length*p.velocity.length/18)
       let traction = settings.surface == .clay ? (braking ? 0.71 : 0.96) : settings.surface == .hard ? 1.07 : (braking ? 0.89 : 1)
@@ -1048,6 +1048,7 @@ struct PracticeEngine: Codable {
     if manualStrike && current.swipeHoldTime == nil {
       let target = committedRun(receiver) ?? Self.own(receiver, intercept(receiver))
       players[receiver].destination = target
+      dropGestureEpoch[receiver] = contactSerial
       players[receiver].recoveryFlight = nil
       let entry = BallContactWindow.next(flight: current, player: target, side: receiver)?.entry ?? 1
       flight?.swipeHoldTime = max(current.elapsed, current.time(at: entry) - 0.16)

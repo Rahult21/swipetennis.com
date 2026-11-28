@@ -2,6 +2,7 @@ import Foundation
 
 enum PracticeGestureAction: Equatable {
   case move(Vec)
+  case position(Vec)
   case aim(Vec)
   case shot(ShotKind)
   case guidedMove(MovementGuideKind)
@@ -10,7 +11,7 @@ enum PracticeGestureAction: Equatable {
   case shotSwipe(Vec)
 }
 
-enum CourtTouchIntent { case movement, shot, slice }
+enum CourtTouchIntent { case movement, shot, slice, rally }
 
 /// A short swipe toward an uncommanded guide starts a run. A fresh swipe on a
 /// player already heading there selects a shot; one touch never does both.
@@ -36,6 +37,62 @@ struct PracticeGesture {
   private(set) var previewDelta: Vec?
   private(set) var runPace = 1.0
   private var startedAt: Double?
+  private var previousScreen: Vec?
+  private var pathLength = 0.0
+  private var lastMotionAt: Double?
+  private var positioning = false
+  private static let flickDuration = 0.26
+
+  func needsHoldSample(at time: Double) -> Bool {
+    guard intent == .rally, !positioning, screenTravelled >= 6, let startedAt, let lastMotionAt else { return false }
+    return time - startedAt >= Self.flickDuration && time - lastMotionAt >= 0.09
+  }
+
+  private mutating func rallyAction(at point: Vec, screen: Vec, time: Double, ended: Bool) -> PracticeGestureAction? {
+    guard let start, let screenStart, let startedAt, let movementOrigin else { return nil }
+    let elapsed = max(0, time - startedAt)
+    if let previousScreen {
+      let step = previousScreen.distance(to: screen)
+      pathLength += step
+      if step > 0 { lastMotionAt = time }
+    }
+    previousScreen = screen
+    let distance = screenStart.distance(to: screen)
+    let speed = distance / max(1 / 120.0, elapsed)
+    // A fast loop is the existing drop-shot gesture. A drag that already
+    // owns the feet keeps them, including when the finger turns or circles.
+    let drawingLoop = allowsDrop && !positioning && elapsed <= 0.9 && pathLength > distance * 1.15
+      && pathLength / max(1 / 120.0, elapsed) >= 200
+    if drawingLoop {
+      previewDelta = nil
+      if ended && QuickCircle.matches(circlePoints, duration: elapsed) { return .shot(.drop) }
+      if !ended { return nil }
+    }
+    let pathSpeed = pathLength / max(1 / 120.0, elapsed)
+    let slowDrag = elapsed >= 0.09 && pathSpeed < 160
+    let heldDrag = elapsed >= Self.flickDuration && (pathSpeed <= 320 || needsHoldSample(at: time))
+    if screenTravelled >= 6 && (slowDrag || heldDrag) {
+      positioning = true
+    }
+    if positioning {
+      previewDelta = nil
+      let gain = 1.5 * movementGain * 0.8
+      let target = PracticeEngine.own(side, Vec(x: movementOrigin.x + gain * (point.x - start.x),
+                                               y: movementOrigin.y + gain * (point.y - start.y)))
+      if let lastTarget, lastTarget.distance(to: target) < (ended ? 0.001 : 0.04) { return nil }
+      if !ended, let lastSent, time - lastSent < 1 / 30.0 { return nil }
+      lastSent = time
+      lastTarget = target
+      runPace = 0.8 * clamp(1 + (speed - 340) / 1050, 0.75, 1.5)
+      return .position(target)
+    }
+    if ended, screenTravelled < 6 { return elapsed < Self.flickDuration ? .courtTap(point) : nil }
+    let flick = shotEpoch != nil && elapsed < Self.flickDuration && distance >= 16 &&
+      speed >= 160 && distance >= pathLength * 0.94
+    let facing = side == 0 ? 1.0 : -1.0
+    previewDelta = flick ? Vec(x: (screen.x - screenStart.x) * facing, y: (screen.y - screenStart.y) * facing) : nil
+    return ended ? previewDelta.map(PracticeGestureAction.shotSwipe) : nil
+  }
 
   mutating func update(at point: Vec, screenPoint: Vec? = nil, ended: Bool = false, timestamp: Double? = nil, playerPosition: Vec? = nil)
     -> PracticeGestureAction?
@@ -47,6 +104,12 @@ struct PracticeGesture {
     if screenStart == nil { screenStart = screen }
     screenTravelled = max(screenTravelled, screenStart!.distance(to: screen))
     if startedAt == nil { startedAt = timestamp }
+    if intent == .rally, let timestamp {
+      if allowsDrop && circlePoints.count < 160 && circlePoints.last.map({ $0.distance(to: screen) >= 2 }) ?? true {
+        circlePoints.append(screen)
+      }
+      return rallyAction(at: point, screen: screen, time: timestamp, ended: ended)
+    }
     if let timestamp, let startedAt, let screenStart, screenPoint != nil, timestamp > startedAt {
       let speed = screenStart.distance(to: screen) / max(1.0 / 120, timestamp - startedAt)
       runPace = clamp(1 + (speed - 340) / 1050, 0.75, 1.5)
