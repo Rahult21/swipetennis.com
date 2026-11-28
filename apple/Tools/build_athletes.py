@@ -511,14 +511,20 @@ class Athlete:
                 if -.11 < across < .15 and shoulder[1]-.21 < y < shoulder[1]+.08:
                     sleeves.append(i)
             else:
-                # The two leg openings move independently. The seam joining
-                # them is supported by the pelvis, with a graded transition
-                # into each thigh instead of opposite bones on adjacent vertices.
-                side = max(0,min(1,(abs(x)-.013)/.108))
-                height = max(0,min(1,(y-hip+.197)/.068))
+                # The leg openings follow their own thigh. Higher up, the
+                # gusset spans both thighs and lifts with the bent leg.
+                # Keeping that panel on the pelvis alone lets the quadriceps
+                # pass through it when the player loads a groundstroke.
+                side = max(0,min(1,(abs(x)-.009)/.090))
+                height = max(0,min(1,(y-hip+.158)/.060))
                 panel = (1-side*side*(3-2*side))*height*height*(3-2*height)
                 if panel > 0:
-                    weights[i] = combined([(1-panel,weights[i]),(panel,{"pelvis":1})])
+                    right = max(0,min(1,.5+x/.10))
+                    # Blend back to the pelvis at the waistband.
+                    legs = max(0,min(1,(hip+.035-y)/.10))
+                    legs = legs*legs*(3-2*legs)
+                    gusset = {"pelvis":1-legs, "thighR":legs*right, "thighL":legs*(1-right)}
+                    weights[i] = combined([(1-panel,weights[i]),(panel,gusset)])
         # Fair the shoulder weights along the actual surface. Running this
         # before the sleeve and shirt are cut gives both sides of a seam
         # exactly the same bend when the player raises the racket.
