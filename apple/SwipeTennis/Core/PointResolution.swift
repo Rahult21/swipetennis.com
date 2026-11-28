@@ -1,5 +1,17 @@
 import Foundation
 
+enum WinnerCelebration: String, Codable {
+  case fistPump, risingFist
+
+  static func select(winner: Int, flight: BallFlight?, random: () -> Double) -> Self? {
+    guard let flight, flight.hitter == winner, flight.fault == nil else { return nil }
+    let roll = random()
+    if roll < 1.0/6 { return .fistPump }
+    if roll < 1.0/3 { return .risingFist }
+    return nil
+  }
+}
+
 /// A completed point keeps its ball visible before the result card covers the court.
 struct PointResolution: Codable {
   static let markerDuration = 0.3
@@ -8,7 +20,10 @@ struct PointResolution: Codable {
   let impact: FaultImpact?
   let reaction: PointReaction?
 
-  init(impact: FaultImpact?, reaction: PointReaction? = nil) {
+  let celebration: WinnerCelebration?
+
+  init(impact: FaultImpact?, reaction: PointReaction? = nil, celebration: WinnerCelebration? = nil) {
+    self.celebration = celebration
     self.impact = impact
     self.reaction = reaction
   }

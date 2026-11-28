@@ -30,8 +30,11 @@ final class PointBroadcastTests: XCTestCase {
   }
   func testTwoSecondReactionAndThreeSecondPlayerHighlightUseWallTime() throws {
     let shot = rally([(90,0,false)]).winningShot(for:0)
-    let plan = PointBroadcast(shot)
-    XCTAssertEqual(PointBroadcast.reactionDuration,2)
+    let plan = PointBroadcast(shot,celebration:.risingFist)
+    XCTAssertEqual(plan.reactionDuration,2)
+    let plain = PointBroadcast(shot,celebration:nil)
+    XCTAssertEqual(plain.duration,3)
+    XCTAssertEqual(plain.sourceTime(at:0.3),plan.sourceTime(at:2.3),accuracy:0.000001)
     XCTAssertEqual(PointBroadcast.shotDuration,3)
     XCTAssertEqual(plan.sourceTime(at:0),plan.sourceTime(at:2))
     XCTAssertEqual(plan.sourceTime(at:2.3)-plan.sourceTime(at:2.1),0.1,accuracy:0.000001)
@@ -44,47 +47,106 @@ final class PointBroadcastTests: XCTestCase {
       previous = t
     }
   }
-  func testWinnerLooksAtRaisedFistDuringTwoSeparatedSyllables() {
-    let first = AthletePose.winnerReaction(at:0.47)
-    let closure = AthletePose.winnerReaction(at:0.68)
-    let second = AthletePose.winnerReaction(at:0.95)
-    XCTAssertGreaterThan(first.jawOpen,0.6)
-    XCTAssertLessThan(closure.jawOpen,0.05)
-    XCTAssertGreaterThan(second.jawOpen,0.82)
-    XCTAssertGreaterThan(second.lipRound,closure.lipRound)
-    XCTAssertGreaterThan(closure[.leftHand].y,closure[.leftShoulder].y)
-    XCTAssertGreaterThan(closure[.leftHand].y,closure[.head].y)
-    XCTAssertGreaterThan(closure[.head].x-closure[.leftHand].x,0.22)
-    let forearm = simd_normalize(closure[.leftHand]-closure[.leftElbow])
-    XCTAssertGreaterThan(forearm.y,0.90)
-    XCTAssertLessThan(closure[.grip].y,closure[.rightShoulder].y-0.35)
-    XCTAssertGreaterThan(closure.fingerCurl.x,0.96)
-    XCTAssertLessThan(closure.gaze.x,-0.8)
-  }
-  func testWinnerWalkStartsAtContactAndHeadsTowardOwnBaselineAtEitherEnd() throws {
+  func testOnlyAnUnreturnedLegalWinnerCanSelectEitherCelebration() throws {
     for side in 0...1 {
       var game = PracticeEngine(settings:.init(local:true))
       game.phase = .live
       game.launch(side,aim:Vec(x:4,y:12),kind:.cross)
-      var shot = PointReplay()
-      for tick in 0..<4 {
-        var p = AthletePose.winnerReaction(at:0)
-        for joint in BodyJoint.allCases { p[joint] += [Float(tick),0,side == 0 ? 16 : 6] }
-        shot.record(.init(near:p,far:p,ball:[7,1,10]),game:game,hit:tick == 1)
+      for bucket in 0..<6 {
+        let roll = { (Double(bucket)+0.5)/6.0 }
+        var point = game
+        point.end(side,reason:"Winner",tip:"",random:roll)
+        let resolution = try XCTUnwrap(point.pointResolution)
+        let saved = try JSONDecoder().decode(PointResolution.self,from:JSONEncoder().encode(resolution))
+        XCTAssertEqual(saved.celebration,bucket == 0 ? .fistPump : bucket == 1 ? .risingFist : nil)
+        XCTAssertNil(WinnerCelebration.select(winner:1-side,flight:game.flight,random:roll))
       }
-      let walk = try XCTUnwrap(WinnerWalk(shot:shot,winner:side))
-      XCTAssertEqual(walk.origin.x,1,accuracy:0.001)
-      XCTAssertEqual(walk.sample(at:0).position,walk.origin)
-      func plantedFoot(_ t: Double) -> CourtPoint3D {
-        let frame = walk.sample(at:t)
-        return frame.position + simd_quatf(angle:frame.yaw,axis:[0,1,0]).act(frame.pose[.rightShoe])
+      for fault in ["net","wide","long"] {
+        game.flight?.fault = fault
+        XCTAssertNil(WinnerCelebration.select(winner:side,flight:game.flight,random:{ 0 }))
+        XCTAssertNil(WinnerCelebration.select(winner:1-side,flight:game.flight,random:{ 0 }))
       }
-      XCTAssertLessThan(simd_distance(plantedFoot(0.76),plantedFoot(0.94)),0.002)
-      let end = walk.sample(at:2).position, baseline: Float = side == 0 ? Float(PracticeEngine.length) : 0
-      XCTAssertLessThan(abs(end.z-baseline),abs(walk.origin.z-baseline))
-      XCTAssertLessThanOrEqual(simd_distance(end,walk.origin),1.57)
-      let fault = try XCTUnwrap(WinnerWalk(shot:shot,winner:1-side))
-      XCTAssertEqual(fault.origin.x,3,accuracy:0.001)
+    }
+    XCTAssertNil(try JSONDecoder().decode(PointResolution.self,from:Data(#"{"elapsed":0}"#.utf8)).celebration)
+  }
+
+  func testRisingFistLiftsFromWaistWithTwoSyllables() {
+    let low = AthletePose.winnerReaction(at:0.22,celebration:.risingFist)
+    let first = AthletePose.winnerReaction(at:0.47,celebration:.risingFist)
+    let closure = AthletePose.winnerReaction(at:0.68,celebration:.risingFist)
+    let second = AthletePose.winnerReaction(at:0.95,celebration:.risingFist)
+    XCTAssertGreaterThan(first.jawOpen,0.6)
+    XCTAssertLessThan(closure.jawOpen,0.05)
+    XCTAssertGreaterThan(second.jawOpen,0.82)
+    XCTAssertGreaterThan(second.lipRound,closure.lipRound)
+    XCTAssertGreaterThan(second[.leftHand].y-low[.leftHand].y,0.38)
+    XCTAssertGreaterThan(second.reactionFist,0.96)
+    let classic = AthletePose.winnerReaction(at:0.68,celebration:.fistPump)
+    XCTAssertGreaterThan(classic[.leftHand].y,classic[.head].y)
+    XCTAssertLessThan(classic.gaze.x,-0.8)
+    XCTAssertEqual(classic.jawOpen,0)
+  }
+
+  func testWalkBackPlantsEachFootAndPreservesFormThroughoutBothGestures() throws {
+    for side in 0...1 {
+      for gesture in [WinnerCelebration.fistPump,.risingFist] {
+        var game = PracticeEngine(settings:.init(local:true))
+        game.phase = .live
+        game.launch(side,aim:Vec(x:4,y:12),kind:.cross)
+        var shot = PointReplay()
+        for tick in 0..<4 {
+          var p = AthletePose.winnerReaction(at:0,celebration:gesture)
+          for joint in BodyJoint.allCases { p[joint] += [Float(tick),0,side == 0 ? 16 : 6] }
+          shot.record(.init(near:p,far:p,ball:[7,1,10]),game:game,hit:tick == 1)
+        }
+        let walk = try XCTUnwrap(WinnerWalk(shot:shot,winner:side,celebration:gesture))
+        XCTAssertEqual(walk.origin.x,3,accuracy:0.001)
+        XCTAssertNil(WinnerWalk(shot:shot,winner:1-side,celebration:gesture))
+        let end = walk.sample(at:2).position
+        XCTAssertGreaterThan((end.z-walk.origin.z)*(side == 0 ? 1 : -1),0.60)
+        let rest = walk.sample(at:0).pose
+        var previous = walk.sample(at:0)
+        for tick in 1...240 {
+          let frame = walk.sample(at:Double(tick)/120)
+          var planted = false
+          for (hip,knee,shoe) in [(BodyJoint.leftHip,BodyJoint.leftKnee,BodyJoint.leftShoe),(.rightHip,.rightKnee,.rightShoe)] {
+            let ankle = frame.pose[shoe]+frame.position
+            let other = previous.pose[shoe]+previous.position
+            planted = planted || (abs(ankle.y-0.06)<0.00001 && simd_distance(ankle,other)<0.0001)
+            XCTAssertEqual(simd_distance(frame.pose[hip],frame.pose[knee]),0.465,accuracy:0.0001)
+            XCTAssertEqual(simd_distance(frame.pose[knee],frame.pose[shoe]),0.445,accuracy:0.0001)
+          }
+          XCTAssertTrue(planted)
+          for (a,b) in [(BodyJoint.leftShoulder,BodyJoint.rightShoulder),(.leftHip,.rightHip),
+                         (.leftShoulder,.leftElbow),(.leftElbow,.leftHand),(.rightShoulder,.rightElbow),
+                         (.rightElbow,.grip),(.grip,.strings)] {
+            XCTAssertEqual(simd_distance(frame.pose[a],frame.pose[b]),simd_distance(rest[a],rest[b]),accuracy:0.0001)
+          }
+          previous = frame
+        }
+      }
+    }
+  }
+  func testResetFromEitherSidelineNeverCrossesFeetOrOvershootsTheBaseline() throws {
+    for side in 0...1 {
+      let sign: Float = side == 0 ? 1 : -1
+      let baseline: Float = side == 0 ? Float(PracticeEngine.length) : 0
+      for x: Float in [-1.1,4.115,9.3] {
+        var game = PracticeEngine(settings:.init(local:true))
+        game.phase = .live
+        game.launch(side,aim:Vec(x:4,y:12),kind:.cross)
+        var pose = AthletePose.winnerReaction(at:0,celebration:.risingFist)
+        let hip = (pose[.leftHip]+pose[.rightHip])*0.5
+        for joint in BodyJoint.allCases { pose[joint] += [x-hip.x,0,baseline-hip.z] }
+        var clip = PointReplay()
+        clip.record(.init(near:pose,far:pose,ball:[2,1,8]),game:game,hit:true)
+        let walk = try XCTUnwrap(WinnerWalk(shot:clip,winner:side,celebration:.risingFist))
+        for tick in 0...120 {
+          let frame = walk.sample(at:Double(tick)/60)
+          XCTAssertGreaterThan((frame.pose[.rightShoe].x-frame.pose[.leftShoe].x)*sign,0.30)
+          XCTAssertEqual(frame.position.z,baseline,accuracy:0.00001)
+        }
+      }
     }
   }
   func testLegAndArmLengthsStayFixedEvenWhenTargetsAreUnreachable() {

@@ -1109,36 +1109,40 @@ extension AthletePose {
 }
 
 extension AthletePose {
-  /// Local pose facing the net at the near end before the winner turns to leave.
-  static func winnerReaction(at seconds: Double) -> Self {
+  /// Upper-body performance in player space, facing the net.
+  static func winnerReaction(at seconds: Double, celebration: WinnerCelebration) -> Self {
     let t = Float(max(0,min(2,seconds)))
     func beat(_ a: Float,_ b: Float,_ c: Float,_ d: Float) -> Float {
       ramp(t,a,b)*(1-ramp(t,c,d))
     }
     let load = beat(0.02,0.27,0.27,0.49)
     let pump = beat(0.18,0.48,0.91,1.46)
-    let breath = sin(t*3.3)
-    let raise = pump
+    let rising = celebration == .risingFist
+    let raise = rising ? beat(0.26,0.72,0.93,1.47) : pump
     var p = Self()
     let hips = simd_quatf(angle:-0.14+raise*0.14,axis:[0,1,0])
     let turn = -0.18+0.40*raise
     let chest = simd_quatf(angle:turn,axis:[0,1,0])*simd_quatf(angle:load*0.08,axis:[1,0,0])
-    let hip = CourtPoint3D(load*0.024-raise*0.035,0.92-load*0.045+raise*0.028,0)
-    let shoulder = hip+chest.act([0,0.49+breath*0.006,-0.038])
+    let hip = CourtPoint3D(load*0.024-raise*0.035,0.912-load*0.023+raise*0.008,0)
+    let shoulder = hip+chest.act([0,0.49,-0.038])
     p[.leftHip] = hip+hips.act([-0.10,0,0]); p[.rightHip] = hip+hips.act([0.10,0,0])
-    p[.leftShoulder] = shoulder+chest.act([-0.175,raise*0.035,0])
-    p[.rightShoulder] = shoulder+chest.act([0.175,0,0])
+    let collar = chest*simd_quatf(angle:-raise*0.075,axis:[0,0,1])
+    p[.leftShoulder] = shoulder+collar.act([-0.175,0,0])
+    p[.rightShoulder] = shoulder+collar.act([0.175,0,0])
     p[.leftShoe] = [-0.205,0.061,-0.075]; p[.rightShoe] = [0.177,0.061,0.08]
     p[.leftKnee] = hip+[-0.18,-0.43,-0.12]; p[.rightKnee] = hip+[0.15,-0.43,-0.09]
     // Lift the free upper arm out from the ribs. Curl the forearm above
     // the elbow and keep the knuckles beside the temple through the hold.
-    let upper = simd_quatf(from: simd_normalize(CourtPoint3D(-0.09,-0.24,0.032)),
-                           to: simd_normalize(CourtPoint3D(-0.23,0.04,-0.12)))
-    let fore = simd_quatf(from: simd_normalize(CourtPoint3D(0.045,-0.19,-0.13)),
-                          to: simd_normalize(CourtPoint3D(0.035,0.27,-0.045)))
-    let identity = simd_quatf(real: 1, imag: .zero)
-    p[.leftElbow] = p[.leftShoulder]+chest.act(simd_slerp(identity,upper,raise).act([-0.09,-0.24,0.032]))
-    p[.leftHand] = p[.leftElbow]+chest.act(simd_slerp(identity,fore,raise).act([0.045,-0.19,-0.13]))
+    let upperStart = CourtPoint3D(-0.09,-0.24,0.032)
+    let foreStart = rising ? CourtPoint3D(0.07,-0.075,-0.207) : CourtPoint3D(0.045,-0.19,-0.13)
+    let upperEnd = rising ? CourtPoint3D(-0.075,-0.09,-0.23) : CourtPoint3D(-0.23,0.04,-0.12)
+    let foreEnd = rising ? CourtPoint3D(0.03,0.22,-0.025) : CourtPoint3D(0.035,0.27,-0.045)
+    func lifted(_ from: CourtPoint3D, _ to: CourtPoint3D) -> CourtPoint3D {
+      let rotation = simd_quatf(from:simd_normalize(from),to:simd_normalize(to))
+      return chest.act(simd_slerp(simd_quatf(real:1,imag:.zero),rotation,raise).act(from))
+    }
+    p[.leftElbow] = p[.leftShoulder]+lifted(upperStart,upperEnd)
+    p[.leftHand] = p[.leftElbow]+lifted(foreStart,foreEnd)
     p[.rightElbow] = p[.rightShoulder]+chest.act([0.07,-0.23,0.055])
     p[.grip] = p[.rightElbow]+chest.act([0.02,-0.225,-0.145])
     let shaft = simd_normalize(chest.act([0.38,-0.89,-0.14]))
@@ -1152,87 +1156,103 @@ extension AthletePose {
     p.fingerCurl = [0.36+pump*0.64,0.86]
     // “Come” opens into a vowel, closes at /m/, then opens again for “on”.
     let first = beat(0.30,0.43,0.52,0.66), second = beat(0.70,0.85,1.04,1.26)
-    p.jawOpen = first*0.72+second*0.94
-    p.lipRound = second
+    p.jawOpen = rising ? first*0.72+second*0.94 : 0
+    p.lipRound = rising ? second : 0
     p.blink = beat(1.13,1.19,1.21,1.30)
     p.reactionFist = beat(0.09,0.31,1.03,1.42)
     return p
   }
 }
 
-/// The winner starts at their feet at contact, even when their shot forced an error.
+/// A courtside cut to the winner's final court position. They face the net
+/// and step back to reset, keeping each stance foot anchored until toe-off.
 struct WinnerWalk {
   let side: Int
   let origin: CourtPoint3D
-  let heading: Float
-  private let startingPose: AthletePose
-  private let stepLength: Float
-  private let direction: CourtPoint3D
+  let celebration: WinnerCelebration
+  private let stride: CourtPoint3D
   private let sign: Float
+  private let firstFoot: Int
 
-  init?(shot: PointReplay, winner: Int) {
-    let hit = shot.strikes.last { $0.hitter == winner && !$0.fault }
-    guard let frame = shot.frame(at:hit?.time ?? shot.duration) else { return nil }
-    let pose = winner == 0 ? frame.near : frame.far
+  init?(shot: PointReplay, winner: Int, celebration: WinnerCelebration) {
+    guard let ending = shot.frames.last, let strike = shot.strikes.last,
+          strike.hitter == winner, !strike.fault else { return nil }
+    let pose = winner == 0 ? ending.near : ending.far
     let hip = (pose[.leftHip]+pose[.rightHip])*0.5
     origin = [hip.x,0,hip.z]
-    var local = pose
-    for joint in BodyJoint.allCases { local[joint] -= origin }
-    startingPose = local
     side = winner
+    self.celebration = celebration
     sign = winner == 0 ? 1 : -1
-    let destination = CourtPoint3D(Float(PracticeEngine.width/2),0,winner == 0 ? Float(PracticeEngine.length) : 0)
-    let path = destination-origin
-    let distance = simd_length(path)
-    direction = unit(path,fallback:[0,0,-sign])
-    stepLength = min(0.52,distance/3)
-    heading = distance > 0.08 ? atan2(-sign*direction.x,-sign*direction.z) : 0
+    let baseline = CourtPoint3D(Float(PracticeEngine.width/2),0,winner == 0 ? Float(PracticeEngine.length) : 0)
+    let path = baseline-origin
+    stride = path * min(1.0/3,0.255/max(0.001,simd_length(path)),0.16/max(0.001,abs(path.x)))
+    firstFoot = stride.x*sign <= 0 ? 0 : 1
   }
 
-  func sample(at seconds: Double) -> (pose: AthletePose, position: CourtPoint3D, yaw: Float) {
+  func sample(at seconds: Double) -> (pose: AthletePose, position: CourtPoint3D) {
     let t = Float(seconds)
-    var pose = AthletePose.winnerReaction(at:seconds)
-    let turn = ramp(t,0.10,0.67)
-    let yaw = heading*turn
-    let step = min(3,max(0,(t-0.53)/0.49))
-    let travel = step*stepLength
-    let position = origin+direction*travel
-    let up = CourtPoint3D(0,1,0)
-    let rotation = simd_quatf(angle:yaw,axis:up)
-    let crowd = CourtPoint3D(position.x < Float(PracticeEngine.width/2) ? -9 : 17,2.7,position.z)-position
-    let bearing = rotation.inverse.act(crowd)*[sign,1,sign]
-    let glance = ramp(t,1.05,1.39)*(1-ramp(t,1.72,2.0))
-    pose.gaze += SIMD2<Float>(min(1.15,max(-1.15,atan2(bearing.x,-bearing.z))),0.10)*glance
-    // Plant one foot while its partner swings to the next foothold.
-    // Distances are measured along the path, independently of camera orientation.
-    let beat = min(2,Int(step)), phase = step-Float(beat)
-    let ease = phase*phase*(3-2*phase)
-    let lift = sin(.pi*phase)*min(1,stepLength/0.35)
-    let armSwing = sin(.pi*step)*min(1,stepLength/0.35)
+    var pose = AthletePose.winnerReaction(at:seconds,celebration:celebration)
+    let clock = max(0,min(4,(t-0.14)/0.45))
+    let beat = min(3,Int(clock)), phase = clock-Float(beat)
+    let swing = ramp(phase,0.055,0.945)
+    let arc = sin(.pi*swing)
+    let effort = min(1,simd_length(stride)/0.20)
+    let moving = (firstFoot+beat)%2
+    let supportSide: Float = moving == 0 ? 1 : -1
+    // The last foot collects at the baseline instead of taking another stride.
+    let old = Float(max(0,beat-1)), next = Float(min(3,beat+1))
+    let movingStep = old+(next-old)*swing
+    let standingStep = Float(beat)
+    // Carry the pelvis evenly between contacts instead of tying its velocity
+    // to the swinging ankle. Bias weight over the planted foot at midstance.
+    let transfer: Float
+    switch beat {
+    case 0: transfer = phase*phase
+    case 3: transfer = phase*(2-phase)
+    default: transfer = phase
+    }
+    let progress = (old+standingStep)*0.5+(next-old)*0.5*transfer
+    let sway = supportSide*0.025*arc*effort
+    let position = origin+stride*progress+CourtPoint3D(sign*sway,0,0)
+    let lift = 0.013*arc*effort
+    let armBeat = supportSide*arc*effort
+    let torsion = supportSide*cos(.pi*phase)*effort*ramp(clock,0,0.65)*(1-ramp(clock,3.35,4))
+    let pelvis = (pose[.leftHip]+pose[.rightHip])*0.5
+    let hips = simd_quatf(angle:0.076*torsion,axis:[0,1,0])
+    let chest = simd_quatf(angle:-0.052*torsion,axis:[0,1,0])
+    for joint: BodyJoint in [.leftHip,.rightHip] { pose[joint] = pelvis+hips.act(pose[joint]-pelvis) }
+    for joint: BodyJoint in [.leftShoulder,.rightShoulder,.head,.leftElbow,.rightElbow,.leftHand,.grip,.strings,.racketEdge] {
+      pose[joint] = pelvis+chest.act(pose[joint]-pelvis)
+    }
     for (shoulder,joints,angle) in [
-      (BodyJoint.rightShoulder,[BodyJoint.rightElbow,.grip,.strings,.racketEdge],0.25*armSwing),
-      (.leftShoulder,[.leftElbow,.leftHand],-0.29*armSwing*ramp(t,1.03,1.45))
+      (BodyJoint.rightShoulder,[BodyJoint.rightElbow,.grip,.strings,.racketEdge],0.17*armBeat),
+      (.leftShoulder,[.leftElbow,.leftHand],-0.16*armBeat*ramp(t,1.10,1.56))
     ] {
       let pivot = pose[shoulder], swing = simd_quatf(angle:angle,axis:[1,0,0])
       for joint in joints { pose[joint] = pivot+swing.act(pose[joint]-pivot) }
     }
     for joint in BodyJoint.allCases {
       pose[joint] *= [sign,1,sign]
-      if joint != .leftShoe && joint != .rightShoe { pose[joint].y += lift*0.021 }
+      pose[joint].y += lift
     }
-    for (i,shoe,knee) in [(0,BodyJoint.leftShoe,BodyJoint.leftKnee),(1,.rightShoe,.rightKnee)] {
-      let swings = beat % 2 == i
-      let previous = max(0,beat-1)
-      let foothold = swings ? Float(previous)+(Float(beat+1)-Float(previous))*ease : Float(beat)
-      let stance = pose[shoe]
-      // Stagger the pivot: each shoe lifts in turn to face the walk direction.
-      let pivot = i == 0 ? ramp(t,0.10,0.34) : ramp(t,0.32,0.67)
-      pose.shoeYaw[i] += heading*(pivot-turn)
-      let footYaw = simd_quatf(angle:heading*pivot,axis:up)
-      pose[shoe] = rotation.inverse.act(footYaw.act(stance)+direction*(foothold*stepLength-travel))
-      pose[shoe].y += 0.035*sin(.pi*pivot)*abs(heading)/Float.pi + (swings ? 0.085*lift : 0)
-      pose[knee] += (pose[shoe]-stance)*0.41
+    let leg = LimbGeometry(upper:0.465,lower:0.445)
+    for (i,hip,knee,shoe) in [(0,BodyJoint.leftHip,BodyJoint.leftKnee,BodyJoint.leftShoe),
+                              (1,.rightHip,.rightKnee,.rightShoe)] {
+      let isMoving = i == moving
+      let foothold = isMoving ? movingStep : standingStep
+      let ankle = CourtPoint3D((i == 0 ? -0.155 : 0.155)*sign,
+                               0.060+(isMoving ? 0.058*arc*effort : 0),
+                               (i == firstFoot ? 0.02 : -0.02)*sign)
+      // On a diagonal reset the outside shoe leads laterally. The other
+      // collects underneath the hip without crossing the planted leg.
+      let lateralStart = Float(beat/2)*1.5
+      let lateralStep = lateralStart + (isMoving ? swing : Float(beat%2))*1.5
+      let placement = CourtPoint3D(stride.x*lateralStep,0,stride.z*foothold)
+      pose[shoe] = ankle+placement-(position-origin)
+      let pole = CourtPoint3D(i == 0 ? -0.09*sign : 0.09*sign,0,-sign)
+      pose[knee] = leg.hinge(from:pose[hip],to:pose[shoe],guide:pose[hip]+pole,fallback:pole)
+      pose.footRoll[i] = isMoving ? 0.13*sin(2 * .pi*swing)*effort : 0
     }
-    return (startingPose.blended(to:pose,by:ramp(t,0,0.30)),position,yaw)
+    return (pose,position)
   }
 }

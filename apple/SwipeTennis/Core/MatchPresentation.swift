@@ -34,11 +34,13 @@ extension PointReplay {
 /// contact window runs in half time. Longer flights use the remaining screen
 /// time to reach their first bounce without cutting across a racket contact.
 struct PointBroadcast {
-  static let reactionDuration = 2.0
+  let celebration: WinnerCelebration?
+  var reactionDuration: Double { celebration == nil ? 0 : 2 }
   static let shotDuration = 3.0
-  static let duration = reactionDuration + shotDuration
+  var duration: Double { reactionDuration + Self.shotDuration }
   let start, contactEnd, end: Double
-  init(_ shot: PointReplay) {
+  init(_ shot: PointReplay, celebration: WinnerCelebration?) {
+    self.celebration = celebration
     let contact = shot.strikes.last?.time ?? 0
     start = max(0,contact-0.49)
     let landing = shot.lastShotBounceTime.map { $0+0.13 } ?? 0
@@ -46,7 +48,7 @@ struct PointBroadcast {
     contactEnd = min(end,contact+0.19)
   }
   func sourceTime(at elapsed: Double) -> Double {
-    let u = clamp((elapsed-Self.reactionDuration)/Self.shotDuration,0,1)
+    let u = clamp((elapsed-reactionDuration)/Self.shotDuration,0,1)
     let length = max(0,end-start)
     // Linear half-speed through the swing. When a long lob needs more time,
     // accelerate smoothly only in its flight; a short net fault slows to fit.

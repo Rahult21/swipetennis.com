@@ -663,7 +663,8 @@ struct PracticeEngine: Codable {
     queuedPower = nil
     assist = nil
     if winner == 0 { awardPowerIfDue(random: random) }
-    pointResolution = PointResolution(impact: flight.flatMap(FaultImpact.init), reaction: reaction)
+    pointResolution = PointResolution(impact: flight.flatMap(FaultImpact.init), reaction: reaction,
+      celebration: WinnerCelebration.select(winner:winner,flight:flight,random:random))
     for side in 0...1 where outBallChaseTarget(side) == nil && !(side == 1 && botChasesOut) {
       players[side].destination = players[side].pos
       players[side].velocity = .zero

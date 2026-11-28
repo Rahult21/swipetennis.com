@@ -18,6 +18,7 @@ enum ReplayAngle: String, CaseIterable {
   let reduceMotion: Bool
   var automatic = false
   var reactionTime: Double?
+  var celebration: WinnerCelebration?
   var winner = 0
   var liveStadium: CourtReplayView?
   let onReady: () -> Void
@@ -25,6 +26,7 @@ enum ReplayAngle: String, CaseIterable {
   final class Stage: UIView {
     let stadium: CourtReplayView
     var winnerWalk: WinnerWalk?
+    var calledOut = false
     weak var liveHost: UIView?
 
     init(stadium: CourtReplayView) {
@@ -45,12 +47,14 @@ enum ReplayAngle: String, CaseIterable {
 
   func makeUIView(context: Context) -> Stage {
     let stage = Stage(stadium: liveStadium ?? CourtReplayView(surface: surface, venue: venue, localSide: localSide))
-    if automatic { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner) }
+    if let celebration { stage.winnerWalk = WinnerWalk(shot:replay,winner:winner,celebration:celebration) }
+    if celebration == .risingFist { Immersion.shared.prepareWinnerCall() }
     stage.stadium.whenRendering(onReady)
     return stage
   }
 
   static func dismantleUIView(_ stage: Stage, coordinator: ()) {
+    if stage.winnerWalk?.celebration == .risingFist { Immersion.shared.stopWinnerCall() }
     let stadium = stage.stadium
     stadium.isHidden = false
     stadium.finishReview()
@@ -65,9 +69,14 @@ enum ReplayAngle: String, CaseIterable {
     let view = stage.stadium
     if let walk = stage.winnerWalk {
       if let time = reactionTime {
+        if playing && !stage.calledOut && walk.celebration == .risingFist && (0.30..<0.70).contains(time) {
+          stage.calledOut = true
+          Immersion.shared.playWinnerCall()
+        } else if !playing && stage.calledOut { Immersion.shared.stopWinnerCall() }
         view.drawWinner(walk,at:time,reduceMotion:reduceMotion)
         return
       }
+      if walk.celebration == .risingFist { Immersion.shared.stopWinnerCall() }
       view.finishWinnerWalk()
       stage.winnerWalk = nil
     }
@@ -653,19 +662,16 @@ enum ReplayAngle: String, CaseIterable {
     let winner = players[walk.side]
     players[1-walk.side].root.isEnabled = false
     winner.root.position = frame.position
-    winner.root.orientation = simd_quatf(angle:frame.yaw,axis:[0,1,0])
+    winner.root.orientation = simd_quatf(real:1,imag:.zero)
     winner.draw(frame.pose)
     ball.isEnabled = false; shadow.isEnabled = false; impression.isEnabled = false
     powerTrail.forEach { $0.isEnabled = false }
     hideBaselineStand(nil)
 
-    // A three-quarter courtside position keeps the fist, face and shoes in
-    // frame. Follow only part of the turn so the stands stay easy to read.
+    // Keep the camera on the net side throughout the backward steps.
     let sign: Float = walk.side == 0 ? 1 : -1
-    let bearing = walk.heading * (reduceMotion ? 0.72 : 0.55) + (reduceMotion ? 0 : frame.yaw*0.38)
-    let azimuth = bearing + 0.16 // Keep the raised fist beside the face in projection.
-    let centre = reduceMotion ? walk.origin : frame.position
-    let target = centre + CourtPoint3D(0,1.00,0)
+    let azimuth: Float = 0.46
+    let target = walk.origin + CourtPoint3D(0,1.00,0)
     let aspect = Float(bounds.width/max(1,bounds.height))
     let distance = max(reduceMotion ? 5.0 : 3.55,2.35/max(0.45,aspect))
     let eye = target+CourtPoint3D(-sin(azimuth)*sign*distance,0.70,-cos(azimuth)*sign*distance)

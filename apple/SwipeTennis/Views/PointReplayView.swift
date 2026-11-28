@@ -15,7 +15,9 @@ struct ReplayReview: Identifiable {
     self.stadium = stadium
     winner = game.coach.records.last?.winner ?? game.scoring.winner ?? clip.strikes.last?.hitter ?? 0
     var shot = clip.winningShot(for:winner)
-    broadcast = PointBroadcast(shot)
+    let hit = clip.strikes.last
+    let localWinner = automatic && side == winner && hit?.hitter == winner && hit?.fault == false
+    broadcast = PointBroadcast(shot, celebration: localWinner ? game.pointResolution?.celebration : nil)
     if game.phase == .finished && !automatic { shot.appendHandshake() }
     self.clip = shot
     surface = game.settings.surface
@@ -46,7 +48,7 @@ struct PointReplayView: View {
 
   }
   private var clock: TimeInterval { ProcessInfo.processInfo.systemUptime }
-  private var length: Double { review.automatic ? PointBroadcast.duration : review.clip.duration }
+  private var length: Double { review.automatic ? review.broadcast.duration : review.clip.duration }
   private var cursor: Double {
     let elapsed = offset + (anchor.map { max(0, clock - $0) * (review.automatic ? 1 : PointReplay.speed) } ?? 0)
     if looping, let window = review.clip.contactWindow { return PointReplay.loopTime(elapsed,in:window) }
@@ -75,10 +77,10 @@ struct PointReplayView: View {
       VStack(spacing: 0) {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: anchor == nil)) { _ in
           let elapsed = cursor
-          let reacting = review.automatic && elapsed < PointBroadcast.reactionDuration
+          let reacting = review.automatic && elapsed < review.broadcast.reactionDuration
           let time = review.automatic ? review.broadcast.sourceTime(at:elapsed) : elapsed
           ReplayCourt(replay: review.clip, surface: review.surface, venue:review.venue, localSide:review.side, angle: review.side == 1 && angle != .neutral ? (angle == .you ? .opponent : .you) : angle, seconds: time,
-            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, winner:review.winner, liveStadium:review.stadium) {
+            playing: anchor != nil, playbackID: playbackID, reduceMotion: reduceMotion, automatic:review.automatic, reactionTime:reacting ? elapsed : nil, celebration:review.broadcast.celebration, winner:review.winner, liveStadium:review.stadium) {
               ready = true
               if (review.automatic || !reduceMotion) && phase == .active { play() }
             }
@@ -155,7 +157,7 @@ struct PointReplayView: View {
         ToolbarItem(placement:.topBarLeading) {
           if review.automatic && ready {
             TimelineView(.animation(minimumInterval:0.1,paused:anchor == nil)) { _ in
-              Text(cursor < PointBroadcast.reactionDuration ? "Courtside" : "Player view")
+              Text(cursor < review.broadcast.reactionDuration ? "Courtside" : "Player view")
                 .font(.subheadline.weight(.semibold)).accessibilityIdentifier("playingHighlight")
             }
           }

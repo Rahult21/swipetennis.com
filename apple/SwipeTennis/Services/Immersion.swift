@@ -170,6 +170,33 @@ import UIKit
     }
   }
 
+  private let winnerVoice = AVSpeechSynthesizer()
+
+  private var preparedCall: AVSpeechUtterance?
+
+  func prepareWinnerCall() {
+    let call = AVSpeechUtterance(string:"Come on!")
+    let model = AthleteKit.current(side:0,localSide:0).model
+    let name = model == .man ? "Aaron" : "Samantha"
+    call.voice = AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "en-US" && $0.name == name }
+      .max { $0.quality.rawValue < $1.quality.rawValue } ?? AVSpeechSynthesisVoice(language:"en-US")
+    call.rate = 0.54
+    preparedCall = call
+  }
+
+  func playWinnerCall() {
+    guard soundEnabled, volume > 0, let call = preparedCall else { return }
+    preparedCall = nil
+    activateAudio()
+    call.volume = volume
+    winnerVoice.speak(call)
+  }
+
+  func stopWinnerCall() {
+    preparedCall = nil
+    winnerVoice.stopSpeaking(at:.immediate)
+  }
+
   func point(_ text: String, announce: Bool = true) {
     if hapticsEnabled { UINotificationFeedbackGenerator().notificationOccurred(.success) }
     if announce && UserDefaults.standard.bool(forKey: "voice") {
@@ -202,6 +229,7 @@ import UIKit
   }
   func stop() {
     finishRally()
+    stopWinnerCall()
     speech.stopSpeaking(at: .immediate)
     endApplause()
     audio.forEach { $0.stop() }
