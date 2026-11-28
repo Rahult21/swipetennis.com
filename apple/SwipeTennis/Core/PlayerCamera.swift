@@ -132,14 +132,17 @@ struct ReplayStrokeCamera {
 
   init?(_ replay: PointReplay) {
     guard let hit = replay.strikes.last, let impact = replay.frame(at:hit.time) else { return nil }
-    cutToCourt = hit.time+0.38
+    cutToCourt = hit.time+(hit.serve ? 0.58 : 0.38)
     let body = hit.hitter == 0 ? impact.near : impact.far
     let hip = (body[.rightHip]+body[.leftHip])*0.5
     let facing: Float = hit.hitter == 0 ? 1 : -1
     let side: Float = abs(hit.point.x-hip.x) < 0.12 ? facing : (hit.point.x >= hip.x ? 1 : -1)
     // At net, stay behind the volleyer's shoulder so the mesh never crosses the face.
     let netSide: Float = abs(hip.z-Float(PracticeEngine.net)) < 2.3 ? 0.44 : -0.60
-    direction = simd_normalize([side*0.82,0.14,facing*netSide])
+    // From the tossing-arm side, the raised hitting arm clears the face and
+    // the racket drop and landing remain visible in the same shot.
+    direction = hit.serve ? simd_normalize([-facing,0.20,-0.90*facing])
+                          : simd_normalize([side*0.82,0.14,facing*netSide])
     let first = max(0,Int(floor((hit.time-hit.preparation)/PointReplay.tick)))
     let last = min(replay.frames.count-1,Int(ceil(cutToCourt/PointReplay.tick)))
     var envelope: [CourtPoint3D] = []

@@ -13,6 +13,7 @@ struct AthletePose {
   var heelPitch: Float = 0
   var footRoll = SIMD2<Float>.zero
   var fingerCurl = SIMD2<Float>(0.30,0.92)
+  var serviceArmWeight: Float = 0
   var airborneReach: Float = 0
   var reactionFist: Float = 0
   var focus: Float = 0
@@ -37,6 +38,7 @@ struct AthletePose {
     if fraction >= 1 { return other }
     var result = self
     if let a = sampleTime, let b = other.sampleTime { result.sampleTime = a+(b-a)*Double(fraction) }
+    result.serviceArmWeight += (other.serviceArmWeight-serviceArmWeight)*fraction
     result.airborneReach += (other.airborneReach-airborneReach)*fraction
     result.reactionFist += (other.reactionFist-reactionFist)*fraction
     result.focus += (other.focus-focus)*fraction
@@ -455,6 +457,7 @@ struct AthleteMotion {
     let captured = capture.step(speed:speed,remaining:player.pos.distance(to:player.destination),recovering:recoveryRun,dt:Float(dt))
     var pose = AthletePose()
     pose.sampleTime = game.time
+    pose.serviceArmWeight = serviceWeight
     if swing.style == .serve || swing.style == .overhead {
       pose.airborneReach = ramp(leap,0.008,0.055)*ramp(time,-0.16,-0.032)*(1-ramp(time,0.035,0.18))
     } else if saving {
@@ -736,6 +739,7 @@ struct AthleteMotion {
     let halfWidth = sqrt(max(0.002,0.22*0.22-shoulderTilt*shoulderTilt))
     pose[.leftShoulder] = chest - shoulders * halfWidth + up * shoulderTilt
     pose[.rightShoulder] = chest + shoulders * halfWidth - up * shoulderTilt
+    let chestFront = unit(simd_cross(up,shoulders),fallback:forward)
     let chestYaw = atan2(simd_dot(shoulders,forward),simd_dot(shoulders,right))
     if dt>0 && !reduceMotion {
       let tick = min(0.033,Float(dt)), prev = lastShoulderYaw ?? chestYaw
@@ -872,6 +876,14 @@ struct AthleteMotion {
       let trophyWeight = ramp(time,-0.65,-0.39)*(1-ramp(time,-0.14,-0.044))
       let trophyPalm = pose[.rightShoulder]+right*(smash ? 0.23 : 0.19)+up*0.23-forward*0.19
       palm += (trophyPalm-palm)*(0.87*trophyWeight)
+      if !smash {
+        // Lift the hitting hand around the outside of the turning rib cage.
+        // A court-space chord cuts behind the back midway through the toss.
+        let lift = ramp(time,-0.79,-0.36)
+        let hand = pose[.rightShoulder]+shoulders*(0.11+0.13*lift)
+          + up*(-0.42+0.66*lift)+chestFront*(0.15-0.24*lift)
+        palm += (hand-palm)*(1-ramp(time,-0.21,-0.12))
+      }
       let crossing = ramp(time,0.068,0.23)*(1-ramp(time,0.34,0.58))
       let finishPalm = pose[.leftHip]+up*(smash ? 0.33 : 0.23)+forward*0.19
       palm += (finishPalm-palm)*(0.82*crossing)
@@ -896,7 +908,6 @@ struct AthleteMotion {
       let amount = motionWeight*(1-onBall)*0.26
       strings += unit(difference,fallback:.zero)*min(0.37,simd_length(difference))*amount
     }
-    let chestFront = unit(simd_cross(up,shoulders),fallback:forward)
     if swing.style == .groundstroke && !blocked && (arrival != nil || elapsed != nil) {
       // The hands trace the outside of the rotating rib cage on the wrap.
       // Holding a finish in court coordinates drags the forearm back through

@@ -66,3 +66,64 @@ struct ElbowBend {
     return centre+direction*radius
   }
 }
+
+/// Service arms bend in one plane. Retarget to the palm so the wrist stays
+/// attached even when the racket drops behind the head or points straight up.
+struct ServiceArm {
+  struct Rotations {
+    let upper, forearm, elbowHalf: simd_quatf
+  }
+  private var elbow = ElbowBend()
+
+  mutating func solve(upper: SIMD3<Float>, forearmToPalm: SIMD3<Float>, knuckles: SIMD3<Float>,
+                      shoulder: SIMD3<Float>, clavicle: simd_quatf, palm: SIMD3<Float>, guide: SIMD3<Float>,
+                      fallback: SIMD3<Float>, handle: SIMD3<Float>?, time: Double?) -> Rotations {
+    let a = simd_length(upper), b = simd_length(forearmToPalm)
+    let chain = LimbGeometry(upper:a,lower:b)
+    let ray = chain.reachable(from:shoulder,toward:palm)-shoulder
+    // Leave space for the biceps and forearm at the bottom of the racket drop.
+    let foldedReach = sqrt(a*a+b*b+2*a*b*cos(148 * Float.pi/180))
+    let target = shoulder+simd_normalize(ray)*max(foldedReach,simd_length(ray))
+    // Keep the bent elbow outside the rib cage as the hand crosses from
+    // the front of the body into the racket drop.
+    let axis = simd_normalize(ray)
+    let outside = clavicle.act(SIMD3<Float>(upper.x > 0 ? 0.85 : -0.85,-0.42,0.38))
+    let projected = outside-axis*simd_dot(outside,axis)
+    let observed = guide-shoulder
+    let pole = projected+(observed-axis*simd_dot(observed,axis))*1.8
+    let hinge = chain.hinge(from:shoulder,to:target,guide:shoulder+pole,fallback:fallback)
+    let e = elbow.follow(hinge,shoulder:shoulder,wrist:target,time:time)
+    let posedUpper = e-shoulder, posedLower = target-e
+    let restNormal = simd_normalize(simd_cross(upper,forearmToPalm))
+    let normal = simd_normalize(simd_cross(posedUpper,posedLower))
+    // Raise the upper arm through the side of the shoulder so its resting
+    // and overhead directions never have to define a half-turn on their own.
+    let armAxis = simd_normalize(posedUpper)
+    let lateral = SIMD3<Float>(upper.x > 0 ? 1 : -1,0,0)
+    let abduction = simd_quatf(from:simd_normalize(upper),to:lateral)
+    let swing = simd_quatf(from:clavicle.act(lateral),to:armAxis)*clavicle*abduction
+    let from = swing.act(restNormal)
+    let swivel = atan2(simd_dot(armAxis,simd_cross(from,normal)),max(0.45,simd_dot(from,normal)))
+    let humerus = simd_quatf(angle:swivel,axis:armAxis)*swing
+    let unbend = simd_quatf(from:simd_normalize(forearmToPalm),to:simd_normalize(upper))
+    let flex = simd_quatf(from:armAxis,to:simd_normalize(posedLower))
+    let identity = simd_quatf(real:1,imag:.zero)
+    // Skin the elbow along the flexion arc. Halfway along the actual bend
+    // stays continuous on a power serve even when total rotation passes 180°.
+    let halfFlex = simd_slerp(identity,flex,0.5)
+    var elbowHalf = halfFlex*humerus*simd_slerp(identity,unbend,0.5)
+    var forearm = flex*humerus*unbend
+    if let handle {
+      // Pronation turns around the elbow-to-grip line. The shaft carries
+      // progressively less roll information as it lines up with the forearm.
+      let axis = simd_normalize(posedLower)
+      let across = forearm.act(simd_normalize(knuckles))
+      let x = simd_dot(across,handle)-simd_dot(across,axis)*simd_dot(handle,axis)
+      let y = simd_dot(axis,simd_cross(across,handle))
+      let roll = atan2(y,1+max(0,x))
+      forearm = simd_quatf(angle:roll,axis:axis)*forearm
+      elbowHalf = simd_quatf(angle:roll*0.5,axis:halfFlex.act(armAxis))*elbowHalf
+    }
+    return Rotations(upper:humerus,forearm:forearm,elbowHalf:elbowHalf)
+  }
+}

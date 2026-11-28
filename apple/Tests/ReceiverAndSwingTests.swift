@@ -3,6 +3,36 @@ import simd
 @testable import TennisCore
 
 final class ReceiverAndSwingTests: XCTestCase {
+  func testServiceArmKeepsItsBendAndGripThroughTheOverheadTurn() {
+    // Sweep through the opposite of the bind direction and roll the shaft
+    // through alignment with the forearm, as it does in the racket drop.
+    let upper = SIMD3<Float>(0.16,-0.19,0), forearm = SIMD3<Float>(0.14,-0.18,-0.24)
+    let shoulder = SIMD3<Float>(4,1.4,24), knuckles = SIMD3<Float>(-0.03,0.03,-0.06)
+    for side: Float in [-1,1] {
+      let facing = simd_quatf(angle:side < 0 ? .pi : 0,axis:[0,1,0])
+      let axis = simd_normalize(simd_cross(upper,forearm))
+      var arm = ServiceArm(), previous: ServiceArm.Rotations?
+      for i in 0...240 {
+        let t = Float(i)/240
+        let turn = facing*simd_quatf(angle:(0.72+t*0.56) * .pi,axis:axis)
+        let elbow = shoulder+turn.act(upper)
+        let palm = elbow+turn.act(forearm)
+        let handle = turn.act(simd_quatf(angle:t-0.5,axis:axis).act(simd_normalize(forearm)))
+        let q = arm.solve(upper:upper,forearmToPalm:forearm,knuckles:knuckles,shoulder:shoulder,
+                          clavicle:facing,palm:palm,guide:elbow,fallback:turn.act(axis),handle:handle,time:Double(t))
+        let solved = shoulder+q.upper.act(upper)
+        XCTAssertEqual(simd_distance(solved,shoulder),simd_length(upper),accuracy:0.0001)
+        XCTAssertLessThan(simd_distance(solved+q.forearm.act(forearm),palm),0.001)
+        if let previous {
+          for (a,b) in [(q.upper,previous.upper),(q.forearm,previous.forearm),(q.elbowHalf,previous.elbowHalf)] {
+            XCTAssertGreaterThan(abs(simd_dot(a.vector,b.vector)),cos(Float.pi/180))
+          }
+        }
+        previous = q
+      }
+    }
+  }
+
   func testReceiveRhythmOnBothEndsAndBothServes() throws {
     for server in 0...1 {
       for number in 1...2 {

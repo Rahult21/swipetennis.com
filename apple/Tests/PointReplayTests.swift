@@ -48,6 +48,29 @@ final class PointReplayTests: XCTestCase {
     }
   }
 
+  func testServeReplayKeepsTheHittingArmOutsideTheBodyAndShowsTheLanding() throws {
+    let clip = try XCTUnwrap(StrokeStudioClip(.serve))
+    let shot = try XCTUnwrap(ReplayStrokeCamera(clip.recording))
+    XCTAssertGreaterThan(shot.cutToCourt-clip.impact,0.55)
+    for offset in stride(from:-0.52,through:-0.25,by:PointReplay.tick/2) {
+      let p = try XCTUnwrap(clip.frame(clip.contactTime+offset)).near
+      let across = p[.rightShoulder]-p[.leftShoulder]
+      let lateral = simd_normalize(SIMD3<Float>(across.x,0,across.z))
+      XCTAssertGreaterThan(simd_dot(p[.grip]-p[.rightShoulder],lateral),0.045)
+    }
+    for aspect: Float in [0.48,2.17] {
+      let camera = shot.frame(aspect:aspect)
+      XCTAssertLessThan(camera.eye.x,camera.target.x)
+      let p = try XCTUnwrap(clip.frame(clip.contactTime)).near
+      let head = camera.projected(p[.head],aspect:aspect)
+      let elbow = camera.projected(p[.rightElbow],aspect:aspect)-head
+      let hand = camera.projected(p[.grip],aspect:aspect)-head
+      let arm = hand-elbow
+      let closest = elbow+arm*max(0,min(1,-simd_dot(elbow,arm)/simd_length_squared(arm)))
+      XCTAssertGreaterThan(simd_length(closest),0.05)
+    }
+  }
+
   func testLowGroundstrokesKeepTheLegsLoadedThroughContact() throws {
     for shot in [StudioStroke.forehand,.backhand] {
       let clip = try XCTUnwrap(StrokeStudioClip(shot))
