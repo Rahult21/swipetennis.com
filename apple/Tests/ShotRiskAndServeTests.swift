@@ -253,6 +253,51 @@ final class ShotRiskAndServeTests: XCTestCase {
     }
   }
 
+  func testBounceKeepsExistingRunAndPlantedPlayerUntilNextStrike() throws {
+    for receiver in 0...1 {
+      let hitter = 1 - receiver
+      var game = PracticeEngine(settings: .init(local: true))
+      game.phase = .live
+      let y = receiver == 0 ? 22.0 : 1.77
+      let still = Vec(x: 4, y: PracticeEngine.length - y)
+      game.players[hitter].pos = still
+      game.launch(hitter, aim: Vec(x: 7, y: receiver == 0 ? 18 : 5.77), kind: .cross)
+      let route = Vec(x: 3, y: y)
+      game.players[receiver].pos = Vec(x: 1, y: y)
+      game.players[receiver].velocity = Vec(x: 2.5, y: 0)
+      game.move(receiver, to: route)
+      game.players[hitter].destination = still
+      game.players[hitter].velocity = .zero
+      let f = try XCTUnwrap(game.flight)
+      game.flight?.swipeHoldTime = f.duration
+      game.flight?.elapsed = f.time(at: 0.8) - 0.001
+      game.step(1/120, interactiveRally: true)
+      XCTAssertEqual(game.bounceSerial, 1)
+      XCTAssertEqual(game.committedRun(receiver), route)
+      XCTAssertEqual(game.committedRun(hitter), still)
+      game = try JSONDecoder().decode(PracticeEngine.self, from: JSONEncoder().encode(game))
+      game.apply(.move(Vec(x: 0.5, y: y)), side: receiver, movementEpoch: game.contactSerial)
+      game.recover(receiver)
+      game.steer(hitter, to: Vec(x: 1, y: still.y))
+      XCTAssertEqual(game.players[receiver].destination, route)
+      var lastX = game.players[receiver].pos.x
+      for _ in 0..<200 {
+        game.updateFootwork(1/120)
+        XCTAssertGreaterThanOrEqual(game.players[receiver].pos.x, lastX)
+        XCTAssertLessThanOrEqual(game.players[receiver].pos.x, route.x)
+        XCTAssertEqual(game.players[hitter].pos, still)
+        lastX = game.players[receiver].pos.x
+      }
+      XCTAssertEqual(game.players[receiver].pos, route)
+      game.selectShotSwipe(Vec(x: 0, y: -100), side: receiver)
+      XCTAssertNotNil(game.players[receiver].swingStrength)
+      game.launch(receiver, aim: still, kind: .line)
+      XCTAssertNil(game.committedRun(receiver))
+      game.move(receiver, to: Vec(x: 1, y: y))
+      XCTAssertEqual(game.players[receiver].destination.x, 1)
+    }
+  }
+
   func testGaugesFollowServerAndDisappearWhenServeIsCommitted() {
     for local in [false, true] {
       for server in 0...1 {

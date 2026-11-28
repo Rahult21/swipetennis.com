@@ -557,7 +557,7 @@ import SwiftUI
                 x: engine.players[side].pos.x + dx * reach, y: engine.players[side].pos.y + dy * reach))
           keyboardMoving[side] = true
         } else if keyboardMoving[side] {
-          engine.players[side].destination = engine.players[side].pos
+          if engine.committedRun(side) == nil { engine.players[side].destination = engine.players[side].pos }
           keyboardMoving[side] = false
         }
         let shots: [GCKeyCode] =

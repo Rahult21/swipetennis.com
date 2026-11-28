@@ -93,6 +93,7 @@ extension PracticeEngine {
     if case .shotSwipe = action, shotEpoch != shotGestureEpoch(side) { return }
     switch action {
     case .move(let point):
+      guard committedRun(side) == nil else { return }
       if let movementEpoch {
         guard movementEpoch == contactSerial, acceptsCourtMovement,
               flight?.fault == nil || outBallChaseTarget(side) != nil else { return }
@@ -105,6 +106,7 @@ extension PracticeEngine {
       else if canChooseShot(side) { choose(side, kind) }
     case .courtTap(let point): tapCourt(side, at: point)
     case .run(let delta):
+      guard committedRun(side) == nil else { return }
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }
       players[side].runPace = clamp(runPace ?? 1, 0.75, 1.5)
       swipeCourt(side, delta: delta)
