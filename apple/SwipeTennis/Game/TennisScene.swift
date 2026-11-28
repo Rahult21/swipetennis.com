@@ -99,7 +99,7 @@ import SwiftUI
   var isIntroducingCourt: Bool { !reduceMotion && entrance < Self.entranceDuration }
   private var cameraPlayerX: Float = 4.115
   private let matchCamera = MatchViewpoint(rawValue:UserDefaults.standard.string(forKey:"matchViewpoint") ?? "") ?? .baseline
-  private var aimPreview: (side: Int, epoch: Int?, point: Vec)?
+  private var aimPreview: (cue: ShotDirection, epoch: Int?)?
   var controlledSide: Int?
   var perspectiveSide = 0
   var isReplica = false
@@ -376,7 +376,6 @@ import SwiftUI
     openLabel.text = "OPEN"
     openLabel.fontColor = .systemYellow.withAlphaComponent(0.8)
     shotLine.strokeColor = .white
-    shotLine.lineWidth = 3
     shotLine.lineCap = .round
     shotLine.zPosition = 35
     shotLine.isHidden = true
@@ -604,6 +603,7 @@ import SwiftUI
 
   func resetRallyPresentation() {
     Immersion.shared.endApplause()
+    aimPreview = nil
     shotDirection = nil
     shotLine.isHidden = true
     swipeCoach.dismiss()
@@ -735,8 +735,8 @@ import SwiftUI
       targetRing.setScale(1.4)
       targetRing.isHidden = false
     } else {
-      let side = aimPreview?.side ?? controlledSide ?? (engine.settings.local ? 1-(engine.flight?.hitter ?? 1) : 0)
-      let preview = aimPreview.flatMap { $0.epoch == engine.shotGestureEpoch(side) ? $0.point : nil }
+      let side = aimPreview?.cue.side ?? controlledSide ?? (engine.settings.local ? 1-(engine.flight?.hitter ?? 1) : 0)
+      let preview = aimPreview.flatMap { $0.epoch == engine.shotGestureEpoch(side) ? $0.cue.landing : nil }
       let aim = preview ?? engine.players[side].aim
       targetRing.strokeColor = .systemPurple
       targetRing.isHidden = !engine.canChooseShot(side) || aim == nil
@@ -955,9 +955,18 @@ import SwiftUI
   }
 
   private func drawShotDirection() {
-    guard let opacity = shotDirection?.opacity(at: ProcessInfo.processInfo.systemUptime,
-      serial: engine.contactSerial, hitter: engine.flight?.hitter), let cue = shotDirection else { return }
-    guard opacity > 0, engine.phase.isPlaying else {
+    let cue: ShotDirection
+    let opacity: Double
+    if let preview = aimPreview, preview.cue.isForwardSwipe, engine.phase.isPlaying,
+       preview.epoch == engine.shotGestureEpoch(preview.cue.side) {
+      cue = preview.cue
+      opacity = 1
+    } else if let alpha = shotDirection?.opacity(at: ProcessInfo.processInfo.systemUptime,
+      serial: engine.contactSerial, hitter: engine.flight?.hitter), alpha > 0,
+      let committed = shotDirection, engine.phase.isPlaying {
+      cue = committed
+      opacity = alpha
+    } else {
       shotDirection = nil
       shotLine.isHidden = true
       return
@@ -966,6 +975,7 @@ import SwiftUI
     path.move(to:projectWorld(cue.origin.world(height:0.04)))
     path.addLine(to:projectWorld(cue.target.world(height:0.04)))
     shotLine.path = path
+    shotLine.lineWidth = cue.lineWidth
     shotLine.alpha = opacity
     shotLine.isHidden = false
   }
@@ -1001,9 +1011,9 @@ import SwiftUI
     if !ended, case .move = action { gesture.movementEpoch = engine.contactSerial }
     touchGestures[touch] = gesture
     if ended { aimPreview = nil }
-    else if let delta = gesture.previewDelta, gesture.shotEpoch == engine.shotGestureEpoch(gesture.side),
-      let point = engine.swipeLanding(delta, side:gesture.side) {
-      aimPreview = (gesture.side,gesture.shotEpoch,point)
+    else if let delta = gesture.previewDelta, let cue = ShotDirection(action: .shotSwipe(delta),
+      side: gesture.side, epoch: gesture.shotEpoch, game: engine, time: touch.timestamp) {
+      aimPreview = (cue, gesture.shotEpoch)
     } else { aimPreview = nil }
     if let action {
       let showedGauges = engine.displayedServeGauges != nil

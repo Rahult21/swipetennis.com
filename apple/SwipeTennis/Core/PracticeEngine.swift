@@ -325,6 +325,7 @@ struct PracticeEngine: Codable {
 
   static let bounceSpacing = 2.0
   static let recoveryDistance = length + 4 * 0.3048
+  static let maxRecoveryBehindBaseline = 8.0
 
   static func receiveMark(landing: Vec, receiver: Int) -> Vec {
     Vec(x: landing.x, y: landing.y + (receiver == 0 ? bounceSpacing : -bounceSpacing))
@@ -335,7 +336,9 @@ struct PracticeEngine: Codable {
     let x = center + clamp(center - opponent.x, -recoveryOffsetLimit, recoveryOffsetLimit)
     let dx = opponent.x - x
     let depth = sqrt(max(0, recoveryDistance * recoveryDistance - dx * dx))
-    return own(side, Vec(x: x, y: opponent.y + (side == 0 ? depth : -depth)))
+    let y = side == 0 ? min(opponent.y + depth, length + maxRecoveryBehindBaseline)
+                      : max(opponent.y - depth, -maxRecoveryBehindBaseline)
+    return own(side, Vec(x: x, y: y))
   }
   static func preset(_ side: Int, _ kind: ShotKind, _ p: Vec) -> Vec {
     var x = p.x < 4.115 ? 6.83 : 1.4

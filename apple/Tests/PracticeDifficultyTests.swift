@@ -75,8 +75,22 @@ final class PracticeDifficultyTests: XCTestCase {
       game.move(side,to:manual)
       game.updateFootwork(1/120)
       XCTAssertEqual(game.players[side].destination, manual)
-      XCTAssertEqual(PracticeEngine.recovery(side, atDepth(11)).y,
-        side == 0 ? CourtRunoff.depth.upperBound-1 : CourtRunoff.depth.lowerBound+1)
+
+      game.recover(side)
+      for depth in [6.77, 6.79, 10, PracticeEngine.net, 4] {
+        let opponent = atDepth(depth)
+        game.players[1-side].pos = opponent
+        game.players[1-side].destination = opponent
+        game.updateFootwork(1/120)
+        let white = try XCTUnwrap(game.recoveryGuide(side))
+        let expected = atDepth(PracticeEngine.length + min(depth + 1.2192, 8))
+        XCTAssertEqual(white.y, expected.y, accuracy: 0.000001)
+        XCTAssertEqual(game.players[side].destination, white)
+      }
+      let wideAtNet = Vec(x: 0, y: PracticeEngine.net)
+      let wideRecovery = PracticeEngine.recovery(side, wideAtNet)
+      XCTAssertEqual(wideRecovery.x, center + 0.9144, accuracy: 0.000001)
+      XCTAssertEqual(wideRecovery.y, atDepth(PracticeEngine.length + 8).y, accuracy: 0.000001)
     }
   }
 

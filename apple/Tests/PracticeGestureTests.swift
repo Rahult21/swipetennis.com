@@ -159,7 +159,7 @@ final class PracticeGestureTests: XCTestCase {
     for side in 0...1 {
       let incomingY = side == 0 ? 22.0 : 2.0
       var previousDepth = 0.0
-      for (distance, metres) in [(16.0, 3.0), (82.0, 6.0), (148.0, 9.0), (240.0, 9.0)] {
+      for (distance, metres, width) in [(16.0, 3.0, 3.0), (82.0, 6.0, 16.5), (148.0, 9.0, 30.0), (240.0, 9.0, 30.0)] {
         var game = PracticeEngine(settings: .init(local: true))
         game.phase = .live
         let player = Vec(x: 4.1, y: incomingY)
@@ -172,6 +172,11 @@ final class PracticeGestureTests: XCTestCase {
         let epoch = game.shotGestureEpoch(side)
         let line = try XCTUnwrap(ShotDirection(action: action, side: side, epoch: epoch, game: game, time: 0))
         XCTAssertEqual(line.origin.distance(to: line.target), metres, accuracy: 0.0001)
+        XCTAssertEqual(line.lineWidth, width, accuracy: 0.0001)
+        let lob = try XCTUnwrap(ShotDirection(action: .shotSwipe(Vec(x: 0, y: distance)), side: side,
+          epoch: epoch, game: game, time: 0))
+        XCTAssertFalse(lob.isForwardSwipe)
+        XCTAssertEqual(lob.lineWidth, 3)
         game.apply(action, side: side, shotEpoch: epoch)
         game.returnBall(side, volley: false, random: { 0.99 })
         let flight = try XCTUnwrap(game.flight)

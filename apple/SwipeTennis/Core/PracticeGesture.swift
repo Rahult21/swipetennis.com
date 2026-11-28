@@ -125,29 +125,34 @@ struct PracticeGesture {
 
 /// A local aiming cue starts on the accepted swipe, even before racket contact.
 struct ShotDirection {
-  let origin, target: Vec
+  let origin, target, landing: Vec
+  let isForwardSwipe: Bool
+  let lineWidth: Double
   let side, serial: Int
   let start: Double
   private var opponentContact: Double?
 
   init?(action: PracticeGestureAction, side: Int, epoch: Int?, game: PracticeEngine, time: Double, gestureDistance: Double? = nil) {
     guard game.canChooseShot(side), epoch == game.shotGestureEpoch(side) else { return nil }
-    let landing: Vec
     let distance: Double
     switch action {
     case .shotSwipe(let delta):
       guard let aim = game.swipeLanding(delta, side: side) else { return nil }
       landing = aim
       distance = delta.length
+      isForwardSwipe = delta.y < 0
     case .shot(let kind) where kind == .slice || (kind == .drop && game.canDrawDrop(side)):
       landing = game.touchShotLanding(kind, side: side, distance: gestureDistance)
       distance = gestureDistance ?? 0
+      isForwardSwipe = false
     default: return nil
     }
     origin = game.players[side].pos
     let aimDistance = origin.distance(to: landing)
     guard aimDistance > 0 else { return nil }
-    let fraction = (3 + 6 * ShotSwipe.strength(distance)) / aimDistance
+    let strength = ShotSwipe.strength(distance)
+    lineWidth = isForwardSwipe ? 3 + 27 * strength : 3
+    let fraction = (3 + 6 * strength) / aimDistance
     target = Vec(x: origin.x + (landing.x - origin.x) * fraction,
                  y: origin.y + (landing.y - origin.y) * fraction)
     self.side = side
