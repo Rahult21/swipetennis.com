@@ -312,7 +312,7 @@ struct PracticeEngine: Codable {
     let receiver = 1 - shot.hitter
     let previous = shot.contact
     if shot.serve {
-      shot.contact = ServeGeometry.returnMark(through: shot.landing, from: shot.launchPosition, server: shot.hitter)
+      shot.contact = ServeGeometry.returnMark(through: shot.landing, from: shot.launchPosition, server: shot.hitter, number: shot.serveNumber)
     } else {
       shot.reboundDepth = abs(previous.y - shot.landing.y)
       shot.contact = Self.receiveMark(landing: shot.landing, receiver: receiver)
@@ -473,7 +473,7 @@ struct PracticeEngine: Codable {
     }
     // Yellow is a footwork target. The rendered ball continues along its
     // incoming bearing and can meet the racket beside that stance.
-    let contact = serve ? ServeGeometry.returnMark(through: landing, from: origin, server: side)
+    let contact = serve ? ServeGeometry.returnMark(through: landing, from: origin, server: side, number: serveNumber)
       : Self.receiveMark(landing: landing, receiver: 1-side)
     let bot = side == 1 && !settings.local
     let pace = (bot ? settings.style.pace * settings.botSpeed : 1) * settings.surface.pace

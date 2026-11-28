@@ -78,8 +78,12 @@ enum ServeGeometry {
     server == 0 ? 0 : PracticeEngine.length
   }
 
-  static func returnMark(through landing: Vec, from origin: Vec, server: Int) -> Vec {
-    landing.projected(from: origin, toDepth: receivingBaseline(server: server))
+  static func returnDepth(server: Int, number: Int) -> Double {
+    receivingBaseline(server: server) + (number == 2 ? (server == 0 ? 1 : -1) : 0)
+  }
+
+  static func returnMark(through landing: Vec, from origin: Vec, server: Int, number: Int) -> Vec {
+    landing.projected(from: origin, toDepth: returnDepth(server: server, number: number))
   }
 
   static func bounded(_ point: Vec, from: Vec, server: Int, fromRight: Bool) -> Vec {
@@ -100,7 +104,7 @@ enum ServeGeometry {
   }
 
   static func target(_ placement: ServePlacement, from: Vec, receiver: Vec,
-    server: Int, fromRight: Bool) -> Vec
+    server: Int, fromRight: Bool, number: Int = 1) -> Vec
   {
     let leftBox = (server == 0) == fromRight
     let center = PracticeEngine.width / 2
@@ -110,7 +114,7 @@ enum ServeGeometry {
     case .wide: x = leftBox ? 0.8 : PracticeEngine.width - 0.8
     case .center: x = center + (leftBox ? -0.28 : 0.28)
     case .body:
-      let contactY = receivingBaseline(server: server)
+      let contactY = returnDepth(server: server, number: number)
       let origin = serviceImpact(at: from, side: server, explosive: false).courtPosition
       x = Vec(x:receiver.x,y:contactY).projected(from:origin,toDepth:y).x
     }
@@ -145,7 +149,7 @@ extension PracticeEngine {
   mutating func chooseServe(_ placement: ServePlacement, side: Int) {
     guard canAimServe(side) else { return }
     let target = ServeGeometry.target(placement, from: players[side].pos,
-      receiver: players[1 - side].pos, server: side, fromRight: scoring.serveFromRight)
+      receiver: players[1 - side].pos, server: side, fromRight: scoring.serveFromRight, number: servePreparation?.number ?? 1)
     aimServe(at: target, side: side)
     servePreparation?.placement = placement
   }
@@ -201,7 +205,7 @@ extension PracticeEngine {
     guard phase == .serving, let servePreparation, servePreparation.server != side else { return nil }
     let server = servePreparation.server
     let origin = serviceImpact(at: players[server].pos, side: server, explosive: false).courtPosition
-    return ServeGeometry.returnMark(through: servePreparation.target, from: origin, server: server)
+    return ServeGeometry.returnMark(through: servePreparation.target, from: origin, server: server, number: servePreparation.number)
   }
 
   mutating func stepServe(_ dt: Double, random: () -> Double = { Double.random(in: 0..<1) }) {
@@ -250,7 +254,7 @@ extension PracticeEngine {
     players[server].velocity = .zero
     players[server].aim = nil
     let target = ServeGeometry.target(.body, from: players[server].pos,
-      receiver: players[1 - server].pos, server: server, fromRight: scoring.serveFromRight)
+      receiver: players[1 - server].pos, server: server, fromRight: scoring.serveFromRight, number: 2)
     servePreparation = ServePreparation(server: server, number: 2, target: target, destination: target, placement: .body)
     phase = .serving
     flight = nil
@@ -258,6 +262,6 @@ extension PracticeEngine {
     pointResolution = nil
     ball = players[server].pos
     feedback = Coaching(title: "Second serve", reason: "The first serve was a fault. No point was awarded.",
-      tip: "Receiver: reach yellow on the baseline or step in to take the second serve early.")
+      tip: "Take two steps in to yellow and meet the second serve on the rise.")
   }
 }

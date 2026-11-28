@@ -44,10 +44,10 @@ final class PointBroadcastTests: XCTestCase {
       previous = t
     }
   }
-  func testReactionsHaveAFistAndTwoSeparatedSyllables() {
-    let first = AthletePose.pointReaction(won:true,at:0.47)
-    let closure = AthletePose.pointReaction(won:true,at:0.68)
-    let second = AthletePose.pointReaction(won:true,at:0.95)
+  func testWinnerLooksAtRaisedFistDuringTwoSeparatedSyllables() {
+    let first = AthletePose.winnerReaction(at:0.47)
+    let closure = AthletePose.winnerReaction(at:0.68)
+    let second = AthletePose.winnerReaction(at:0.95)
     XCTAssertGreaterThan(first.jawOpen,0.6)
     XCTAssertLessThan(closure.jawOpen,0.05)
     XCTAssertGreaterThan(second.jawOpen,0.82)
@@ -59,9 +59,33 @@ final class PointBroadcastTests: XCTestCase {
     XCTAssertGreaterThan(forearm.y,0.90)
     XCTAssertLessThan(closure[.grip].y,closure[.rightShoulder].y-0.35)
     XCTAssertGreaterThan(closure.fingerCurl.x,0.96)
-    let reset = AthletePose.pointReaction(won:false,at:0.68)
-    XCTAssertLessThan(reset[.leftHand].y,reset[.leftElbow].y)
-    XCTAssertLessThan(reset.fingerCurl.x,0.5)
+    XCTAssertLessThan(closure.gaze.x,-0.8)
+  }
+  func testWinnerWalkStartsAtContactAndHeadsTowardOwnBaselineAtEitherEnd() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings:.init(local:true))
+      game.phase = .live
+      game.launch(side,aim:Vec(x:4,y:12),kind:.cross)
+      var shot = PointReplay()
+      for tick in 0..<4 {
+        var p = AthletePose.winnerReaction(at:0)
+        for joint in BodyJoint.allCases { p[joint] += [Float(tick),0,side == 0 ? 16 : 6] }
+        shot.record(.init(near:p,far:p,ball:[7,1,10]),game:game,hit:tick == 1)
+      }
+      let walk = try XCTUnwrap(WinnerWalk(shot:shot,winner:side))
+      XCTAssertEqual(walk.origin.x,1,accuracy:0.001)
+      XCTAssertEqual(walk.sample(at:0).position,walk.origin)
+      func plantedFoot(_ t: Double) -> CourtPoint3D {
+        let frame = walk.sample(at:t)
+        return frame.position + simd_quatf(angle:frame.yaw,axis:[0,1,0]).act(frame.pose[.rightShoe])
+      }
+      XCTAssertLessThan(simd_distance(plantedFoot(0.76),plantedFoot(0.94)),0.002)
+      let end = walk.sample(at:2).position, baseline: Float = side == 0 ? Float(PracticeEngine.length) : 0
+      XCTAssertLessThan(abs(end.z-baseline),abs(walk.origin.z-baseline))
+      XCTAssertLessThanOrEqual(simd_distance(end,walk.origin),1.57)
+      let fault = try XCTUnwrap(WinnerWalk(shot:shot,winner:1-side))
+      XCTAssertEqual(fault.origin.x,3,accuracy:0.001)
+    }
   }
   func testLegAndArmLengthsStayFixedEvenWhenTargetsAreUnreachable() {
     let bone = LimbGeometry(upper:0.31,lower:0.25)

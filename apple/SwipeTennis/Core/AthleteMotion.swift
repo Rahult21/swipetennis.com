@@ -1099,23 +1099,21 @@ extension AthletePose {
 }
 
 extension AthletePose {
-  /// A courtside camera sees the whole face and the non-racket fist. Build the
-  /// gesture in player space so either end and either kit use the same anatomy.
-  static func pointReaction(won: Bool, at seconds: Double) -> Self {
+  /// Local pose facing the net at the near end before the winner turns to leave.
+  static func winnerReaction(at seconds: Double) -> Self {
     let t = Float(max(0,min(2,seconds)))
     func beat(_ a: Float,_ b: Float,_ c: Float,_ d: Float) -> Float {
       ramp(t,a,b)*(1-ramp(t,c,d))
     }
     let load = beat(0.02,0.27,0.27,0.49)
     let pump = beat(0.18,0.48,0.91,1.46)
-    let settle = beat(0.42,0.85,1.15,1.91)
     let breath = sin(t*3.3)
-    let raise = won ? pump : 0
+    let raise = pump
     var p = Self()
-    let hips = simd_quatf(angle:won ? -0.14+raise*0.14 : 0.12,axis:[0,1,0])
-    let turn = won ? -0.18+0.40*raise : 0.15-0.11*settle
-    let chest = simd_quatf(angle:turn,axis:[0,1,0])*simd_quatf(angle:(won ? load*0.08 : settle*0.07),axis:[1,0,0])
-    let hip = CourtPoint3D(won ? load*0.024-raise*0.035 : settle*0.026,0.92+(won ? -load*0.045+raise*0.028 : 0),0)
+    let hips = simd_quatf(angle:-0.14+raise*0.14,axis:[0,1,0])
+    let turn = -0.18+0.40*raise
+    let chest = simd_quatf(angle:turn,axis:[0,1,0])*simd_quatf(angle:load*0.08,axis:[1,0,0])
+    let hip = CourtPoint3D(load*0.024-raise*0.035,0.92-load*0.045+raise*0.028,0)
     let shoulder = hip+chest.act([0,0.49+breath*0.006,-0.038])
     p[.leftHip] = hip+hips.act([-0.10,0,0]); p[.rightHip] = hip+hips.act([0.10,0,0])
     p[.leftShoulder] = shoulder+chest.act([-0.175,raise*0.035,0])
@@ -1137,14 +1135,94 @@ extension AthletePose {
     let edge = simd_normalize(simd_cross(shaft,chest.act([0,0,-1])))
     p[.strings] = p[.grip]+shaft*0.49; p[.racketEdge] = p[.strings]+edge*0.132
     p[.head] = shoulder+chest.act([0,0.185,-0.02])
-    p.gaze = won ? [-0.14+raise*0.16,-load*0.13+raise*0.06] : [0.16-0.15*settle,-0.05-0.23*settle]
-    p.fingerCurl = [won ? 0.36+pump*0.64 : 0.27,0.86]
+    let toFist = p[.leftHand] - p[.head]
+    let glance = beat(0.06,0.36,1.02,1.38)
+    p.gaze = [min(1.15,max(-1.15,atan2(toFist.x,-toFist.z)))*glance,
+              atan2(toFist.y,hypot(toFist.x,toFist.z))*glance]
+    p.fingerCurl = [0.36+pump*0.64,0.86]
     // “Come” opens into a vowel, closes at /m/, then opens again for “on”.
     let first = beat(0.30,0.43,0.52,0.66), second = beat(0.70,0.85,1.04,1.26)
-    p.jawOpen = won ? first*0.72+second*0.94 : 0.08+settle*0.23
-    p.lipRound = won ? second : settle*0.25
-    p.blink = won ? beat(1.36,1.42,1.44,1.53) : beat(0.43,0.51,0.55,0.66)
-    p.reactionFist = won ? beat(0.09,0.31,1.03,1.42) : 0
+    p.jawOpen = first*0.72+second*0.94
+    p.lipRound = second
+    p.blink = beat(1.13,1.19,1.21,1.30)
+    p.reactionFist = beat(0.09,0.31,1.03,1.42)
     return p
+  }
+}
+
+/// The winner starts at their feet at contact, even when their shot forced an error.
+struct WinnerWalk {
+  let side: Int
+  let origin: CourtPoint3D
+  let heading: Float
+  private let startingPose: AthletePose
+  private let stepLength: Float
+  private let direction: CourtPoint3D
+  private let sign: Float
+
+  init?(shot: PointReplay, winner: Int) {
+    let hit = shot.strikes.last { $0.hitter == winner && !$0.fault }
+    guard let frame = shot.frame(at:hit?.time ?? shot.duration) else { return nil }
+    let pose = winner == 0 ? frame.near : frame.far
+    let hip = (pose[.leftHip]+pose[.rightHip])*0.5
+    origin = [hip.x,0,hip.z]
+    var local = pose
+    for joint in BodyJoint.allCases { local[joint] -= origin }
+    startingPose = local
+    side = winner
+    sign = winner == 0 ? 1 : -1
+    let destination = CourtPoint3D(Float(PracticeEngine.width/2),0,winner == 0 ? Float(PracticeEngine.length) : 0)
+    let path = destination-origin
+    let distance = simd_length(path)
+    direction = unit(path,fallback:[0,0,-sign])
+    stepLength = min(0.52,distance/3)
+    heading = distance > 0.08 ? atan2(-sign*direction.x,-sign*direction.z) : 0
+  }
+
+  func sample(at seconds: Double) -> (pose: AthletePose, position: CourtPoint3D, yaw: Float) {
+    let t = Float(seconds)
+    var pose = AthletePose.winnerReaction(at:seconds)
+    let turn = ramp(t,0.10,0.67)
+    let yaw = heading*turn
+    let step = min(3,max(0,(t-0.53)/0.49))
+    let travel = step*stepLength
+    let position = origin+direction*travel
+    let up = CourtPoint3D(0,1,0)
+    let rotation = simd_quatf(angle:yaw,axis:up)
+    let crowd = CourtPoint3D(position.x < Float(PracticeEngine.width/2) ? -9 : 17,2.7,position.z)-position
+    let bearing = rotation.inverse.act(crowd)*[sign,1,sign]
+    let glance = ramp(t,1.05,1.39)*(1-ramp(t,1.72,2.0))
+    pose.gaze += SIMD2<Float>(min(1.15,max(-1.15,atan2(bearing.x,-bearing.z))),0.10)*glance
+    // Plant one foot while its partner swings to the next foothold.
+    // Distances are measured along the path, independently of camera orientation.
+    let beat = min(2,Int(step)), phase = step-Float(beat)
+    let ease = phase*phase*(3-2*phase)
+    let lift = sin(.pi*phase)*min(1,stepLength/0.35)
+    let armSwing = sin(.pi*step)*min(1,stepLength/0.35)
+    for (shoulder,joints,angle) in [
+      (BodyJoint.rightShoulder,[BodyJoint.rightElbow,.grip,.strings,.racketEdge],0.25*armSwing),
+      (.leftShoulder,[.leftElbow,.leftHand],-0.29*armSwing*ramp(t,1.03,1.45))
+    ] {
+      let pivot = pose[shoulder], swing = simd_quatf(angle:angle,axis:[1,0,0])
+      for joint in joints { pose[joint] = pivot+swing.act(pose[joint]-pivot) }
+    }
+    for joint in BodyJoint.allCases {
+      pose[joint] *= [sign,1,sign]
+      if joint != .leftShoe && joint != .rightShoe { pose[joint].y += lift*0.021 }
+    }
+    for (i,shoe,knee) in [(0,BodyJoint.leftShoe,BodyJoint.leftKnee),(1,.rightShoe,.rightKnee)] {
+      let swings = beat % 2 == i
+      let previous = max(0,beat-1)
+      let foothold = swings ? Float(previous)+(Float(beat+1)-Float(previous))*ease : Float(beat)
+      let stance = pose[shoe]
+      // Stagger the pivot: each shoe lifts in turn to face the walk direction.
+      let pivot = i == 0 ? ramp(t,0.10,0.34) : ramp(t,0.32,0.67)
+      pose.shoeYaw[i] += heading*(pivot-turn)
+      let footYaw = simd_quatf(angle:heading*pivot,axis:up)
+      pose[shoe] = rotation.inverse.act(footYaw.act(stance)+direction*(foothold*stepLength-travel))
+      pose[shoe].y += 0.035*sin(.pi*pivot)*abs(heading)/Float.pi + (swings ? 0.085*lift : 0)
+      pose[knee] += (pose[shoe]-stance)*0.41
+    }
+    return (startingPose.blended(to:pose,by:ramp(t,0,0.30)),position,yaw)
   }
 }

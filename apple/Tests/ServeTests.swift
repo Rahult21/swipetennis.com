@@ -97,6 +97,31 @@ final class ServeTests: XCTestCase {
     }
   }
 
+  func testSecondServeTracksBlueOneMetreInThroughTossFlightAndRestore() throws {
+    for side in 0...1 {
+      var game = humanServer(side)
+      game.prepareSecondServe()
+      let depth = side == 0 ? 1.0 : PracticeEngine.length-1
+      let impact = serviceImpact(at:game.players[side].pos,side:side,explosive:false).courtPosition
+      game.chooseServe(.wide,side:side)
+      for _ in 0..<250 {
+        game.step(1/120,random:{0.9})
+        let blue = try XCTUnwrap(game.servePreparation?.target)
+        XCTAssertEqual(game.contactGuide(1-side),blue.projected(from:impact,toDepth:depth))
+      }
+      let yellow = try XCTUnwrap(game.contactGuide(1-side))
+      game.beginServe(side)
+      advance(&game,0.95)
+      XCTAssertEqual(game.flight?.contact,yellow)
+      let previous = yellow.projected(from:impact,toDepth:ServeGeometry.receivingBaseline(server:side))
+      game.flight?.contact = previous
+      game.players[1-side].destination = previous
+      game.restoreReceiveMark()
+      XCTAssertEqual(game.flight?.contact,yellow)
+      XCTAssertEqual(game.players[1-side].destination,yellow)
+    }
+  }
+
   func testWideServeIsPlayableAtYellowOrDeeperButCannotBeHitAfterItPasses() throws {
     for side in 0...1 {
       var setup = humanServer(side)

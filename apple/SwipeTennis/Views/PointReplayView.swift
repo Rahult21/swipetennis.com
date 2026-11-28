@@ -83,7 +83,7 @@ struct PointReplayView: View {
               if (review.automatic || !reduceMotion) && phase == .active { play() }
             }
             .overlay { if !ready { ProgressView().tint(.white).padding(14).background(.black.opacity(0.52),in:Circle()).accessibilityLabel("Preparing replay") } }
-            .accessibilityLabel(reacting ? "Both players’ reactions" : "\(angle.rawValue) camera")
+            .accessibilityLabel(reacting ? (review.winner == review.side ? "You celebrate on court" : "Opponent celebrates on court") : "\(angle.rawValue) camera")
             .onChange(of: elapsed >= length) { _, ended in if ended { pause(); if review.automatic { dismiss() } } }
         }
         if !review.automatic {

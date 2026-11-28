@@ -55,7 +55,7 @@ enum DemoLesson: String, Codable, CaseIterable, Identifiable {
     case .approachVolley: return "Swipe toward gold, then swipe up from your moving player. After the hit, swipe forward to approach. Tap in position for the volley."
     case .overhead: return "Swipe a little toward yellow to get under the lob. Once there, tap to prepare the overhead smash."
     case .firstReturn: return "Swipe toward yellow early. Swipe up from your player to return straight back at the server."
-    case .secondReturn: return "Move to yellow on the baseline or step in. Swipe diagonally from your player and meet the second serve early."
+    case .secondReturn: return "Take two steps in to yellow, one metre inside your baseline. Swipe diagonally from your player and meet the second serve early."
     default: return "Drag blue into the mint target, then tap your half of the court to serve."
     }
   }
@@ -392,7 +392,7 @@ extension PracticeEngine {
       }
       if run.lesson == .overhead && !window.overhead { failure = "Get under yellow earlier and meet the lob above your head." }
       if run.stage == .volleyReceive && (!window.volley || window.overhead) { failure = "Move closer to the net and meet the reply before it bounces." }
-      if run.lesson == .secondReturn && players[0].pos.y > Self.length && players[0].pos.distance(to: current.contact) > Self.contactRadius { failure = "Move to yellow on the baseline or step in for the second serve." }
+      if run.lesson == .secondReturn && players[0].pos.y >= Self.length { failure = "Step inside your baseline to yellow for the second serve." }
       let hittingX = players[0].pos.x
       returnBall(0, volley: window.volley, overhead: window.overhead, random: { 0.5 })
       if let outgoing = flight {

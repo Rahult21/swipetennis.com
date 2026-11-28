@@ -197,7 +197,7 @@ final class SwipeTennisUITests: XCTestCase {
     }
   }
 
-  func testPracticeFinishesBothReactionsAndPlayerReplayAutomatically() throws {
+  func testPracticeFinishesWinnerWalkAndPlayerReplayAutomatically() throws {
     XCUIDevice.shared.orientation = .portrait
     let app = XCUIApplication()
     app.launchArguments = ["-watchedQuickStartV1","YES"]
