@@ -88,13 +88,23 @@ extension PracticeEngine {
       side, CourtTactics.netCoverage(side: side, opponentContact: flight.contact))
   }
 
+  /// Human receivers hold depth on ordinary balls. A short-ball call opens
+  /// only the space between the player's feet and the receiving ring.
+  func receivingDepth(_ proposed: Double, side: Int) -> Double {
+    guard phase == .live, let flight, flight.hitter != side,
+      side == 0 || settings.local else { return proposed }
+    let feet = players[side].pos.y
+    let ring = showsGoldenContact(side) ? intercept(side).y : feet
+    return side == 0 ? max(proposed, min(feet, ring)) : min(proposed, max(feet, ring))
+  }
+
   private mutating func positionDuringRally(_ side: Int, target: Vec, epoch: Int?, pace: Double?) {
     guard phase == .live, epoch == contactSerial, let flight, flight.fault == nil, flight.power == nil,
           committedRun(side) == nil, flight.waitingForSwipe != true else { return }
     let receiver = 1 - flight.hitter
     let contact = contactWindow(receiver)?.entry ?? 1
     guard flight.time(at: contact) - flight.elapsed > 0.16 else { return }
-    let to = Self.own(side, target)
+    let to = Self.own(side, Vec(x: target.x, y: receivingDepth(target.y, side: side)))
     let forward = (to.y - players[side].pos.y) * (side == 0 ? -1 : 1)
     if canFollowShot(side) && forward >= 0.55 && abs(to.x - players[side].pos.x) <= forward {
       if !followingApproach[side] { followShot(side) }

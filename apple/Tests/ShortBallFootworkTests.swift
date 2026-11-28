@@ -12,6 +12,49 @@ final class ShortBallFootworkTests: XCTestCase {
     return engine
   }
 
+  func testDeepIncomingBallStopsForwardMomentumAndCanBeReturnedFromHeldDepth() throws {
+    for side in 0...1 {
+      var game = incoming(side: side, local: true, depth: 4.99)
+      let feet = game.players[side].pos
+      let forward = side == 0 ? -1.0 : 1.0
+      game.players[side].velocity.y = 4 * forward
+      let original = try XCTUnwrap(game.flight)
+      for _ in 0..<300 {
+        game.step(1/120, interactiveRally: true, random: { 0.99 })
+        XCTAssertEqual(game.players[side].pos.y, feet.y, accuracy: 0.000001)
+      }
+      let waiting = try XCTUnwrap(game.flight)
+      XCTAssertEqual(waiting.waitingForSwipe, true)
+      XCTAssertEqual(waiting.landing, original.landing)
+      XCTAssertEqual(waiting.contact.y, feet.y, accuracy: 0.000001)
+      XCTAssertGreaterThan(game.players[side].pos.x, feet.x)
+      game.apply(.shotSwipe(Vec(x: 0, y: -100)), side: side, shotEpoch: game.shotGestureEpoch(side))
+      for _ in 0..<300 where game.flight?.hitter != side {
+        game.step(1/120, interactiveRally: true, random: { 0.99 })
+      }
+      XCTAssertEqual(game.flight?.hitter, side)
+    }
+  }
+
+  func testIncomingPositionDragCanAdvanceOnlyToCalledShortBall() throws {
+    for side in 0...1 {
+      for depth in [4.99, 5.0] {
+        var game = incoming(side: side, local: true, depth: depth)
+        let feet = game.players[side].pos
+        let forward = side == 0 ? -1.0 : 1.0
+        game.step(1/120, interactiveRally: true, random: { 0.99 })
+        let ring = try XCTUnwrap(game.flight).contact
+        let target = Vec(x: 2, y: feet.y + 11 * forward)
+        CupInput(.position(target), shotEpoch: nil, movementEpoch: game.contactSerial).apply(to: &game, side: side)
+        XCTAssertEqual(game.players[side].destination.x, target.x)
+        XCTAssertEqual(game.players[side].destination.y, depth == 5 ? ring.y : feet.y, accuracy: 0.001)
+        let retreat = Vec(x: 3, y: feet.y - forward)
+        game.apply(.position(retreat), side: side, movementEpoch: game.contactSerial)
+        XCTAssertEqual(game.players[side].destination, retreat)
+      }
+    }
+  }
+
   func testShortBallChaseReachesOneAndHalfNormalSpeedForEitherHuman() {
     for side in 0...1 {
       var short = incoming(side: side, local: side == 1)

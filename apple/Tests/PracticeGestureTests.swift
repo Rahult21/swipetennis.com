@@ -57,7 +57,7 @@ final class PracticeGestureTests: XCTestCase {
       XCTAssertTrue(game.followingApproach[side])
       XCTAssertEqual(game.players[side].runPace, 0.7)
       game.launch(1-side, aim: game.players[side].pos, kind: .line)
-      let adjust = Vec(x: 3, y: to.y)
+      let adjust = Vec(x: 3, y: game.players[side].pos.y)
       game.apply(.position(adjust), side: side, movementEpoch: epoch)
       XCTAssertNotEqual(game.players[side].destination, adjust)
       game.apply(.position(adjust), side: side, movementEpoch: game.contactSerial)

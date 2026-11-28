@@ -57,6 +57,7 @@ struct ServePreparation: Codable {
   var tuningDeadline: Double?
   var tossID: UUID?
   var swingCommitted: Bool?
+  var swipeStrength: Double?
   var catching: Bool?
   var customProfile: ServeProfile?
   var profile: ServeProfile { customProfile ?? .standard(number) }
@@ -234,7 +235,21 @@ extension PracticeEngine {
       server: side, length: swipe.length)
     servePreparation?.target = bounce
     servePreparation?.destination = bounce
+    servePreparation?.swipeStrength = ShotSwipe.strength(swipe.length)
     servePreparation?.swingCommitted = true
+  }
+
+  func serveDirection(viewer: Int?) -> ShotDirection? {
+    if phase == .serving, let serve = servePreparation {
+      guard !(settings.tournament && settings.local) || viewer == serve.server else { return nil }
+      let origin = serviceImpact(at: players[serve.server].pos, side: serve.server, explosive: queuedPower == .ace)
+      return ShotDirection(serveTarget: serve.target, origin: origin.courtPosition,
+        strength: serve.swipeStrength, side: serve.server, serial: contactSerial, time: time)
+    }
+    guard phase == .live, let flight, flight.serve else { return nil }
+    return ShotDirection(serveTarget: flight.serveAim ?? flight.landing, origin: flight.launchPosition,
+      strength: flight.serveSwipeStrength, side: flight.hitter, serial: contactSerial - 1,
+      time: flight.serveReleaseTime ?? time - flight.elapsed)
   }
 
   func serveReceiveTarget(_ side: Int) -> Vec? {
@@ -309,6 +324,9 @@ extension PracticeEngine {
       launch(serve.server, aim: serve.target, kind: .cross, fault: fault, serve: true,
         serveNumber: serve.number, serveProfile: serve.profile)
       if queuedPower == .ace { commitPowerFlight(.ace, random: random) }
+      flight?.serveAim = serve.target
+      flight?.serveSwipeStrength = serve.swipeStrength
+      flight?.serveReleaseTime = time
       feedback = Coaching(title: "Serve in play.", reason: "Blue marked the bounce. Yellow marks the return.",
         tip: "Reach yellow after the bounce, then follow your shot or recover.")
     }

@@ -727,10 +727,10 @@ import SwiftUI
     let guides = engine.settings.tournament || engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {
       // Each human sees one next-action guide: receive, then recover after contact.
-      let visible = (controlledSide == nil || controlledSide == side) && (engine.phase == .serving
-        || (guides && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local)))
-      let contact = engine.contactGuide(side)
       let golden = engine.showsGoldenContact(side)
+      let visible = (controlledSide == nil || controlledSide == side) && (engine.phase == .serving
+        || ((guides || golden) && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local)))
+      let contact = engine.contactGuide(side)
       let chasingOut = engine.outBallChaseTarget(side) != nil
       contactRings[side].strokeColor = golden
         ? UIColor(red: 1, green: 0.69, blue: 0.12, alpha: 1) : .yellow
@@ -764,14 +764,13 @@ import SwiftUI
     }
     let serveInFlight = engine.phase == .live && engine.flight?.serve == true && (engine.flight?.progress ?? 1) < 0.8
     serveRing.isHidden = engine.phase != .serving && !serveInFlight
-    if serveInFlight, let flight = engine.flight { placeRing(serveRing, at: flight.landing, radius: 0.58) }
+    if serveInFlight, let flight = engine.flight { placeRing(serveRing, at: flight.serveAim ?? flight.landing, radius: 0.58) }
     servePath.isHidden = engine.phase != .serving
     if engine.phase == .serving, let serve = engine.servePreparation {
       placeRing(serveRing, at: serve.target, radius: 0.58)
       serveRing.alpha = serve.isTossing ? 1 : 0.85
       let line = CGMutablePath()
-      line.move(to: project(engine.players[serve.server].pos))
-      line.addLine(to: project(serve.target))
+      line.move(to: project(serve.target))
       if let receiver = engine.serveReceiveTarget(1 - serve.server) { line.addLine(to: project(receiver)) }
       servePath.path = line.copy(dashingWithPhase: 0, lengths: [4, 5])
     }
@@ -1003,15 +1002,21 @@ import SwiftUI
   private func drawShotDirection() {
     let cue: ShotDirection
     let opacity: Double
+    var serveRibbon = false
     if let preview = aimPreview, preview.cue.isForwardSwipe, engine.phase.isPlaying,
        preview.epoch == engine.shotGestureEpoch(preview.cue.side) {
       cue = preview.cue
       opacity = 1
     } else if let alpha = shotDirection?.opacity(at: ProcessInfo.processInfo.systemUptime,
       serial: engine.contactSerial, hitter: engine.flight?.hitter, launchPosition: engine.flight?.launchPosition), alpha > 0,
-      let committed = shotDirection, engine.phase.isPlaying {
+      let committed = shotDirection, engine.phase == .live {
       cue = committed
       opacity = alpha
+    } else if var serve = engine.serveDirection(viewer: controlledSide) {
+      opacity = serve.opacity(at: engine.time, serial: engine.contactSerial, hitter: engine.flight?.hitter)
+      guard opacity > 0 else { shotLine.isHidden = true; return }
+      cue = serve
+      serveRibbon = true
     } else {
       shotDirection = nil
       shotLine.isHidden = true
@@ -1020,6 +1025,8 @@ import SwiftUI
     let start = projectWorld(cue.startPoint(in: engine).world())
     let end = projectWorld(cue.landing.world())
     let dx = end.x - start.x, dy = end.y - start.y
+    shotLine.color = serveRibbon ? .systemCyan : .white
+    shotLine.colorBlendFactor = 1
     shotLine.position = start
     shotLine.size = CGSize(width: hypot(dx, dy), height: cue.lineWidth)
     shotLine.zRotation = atan2(dy, dx)

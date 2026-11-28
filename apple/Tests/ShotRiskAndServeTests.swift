@@ -145,6 +145,40 @@ final class ShotRiskAndServeTests: XCTestCase {
     XCTAssertEqual(copy.servePreparation?.tossID, game.servePreparation?.tossID)
   }
 
+  func testServeRibbonTracksBlueAimAndSwipeThroughContactOnBothEnds() throws {
+    for side in 0...1 {
+      var setup = PracticeEngine(settings: .init(local: true))
+      setup.settings.tournament = true
+      setup.scoring = PracticeScore(format: .tennis, firstServer: side)
+      setup.start()
+      setup.requestServe(side)
+      for _ in 0..<60 { setup.step(1/120) }
+      let aim = try XCTUnwrap(setup.serveDirection(viewer: side))
+      XCTAssertEqual(aim.landing, setup.servePreparation?.target)
+      XCTAssertNil(setup.serveDirection(viewer: 1-side))
+      for distance in [16.0, 82, 148] {
+        var game = setup
+        game.swingAtTestToss(side, length: distance)
+        let preview = try XCTUnwrap(game.serveDirection(viewer: side))
+        XCTAssertEqual(preview.landing, game.servePreparation?.target)
+        XCTAssertEqual(preview.length, 3 + 6 * ShotSwipe.strength(distance))
+        XCTAssertEqual(preview.lineWidth, 3 + 27 * ShotSwipe.strength(distance))
+        XCTAssertEqual(preview.startPoint(in: game).distance(to: preview.landing), preview.length, accuracy: 0.00001)
+        for _ in 0..<120 where game.phase == .serving { game.step(1/120, random: { 0.99 }) }
+        let flight = try XCTUnwrap(game.flight)
+        var live = try XCTUnwrap(game.serveDirection(viewer: 1-side))
+        XCTAssertEqual(live.landing, flight.landing)
+        XCTAssertEqual(live.landing, preview.landing)
+        XCTAssertEqual(live.startPoint(in: game), preview.startPoint(in: game))
+        XCTAssertEqual(live.lineWidth, preview.lineWidth)
+        XCTAssertEqual(live.opacity(at: game.time + 0.86, serial: game.contactSerial, hitter: side), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(live.opacity(at: game.time + 1, serial: game.contactSerial, hitter: side), 0)
+        game.launch(1-side, aim: game.players[side].pos, kind: .line)
+        XCTAssertNil(game.serveDirection(viewer: side))
+      }
+    }
+  }
+
   func testServeRiskExtremesOnBothEndsAndActualPointExplanation() throws {
     for side in 0...1 {
       for safe in [true, false] {

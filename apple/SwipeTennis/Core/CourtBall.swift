@@ -65,6 +65,7 @@ extension BallFlight {
   /// The return window ends here. Older saved flights sometimes stored an
   /// endpoint straight ahead of the bounce even on a diagonal shot.
   var reboundEnd: Vec {
+    if extendedReboundDuration != nil && !serve { return contact }
     if power != nil && power != .ace { return landing.projected(from:launchPosition,toDepth:contact.y) }
     if serve {
       let depth = hitter == 0 ? min(-0.45,contact.y) : max(PracticeEngine.length+0.45,contact.y)
@@ -82,7 +83,21 @@ extension BallFlight {
     return Vec(x:landing.x+travel*dx/distance,y:landing.y+travel*dz/distance)
   }
 
+  /// Let a deep ball reach a receiver who is holding the baseline. The
+  /// original strike, bounce, bearing and horizontal rebound speed are fixed.
+  mutating func extendReceiveWindow(to depth: Double, side: Int) {
+    guard side == 0 ? depth > contact.y : depth < contact.y else { return }
+    let distance = landing.distance(to: reboundEnd)
+    guard distance > 0.001 else { return }
+    let speed = distance / reboundDuration
+    contact = landing.projected(from: launchPosition, toDepth: depth)
+    reboundDepth = abs(depth - landing.y)
+    let end = serve ? reboundEnd : contact
+    extendedReboundDuration = max(reboundDuration, landing.distance(to: end) / speed)
+  }
+
   var reboundDuration: Double {
+    if let extendedReboundDuration { return extendedReboundDuration }
     let ordinary = max(0.001,0.2*duration)
     // A power shot can travel from midcourt through the baseline after it
     // lands. Give that distance real time, including the kick of a wide ace.

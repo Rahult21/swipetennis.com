@@ -189,9 +189,10 @@ struct PracticeGesture {
 /// A local aiming cue starts on the accepted swipe, even before racket contact.
 struct ShotDirection {
   let landing: Vec
-  let length: Double
+  private let strength: Double
+  var length: Double { 3 + 6 * strength }
   let isForwardSwipe: Bool
-  let lineWidth: Double
+  var lineWidth: Double { isForwardSwipe ? 3 + 27 * strength : 3 }
   let side, serial: Int
   let start: Double
   private var opponentContact: Double?
@@ -212,11 +213,19 @@ struct ShotDirection {
       isForwardSwipe = false
     default: return nil
     }
-    let strength = ShotSwipe.strength(distance)
-    lineWidth = isForwardSwipe ? 3 + 27 * strength : 3
-    length = 3 + 6 * strength
+    strength = ShotSwipe.strength(distance)
     self.side = side
     serial = game.contactSerial
+    start = time
+  }
+
+  init(serveTarget: Vec, origin: Vec, strength: Double?, side: Int, serial: Int, time: Double) {
+    landing = serveTarget
+    strikePosition = origin
+    self.strength = strength ?? 0.5
+    isForwardSwipe = true
+    self.side = side
+    self.serial = serial
     start = time
   }
 
