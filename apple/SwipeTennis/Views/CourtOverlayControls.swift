@@ -54,7 +54,7 @@ struct PausedCourtCoach: View {
     case .ready: return (.ready, TennisTheme.lime, false)
     case .watch: return (.watch, .white.opacity(0.7), false)
     case .aimServe: return (.swipe(1, 0), .cyan, true)
-    case .hitServe: return (.tap, .cyan, true)
+    case .hitServe: return (.swipe(0, -1), .cyan, true)
     }
   }
 }

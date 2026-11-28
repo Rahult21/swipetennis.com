@@ -1,6 +1,19 @@
 import XCTest
 
 final class SwipeTennisUITests: XCTestCase {
+  /// Finish a live point by returning playable balls until the highlight starts.
+  private func playUntilHighlight(_ app: XCUIApplication, timeout: TimeInterval = 75) {
+    let court = app.descendants(matching: .any)["livePracticeCourt"].firstMatch
+    let end = Date().addingTimeInterval(timeout)
+    while Date() < end && !app.buttons["Skip"].exists && !app.buttons["nextPracticePoint"].exists {
+      if court.exists && court.value as? String == "Swipe to hit" {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.77))
+        let finish = start.withOffset(CGVector(dx: -30, dy: -120))
+        start.press(forDuration: 0.05, thenDragTo: finish)
+      } else { RunLoop.current.run(until: Date().addingTimeInterval(0.15)) }
+    }
+  }
+
   func testFullCourtAndPauseInBothOrientations() {
     let app = XCUIApplication()
     defer { XCUIDevice.shared.orientation = .portrait }
@@ -185,6 +198,7 @@ final class SwipeTennisUITests: XCTestCase {
       let start = app.buttons["startPractice"]
       XCTAssertTrue(start.waitForExistence(timeout:15))
       start.tap()
+      playUntilHighlight(app)
       let skip = app.buttons["Skip"]
       XCTAssertTrue(skip.waitForExistence(timeout:75))
       if skip.isHittable { skip.tap() }
@@ -219,6 +233,7 @@ final class SwipeTennisUITests: XCTestCase {
     let start = app.buttons["startPractice"]
     XCTAssertTrue(start.waitForExistence(timeout:20))
     start.tap()
+    playUntilHighlight(app)
     let panel = app.staticTexts["playingHighlight"]
     XCTAssertTrue(panel.waitForExistence(timeout:70))
     let result = app.buttons["nextPracticePoint"]
@@ -519,13 +534,14 @@ final class SwipeTennisUITests: XCTestCase {
     let playing = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:start)
     XCTAssertEqual(XCTWaiter.wait(for:[playing],timeout:10),.completed)
     capture("Landscape-rally")
+    playUntilHighlight(app)
     let skip = app.buttons["Skip"]
     XCTAssertTrue(skip.waitForExistence(timeout: 35))
     XCTAssertTrue(app.staticTexts["playingHighlight"].waitForExistence(timeout: 10))
     capture("Winning-shot")
     if skip.exists && skip.isHittable { skip.tap() }
     XCUIDevice.shared.orientation = .portrait
-    // The far player serves first. Let the serve pass to reach the real result card.
+    // Review the completed point from the result card.
     let replay = app.buttons["replayPracticePoint"]
     XCTAssertTrue(replay.waitForExistence(timeout:30))
     replay.tap()

@@ -27,7 +27,7 @@ struct StrokeStudioClip {
     var game: PracticeEngine
     if stroke == .serve {
       game = TrainingFeed.serve(.wide,surface:.hard)
-      game.servePreparation?.requested = true
+      game.requestServe(0)
     } else {
       game = PracticeEngine(settings:.init(local:true,surface:.hard,allCourtTraining:false))
       game.phase = .live
@@ -45,6 +45,9 @@ struct StrokeStudioClip {
     var performance = CourtPerformance(game:game)
     var strike: RecordedStrike?
     for _ in 0..<900 {
+      if let serve = game.servePreparation, serve.acceptsSwing {
+        game.swingServe(Vec(x: 0, y: 82), side: serve.server, tossID: serve.tossID)
+      }
       game.step(PointReplay.tick,random:{0.8})
       performance.update(game:game,dt:PointReplay.tick)
       if strike == nil { strike = performance.replay.strikes.last(where:{$0.hitter == 0}) }

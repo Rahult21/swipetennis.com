@@ -85,6 +85,7 @@ extension PracticeEngine {
       kind != .drop || canDrawDrop(side) else { return }
     choose(side, kind)
     if let distance, distance.isFinite {
+      players[side].swingStrength = ShotSwipe.strength(distance)
       let target = displayedLanding ?? touchShotLanding(kind, side: side, distance: distance)
       players[side].aim = target
       players[side].swipeDepth = side == 0 ? target.y : Self.length - target.y

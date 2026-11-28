@@ -11,10 +11,10 @@ final class ServeTests: XCTestCase {
   }
 
   private func advance(_ engine: inout PracticeEngine, _ seconds: Double) {
-    for _ in 0..<Int(seconds * 120) { engine.step(1 / 120, random: { 0.5 }) }
+    for _ in 0..<Int(seconds * 120) { engine.step(1 / 120, random: { 0.9 }) }
   }
 
-  func testHumanServeWaitsForTapAndDoesNotCountAimingAsRallyOrPoint() {
+  func testHumanServeWaitsForInputAndDoesNotCountAimingAsRallyOrPoint() {
     for side in 0...1 {
       var engine = humanServer(side)
       let points = engine.scoring.points
@@ -24,10 +24,10 @@ final class ServeTests: XCTestCase {
       XCTAssertEqual(engine.rally, 0)
       XCTAssertEqual(engine.contactSerial, 0)
       XCTAssertEqual(engine.scoring.points, points)
-      XCTAssertTrue(engine.canBeginServe(side))
-      engine.beginServe(1 - side)
+      XCTAssertTrue(engine.canAimServe(side))
+      engine.requestServe(1 - side)
       XCTAssertFalse(engine.servePreparation!.isTossing)
-      engine.beginServe(side)
+      engine.setUpTestServe(side)
       advance(&engine, 0.5)
       XCTAssertEqual(engine.phase, .serving)
       XCTAssertEqual(engine.contactSerial, 0)
@@ -45,6 +45,7 @@ final class ServeTests: XCTestCase {
         var engine = humanServer(side, ad: ad)
         var targets: [Vec] = []
         for placement in ServePlacement.allCases {
+          engine = humanServer(side, ad: ad)
           engine.chooseServe(placement, side: side)
           advance(&engine, 2)
           let target = engine.servePreparation!.target
@@ -77,9 +78,10 @@ final class ServeTests: XCTestCase {
       var engine = humanServer(side)
       engine.chooseServe(.wide, side: side)
       let origin = engine.servePreparation!.target
+      let stepDistance = max(3.2, origin.distance(to: engine.servePreparation!.destination) / 0.5) / 120
       engine.step(1 / 120)
       XCTAssertGreaterThan(engine.servePreparation!.target.distance(to: origin), 0)
-      XCTAssertLessThanOrEqual(engine.servePreparation!.target.distance(to: origin), 3.2 / 120 + 0.00001)
+      XCTAssertLessThanOrEqual(engine.servePreparation!.target.distance(to: origin), stepDistance + 0.00001)
       let impact = serviceImpact(at: engine.players[side].pos, side: side, explosive: false).courtPosition
       let baseline = side == 0 ? 0.0 : PracticeEngine.length
       for _ in 0..<250 {
@@ -90,7 +92,7 @@ final class ServeTests: XCTestCase {
       let blue = engine.servePreparation!.target
       XCTAssertEqual(yellow!.y, baseline)
       XCTAssertEqual(yellow!.x, blue.projected(from: impact, toDepth: baseline).x, accuracy: 0.000001)
-      engine.beginServe(side)
+      engine.setUpTestServe(side)
       advance(&engine, 0.95)
       XCTAssertEqual(engine.flight?.landing, blue)
       XCTAssertEqual(engine.flight?.contact, yellow)
@@ -110,7 +112,7 @@ final class ServeTests: XCTestCase {
         XCTAssertEqual(game.contactGuide(1-side),blue.projected(from:impact,toDepth:depth))
       }
       let yellow = try XCTUnwrap(game.contactGuide(1-side))
-      game.beginServe(side)
+      game.setUpTestServe(side)
       advance(&game,0.95)
       XCTAssertEqual(game.flight?.contact,yellow)
       let previous = yellow.projected(from:impact,toDepth:ServeGeometry.receivingBaseline(server:side))
@@ -160,6 +162,7 @@ final class ServeTests: XCTestCase {
       for ad in [false, true] {
         var engine = humanServer(side, ad: ad)
         for point in [Vec(x: -100, y: -100), Vec(x: 100, y: 100), Vec(x: -100, y: 100), Vec(x: 100, y: -100)] {
+          engine = humanServer(side, ad: ad)
           engine.aimServe(at: point, side: side)
           advance(&engine, 3)
           let blue = engine.servePreparation!.target
@@ -175,10 +178,10 @@ final class ServeTests: XCTestCase {
     var engine = humanServer()
     advance(&engine, 1)
     engine.chooseServe(.wide, side: 0)
-    engine.beginServe(0)
+    engine.swingAtTestToss(0)
     XCTAssertFalse(engine.servePreparation!.isTossing)
     advance(&engine, 2)
-    engine.beginServe(0)
+    engine.setUpTestServe(0)
     let blue = engine.servePreparation!.target
     engine.chooseServe(.center, side: 0)
     engine.nudgeServe(Vec(x: 100, y: 100), side: 0)
@@ -245,7 +248,7 @@ final class ServeTests: XCTestCase {
         let yellow = engine.contactGuide(receiver)!
         engine.players[receiver].pos = yellow
         engine.players[receiver].destination = yellow
-        engine.beginServe(side)
+        engine.setUpTestServe(side)
         advance(&engine, 0.95)
         XCTAssertNil(BallContactWindow.volley(flight: engine.flight!, player: yellow, side: receiver))
         for _ in 0..<300 where engine.contactSerial == 1 { engine.step(1 / 120, random: { 0.99 }) }
@@ -265,7 +268,7 @@ final class ServeTests: XCTestCase {
     for side in 0...1 {
       var engine = humanServer(side)
       advance(&engine, 1)
-      engine.beginServe(side)
+      engine.setUpTestServe(side)
       advance(&engine, 0.95)
       let start = engine.players[side].pos
       advance(&engine, 0.2)

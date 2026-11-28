@@ -60,12 +60,16 @@ func diagram(_ c:CGContext,chapter:Int,t:Double) {
   case 0:
     tint=blue;target=CGPoint(x:court.midX+6+17*progress,y:court.midY+21)
     finger=CGPoint(x:start.x+19*progress,y:start.y+8*progress)
-    title=t<2 ? "Drag on your half" : "Tap to serve"
-    caption=t<2 ? "Place the blue target" : "Your serve follows the target"
+    if t >= 2 {
+      let swing=ease((t-2.25)/0.85)
+      finger=CGPoint(x:start.x+(target.x-start.x)*swing,y:start.y+(target.y-start.y)*swing)
+    }
+    title=t<2 ? "Drag on your half" : "Swipe toward blue"
+    caption=t<2 ? "Set blue, then hold still" : "Swipe farther to land deeper"
   case 1:
     tint=yellow;target=CGPoint(x:court.maxX-9,y:court.minY+16)
     finger=CGPoint(x:start.x+(target.x-start.x)*progress,y:start.y+(target.y-start.y)*progress)
-    title="Run to yellow";caption="Swipe toward the yellow ring"
+    title="Prepare the return";caption="Your player moves to receive"
   default:
     let deep=chapter==2
     tint=purple;target=CGPoint(x:court.midX+(deep ? -19:18)*progress,y:court.midY+(deep ? 63:24)*progress)
@@ -77,7 +81,6 @@ func diagram(_ c:CGContext,chapter:Int,t:Double) {
   if t<2.35 || (chapter==0 && t<3.4) {
     line(start,finger,white.copy(alpha:0.58)!,3)
     if let hand { c.draw(hand,in:CGRect(x:finger.x-2,y:finger.y-22,width:31,height:32)) }
-    if chapter==0 && t>=2 { ring(finger,.init(gray:1,alpha:1),t*1.8) }
   }
   text(title,at:CGPoint(x:229,y:91),size:37,bold:true,color:white)
   text(caption,at:CGPoint(x:230,y:56),size:23,bold:false,color:muted)

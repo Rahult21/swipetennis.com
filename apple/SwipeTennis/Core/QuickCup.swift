@@ -125,6 +125,7 @@ struct CupInput: Codable {
   var shot: ShotKind?
   var shotEpoch: Int?
   var movementEpoch: Int?
+  var tossID: UUID?
   var shotDistance: Double?
   var displayedLanding: Vec?
   var runPace: Double?
@@ -165,6 +166,7 @@ struct CupInput: Codable {
     case "approach": action = .guidedMove(.approach)
     case "split": engine.beginSplit(side)
     case "serve": engine.requestServe(side)
+    case "serveSwing": if let point { engine.swingServe(point, side: side, tossID: tossID) }
     case "serveAim": if let point { engine.aimServe(at: point, side: side, finished: finished ?? true) }
     case "serveTune": engine.adjustServe(speed: speed, spin: spin, side: side)
     default: break

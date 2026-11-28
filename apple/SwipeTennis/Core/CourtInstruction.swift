@@ -11,7 +11,7 @@ extension PracticeEngine {
     if phase == .ready {
       return CourtInstruction(
         title: "Build the point. Finish at net.",
-        detail: "Make a short swipe toward yellow, then a fresh swipe from your moving player to choose a shot.", symbol: "figure.tennis")
+        detail: "Your player moves to receive. Swipe toward your target to hit. Longer swipes land deeper and hit harder.", symbol: "figure.tennis")
     }
     if isResolvingPoint {
       if let impact = pointResolution?.impact {
@@ -26,15 +26,21 @@ extension PracticeEngine {
         detail: feedback.reason, symbol: "flag.checkered")
     }
     if phase == .serving, let serve = servePreparation {
+      if humanServing && serve.acceptsSwing {
+        return CourtInstruction(title: "Swipe toward blue", detail: "Swipe farther to land deeper. The speed meter sets the pace.", symbol: "hand.draw.fill")
+      }
       if serve.requested || serve.isTossing {
         return CourtInstruction(title: "\(name(serve.server)) serving",
           detail: "Watch the toss. Receiver: tap to split step as the racket meets the ball.", symbol: "hand.tap")
       }
-      return CourtInstruction(title: humanServing ? "Drag to aim. Tap to serve." : "Read the opponent's serve",
+      return CourtInstruction(title: humanServing ? "Set the blue target" : "Read the opponent's serve",
         detail: humanServing
-          ? "Drag on your half to place blue, then touch a gauge within one second. Speed is on your left and spin on your right. Tap your side to serve."
+          ? "Set speed and spin, then aim blue. After half a second the toss starts. Swipe toward blue to strike."
           : "The blue bounce target is moving into place. Make a short swipe toward yellow to prepare your return.",
         symbol: "scope")
+    }
+    if flight?.waitingForSwipe == true {
+      return CourtInstruction(title: "Swipe to hit", detail: "Swipe farther for a deeper, harder return or shorter for a softer ball.", symbol: "hand.draw.fill")
     }
     if settings.local {
       return CourtInstruction(

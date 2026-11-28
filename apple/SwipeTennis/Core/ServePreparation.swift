@@ -19,12 +19,24 @@ struct ServeProfile: Codable, Equatable {
     number == 1 ? Self(speed: .high, spin: .low) : Self(speed: .low, spin: .high)
   }
 
-  var pace: Double { (0.80 + 0.10 * Double(speed.rawValue)) * (1 - 0.055 * Double(spin.rawValue)) }
+  var launchSpeedKPH: Double { 75 + 15 * Double(speed.rawValue) }
   var kick: Double { 1 + 0.15 * Double(spin.rawValue) }
-  func faultChance(number: Int) -> Double {
-    let flatRisk = [0.10, 0.19, 0.30][speed.rawValue]
-    let secondServePressure = number == 2 ? [0, 0.025, 0.08][speed.rawValue] : 0
-    return flatRisk + secondServePressure - 0.035 * Double(spin.rawValue)
+}
+
+enum ServeDepth: String, Codable {
+  case short, moderate, deep
+
+  init(target: Vec) {
+    let metres = abs(target.y - PracticeEngine.net)
+    self = metres < 2.8 ? .short : metres >= 5 ? .deep : .moderate
+  }
+
+  func faultChance(profile: ServeProfile) -> Double {
+    if self == .deep && profile.speed == .high { return 2.0 / 3 }
+    let speed = Double(profile.speed.rawValue) / 2
+    let flatness = 1 - Double(profile.spin.rawValue) / 2
+    let depthRisk = self == .deep ? 0.22 : self == .short ? 0.07 : 0
+    return 0.10 + speed * 0.22 + flatness * 0.10 + depthRisk
   }
 }
 
@@ -43,14 +55,14 @@ struct ServePreparation: Codable {
   var pickedBlue = false
   // Optional fields allow a serve saved before meters existed to resume with its defaults.
   var tuningDeadline: Double?
+  var tossID: UUID?
+  var swingCommitted: Bool?
+  var catching: Bool?
   var customProfile: ServeProfile?
   var profile: ServeProfile { customProfile ?? .standard(number) }
-  var canTune: Bool {
-    guard !isTossing, !requested, let tuningDeadline else { return false }
-    return customProfile != nil || elapsed + 0.000000001 < tuningDeadline
-  }
+  var canTune: Bool { !isTossing }
+  var acceptsSwing: Bool { isTossing && catching != true && swingCommitted != true }
   var isTossing: Bool { tossElapsed != nil }
-  var isSet: Bool { target.distance(to: destination) < 0.001 && settled >= 0.2 }
   var tossProgress: Double? { tossElapsed.map { clamp($0 / Self.tossDuration, 0, 1) } }
 }
 
@@ -110,6 +122,21 @@ enum ServeGeometry {
       min(leftBox ? center - 0.22 : PracticeEngine.width - 0.4, reachableMax)), y: y)
   }
 
+  /// The middle swipe length hits blue. Shorter and longer swipes slide the bounce
+  /// along the same bearing, stopping inside the diagonal service box.
+  static func swipeLanding(through blue: Vec, from origin: Vec, server: Int, length: Double) -> Vec {
+    let strength = 2 * ShotSwipe.strength(length) - 1
+    guard strength != 0 else { return blue }
+    let direction = server == 0 ? -1.0 : 1.0
+    let edgeDepth = strength < 0 ? 1.0 : PracticeEngine.net - serviceLine - 0.05
+    let edge = blue.projected(from: origin, toDepth: PracticeEngine.net + direction * edgeDepth)
+    let center = PracticeEngine.width / 2
+    let bounds = blue.x < center ? 0.05...(center - 0.05) : (center + 0.05)...(PracticeEngine.width - 0.05)
+    let dx = edge.x - blue.x
+    let limit = dx == 0 ? 1 : min(1, ((dx > 0 ? bounds.upperBound : bounds.lowerBound) - blue.x) / dx)
+    return Vec(x: blue.x + dx * limit * abs(strength), y: blue.y + (edge.y - blue.y) * limit * abs(strength))
+  }
+
   static func target(_ placement: ServePlacement, from: Vec, receiver: Vec,
     server: Int, fromRight: Bool, number: Int = 1) -> Vec
   {
@@ -148,11 +175,6 @@ extension PracticeEngine {
     humanServing && servePreparation?.server == side && servePreparation?.isTossing == false
   }
 
-  func canBeginServe(_ side: Int) -> Bool {
-    canAimServe(side) && servePreparation?.isSet == true
-      && (servePreparation?.elapsed ?? 0) >= 0.65
-  }
-
   mutating func chooseServe(_ placement: ServePlacement, side: Int) {
     guard canAimServe(side) else { return }
     let target = ServeGeometry.target(placement, from: players[side].pos,
@@ -163,13 +185,12 @@ extension PracticeEngine {
 
   mutating func aimServe(at point: Vec, side: Int, finished: Bool = true) {
     guard canAimServe(side), point.x.isFinite, point.y.isFinite else { return }
-    guard queuedPower != .ace else { return }
+    guard queuedPower != .ace, let serve = servePreparation else { return }
     let target = ServeGeometry.bounded(point, from: players[side].pos,
       server: side, fromRight: scoring.serveFromRight)
-    let moved = target.distance(to: servePreparation!.destination) > 0.001
-    if demo == nil && (moved || !servePreparation!.pickedBlue || servePreparation!.tuningDeadline == nil) {
-      let deadline = finished ? (servePreparation!.elapsed + 1) : nil
-      servePreparation?.tuningDeadline = deadline
+    let moved = target.distance(to: serve.destination) > 0.001
+    if moved || !serve.pickedBlue || serve.tuningDeadline == nil {
+      servePreparation?.tuningDeadline = serve.elapsed + 0.5
     }
     servePreparation?.pickedBlue = true
     if moved {
@@ -183,7 +204,10 @@ extension PracticeEngine {
 
   mutating func adjustServe(speed: ServeLevel? = nil, spin: ServeLevel? = nil, side: Int) {
     guard canAimServe(side), queuedPower == nil, let serve = servePreparation, serve.canTune else { return }
-    servePreparation?.customProfile = ServeProfile(speed: speed ?? serve.profile.speed, spin: spin ?? serve.profile.spin)
+    let profile = ServeProfile(speed: speed ?? serve.profile.speed, spin: spin ?? serve.profile.spin)
+    guard profile != serve.profile else { return }
+    servePreparation?.customProfile = profile
+    if serve.pickedBlue { servePreparation?.tuningDeadline = serve.elapsed + 0.5 }
   }
 
   mutating func nudgeServe(_ delta: Vec, side: Int) {
@@ -193,16 +217,24 @@ extension PracticeEngine {
       y: servePreparation.destination.y + delta.y * direction * 0.025), side: side)
   }
 
-  mutating func beginServe(_ side: Int) {
-    guard canBeginServe(side) else { return }
-    servePreparation?.tossElapsed = 0
+  /// Confirm the current blue placement without authorizing racket contact.
+  mutating func requestServe(_ side: Int) {
+    guard canAimServe(side), let serve = servePreparation else { return }
+    servePreparation?.pickedBlue = true
+    if serve.tuningDeadline == nil { servePreparation?.tuningDeadline = serve.elapsed + 0.5 }
   }
 
-  /// A tap is not lost while the blue target finishes its short settling movement.
-  mutating func requestServe(_ side: Int) {
-    guard canAimServe(side) else { return }
-    servePreparation?.requested = true
-    if canBeginServe(side) { beginServe(side) }
+  /// Screen points in a frame whose positive y-axis points along the projected blue line.
+  mutating func swingServe(_ swipe: Vec, side: Int, tossID: UUID?) {
+    guard humanServing, let serve = servePreparation, serve.server == side, serve.acceptsSwing,
+          let tossID, tossID == serve.tossID, swipe.length.isFinite, swipe.length >= 16,
+          swipe.y >= swipe.length * 0.8660254 else { return }
+    let origin = serviceImpact(at: players[side].pos, side: side, explosive: queuedPower == .ace)
+    let bounce = ServeGeometry.swipeLanding(through: serve.target, from: origin.courtPosition,
+      server: side, length: swipe.length)
+    servePreparation?.target = bounce
+    servePreparation?.destination = bounce
+    servePreparation?.swingCommitted = true
   }
 
   func serveReceiveTarget(_ side: Int) -> Vec? {
@@ -219,16 +251,38 @@ extension PracticeEngine {
     guard var serve = servePreparation else { return }
     serve.elapsed += dt
     if let toss = serve.tossElapsed {
-      serve.tossElapsed = toss + dt * (queuedPower == .ace ? 1.25 : 1)
+      if humanServing && serve.tossID == nil { serve.tossID = UUID() }
+      let next = toss + dt * (queuedPower == .ace ? 1.25 : 1)
+      if serve.catching == true {
+        serve.tossElapsed = max(0, toss - dt)
+        if serve.tossElapsed == 0 {
+          serve.tossElapsed = nil
+          serve.catching = nil
+          serve.tossID = nil
+          serve.requested = false
+          serve.tuningDeadline = serve.elapsed + 0.5
+        }
+      } else if humanServing && serve.swingCommitted != true && next >= ServePreparation.tossDuration * 0.82 {
+        // Catch an unstruck toss before the racket accelerates. Play the
+        // release back into the hand, then allow another toss at the same mark.
+        serve.tossElapsed = ServePreparation.tossDuration * 0.82
+        serve.catching = true
+      } else { serve.tossElapsed = next }
     } else {
       let distance = serve.target.distance(to: serve.destination)
-      let fraction = distance > 0 ? min(1, 3.2 * dt / distance) : 1
+      let travel = distance > 0 ? 3.2 * dt / distance : 1
+      let untilToss = humanServing ? serve.tuningDeadline.map { max(dt, $0 - serve.elapsed + dt) } : nil
+      let fraction = min(1, max(travel, untilToss.map { dt / max(0.000001, $0) } ?? 0))
       serve.target.x += (serve.destination.x - serve.target.x) * fraction
       serve.target.y += (serve.destination.y - serve.target.y) * fraction
       serve.settled = serve.target.distance(to: serve.destination) < 0.001 ? serve.settled + dt : 0
       if !humanServing && serve.elapsed >= ServePreparation.opponentAimDuration && serve.settled >= 0.7 {
         serve.tossElapsed = 0
-      } else if humanServing && serve.requested && serve.isSet && serve.elapsed >= 0.65 {
+      } else if humanServing && (serve.pickedBlue || serve.requested),
+                serve.elapsed + 0.000001 >= (serve.tuningDeadline ?? 0.5) {
+        serve.target = serve.destination
+        serve.tossID = UUID()
+        serve.requested = true
         serve.tossElapsed = 0
       }
     }
@@ -240,10 +294,17 @@ extension PracticeEngine {
       players[receiver].destination = Self.own(receiver, target)
     }
     updateFootwork(dt)
-    if (serve.tossElapsed ?? 0) + 0.000001 >= ServePreparation.tossDuration {
+    if (serve.tossElapsed ?? 0) + 0.000001 >= ServePreparation.tossDuration,
+       !humanServing || serve.swingCommitted == true {
       phase = .live
       servePreparation = nil
-      let miss = demo == nil && queuedPower != .ace && random() < serve.profile.faultChance(number: serve.number)
+      let depth = ServeDepth(target: serve.target)
+      let chance = depth.faultChance(profile: serve.profile)
+      let miss = demo == nil && queuedPower != .ace && random() < chance
+      let odds = abs(chance - 2.0/3) < 0.000001 ? "2 in 3 fault risk"
+        : abs(chance - 0.10) < 0.000001 ? "9 in 10 land in" : "\(Int((100 * (1 - chance)).rounded()))% land in"
+      serveExplanation = queuedPower == .ace ? "The on-demand ace guaranteed this serve."
+        : "\(name(serve.server)) served \(depth.rawValue) with \(serve.profile.speed.label.lowercased()) speed and \(serve.profile.spin.label.lowercased()) spin (\(odds))."
       let fault = miss ? ["net", "wide", "long"][Int(clamp(random(), 0, 0.999999) * 3)] : nil
       launch(serve.server, aim: serve.target, kind: .cross, fault: fault, serve: true,
         serveNumber: serve.number, serveProfile: serve.profile)

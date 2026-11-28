@@ -9,8 +9,8 @@ struct QuickStartFilm: View {
   @State private var chapter = 0
   private let titles = ["Place your serve", "Move to the return", "Drive a deep forehand", "Play a shorter backhand"]
   private let cues = [
-    "Drag on your half to move blue. Lift, then tap your half to serve.",
-    "Swipe toward yellow to run. Reach it before the ball and your player returns automatically.",
+    "Aim blue. During the toss, swipe toward it. A longer swipe lands deeper, at the pace set by the speed meter.",
+    "Your player moves to receive. Swipe on your half when set to hit the return.",
     "Reach the ball on your racket side. Swipe farther toward the far court for a deeper return.",
     "Reach the ball on the opposite side. Use a shorter diagonal swipe to land closer to the net."
   ]

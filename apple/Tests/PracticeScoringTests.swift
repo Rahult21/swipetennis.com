@@ -117,7 +117,8 @@ final class PracticeScoringTests: XCTestCase {
     engine.startRally()
     engine.end(0, reason: "Opponent's shot landed long.", tip: "Move early.")
     XCTAssertEqual(engine.feedback.title, "You won the point.")
-    XCTAssertEqual(engine.feedback.reason, "Opponent's shot landed long.")
+    XCTAssertTrue(engine.feedback.reason.hasPrefix("Opponent's shot landed long."))
+    XCTAssertTrue(engine.feedback.reason.contains("served deep"))
     engine.end(1, reason: "Duplicate", tip: "")
     XCTAssertEqual(engine.scoring.points, [1, 0])
     for _ in 1..<24 {

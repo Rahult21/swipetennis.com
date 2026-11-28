@@ -45,6 +45,7 @@ final class ReceiverAndSwingTests: XCTestCase {
         var impact: AthletePose?, landed: AthletePose?
         var biggestLandingStep: Float = 0
         for _ in 0..<200 {
+          game.swingAtTestToss(server)
           let clock = game.servePreparation?.tossElapsed
           game.step(PointReplay.tick, random: { 0.90 })
           motion.update(game: game, dt: PointReplay.tick)

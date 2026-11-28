@@ -321,6 +321,7 @@ final class PointReplayTests: XCTestCase {
       game.requestServe(0)
       var sawBounce = false
       for _ in 0..<1500 {
+        game.swingAtTestToss(0)
         game.step(tick, random: { 0 })
         motion.update(game: game, dt: tick)
         if game.pointResolution?.elapsed == 0, let impact = game.pointResolution?.impact {

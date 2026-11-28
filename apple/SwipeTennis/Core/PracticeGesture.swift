@@ -237,6 +237,7 @@ extension PracticeEngine {
     choose(side, selection.kind)
     // Distance inside the far baseline, in metres. A short angle stays shorter than a drive.
     guard let landing = displayedLanding ?? swipeLanding(delta, side:side) else { return }
+    players[side].swingStrength = ShotSwipe.strength(delta.length)
     players[side].aim = landing
     players[side].swipeDepth = side == 0 ? landing.y : Self.length-landing.y
   }
@@ -279,11 +280,13 @@ extension PracticeEngine {
       let kind: ShotKind = across < 1.4 ? .line : (farDepth > 5 && across > 3 ? .angle : .cross)
       choose(side, kind)
       players[side].aim = target
+      players[side].swingStrength = nil
       players[side].tappedLanding = target
       return
     }
     if canTapNetShot(side) {
       choose(side, .line)
+      players[side].swingStrength = nil
       players[side].aim = CourtTactics.openCourt(side: side, opponent: players[1 - side].pos,
         overhead: contactWindow(side)?.overhead == true)
       return

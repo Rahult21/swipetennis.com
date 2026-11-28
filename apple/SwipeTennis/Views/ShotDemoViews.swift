@@ -152,7 +152,10 @@ struct ShotDemoLessonView: View {
           .accessibilityAction(named: "Aim serve at the target") {
             session.input { engine in if let target = engine.demo?.target { engine.aimServe(at: target, side: 0) } }
           }
-          .accessibilityAction(named: "Serve") { session.input { $0.requestServe(0) } }
+          .accessibilityAction(named: "Set blue target") { session.input { $0.requestServe(0) } }
+          .accessibilityAction(named: "Swing toward blue") {
+            session.input { $0.swingServe(Vec(x: 0, y: 82), side: 0, tossID: $0.servePreparation?.tossID) }
+          }
         if session.paused {
           Color.black.opacity(0.3)
           Button("Resume demo", systemImage: "play.fill") { session.resume() }

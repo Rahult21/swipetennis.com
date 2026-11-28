@@ -15,8 +15,8 @@ extension PracticeEngine {
   var coachCue: CoachCue {
     if phase == .serving, let serve = servePreparation {
       if serve.server == 0 {
-        if serve.requested || serve.isTossing { return .watch }
-        return canBeginServe(0) ? .hitServe : .aimServe
+        if serve.acceptsSwing { return .hitServe }
+        return serve.isTossing || serve.pickedBlue ? .watch : .aimServe
       }
       if splitProgress(0) != nil && players[0].pos.distance(to: players[0].destination) <= Self.contactRadius {
         return .split(splitTimed[0])

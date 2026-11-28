@@ -84,6 +84,7 @@ struct PointReplay {
 
   mutating func record(_ frame: RallyFrame, game: PracticeEngine, hit: Bool) {
     guard game.demo == nil else { return }
+    if game.flight?.waitingForSwipe == true { gap = true; return }
     if game.phase == .serving, game.scoring.server == 0, let preparation = game.servePreparation,
        !preparation.requested, !preparation.isTossing { serviceRetry = game }
     let active = game.phase == .live || game.servePreparation?.isTossing == true ||

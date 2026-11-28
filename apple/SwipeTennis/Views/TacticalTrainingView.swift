@@ -140,7 +140,7 @@ struct TrainingCourtView: View {
               Section("Plan the first two shots") {
                 Picker("Serve",selection:$serve) { ForEach(ServePlacement.allCases,id:\.self) { Text($0.rawValue) } }
                 Picker("Next landing lane",selection:$lane) { ForEach(TrainingLane.allCases,id:\.self) { Text($0.rawValue) } }
-                Text("Tap to serve, read the return, then swipe your next ball into the lane you chose.")
+                Text("Swipe toward blue to serve, read the return, then swipe your next ball into the lane you chose.")
               }
             case .net:
               Section("Choose where to split") {
@@ -206,7 +206,7 @@ private struct TrainingRally: View {
   @State private var returnX: Double?
   @State private var firstDriveSerial: Int?
   init(seed: PracticeEngine, exercise: TrainingExercise, lane: TrainingLane, plannedServe: ServePlacement, previous: String?,finish: @escaping (String,Bool)->Void,tryAgain: @escaping ()->Void) {
-    _session = StateObject(wrappedValue:PracticeSession(engine:seed))
+    _session = StateObject(wrappedValue:PracticeSession(engine:seed, interactiveRally:false))
     self.exercise = exercise; self.lane = lane; self.plannedServe = plannedServe; self.previous = previous; self.finish = finish; self.tryAgain = tryAgain
   }
   var body: some View {

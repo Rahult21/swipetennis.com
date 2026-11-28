@@ -59,7 +59,7 @@ struct CourtGuideCard: View {
       Button { showFilm = true } label: {
         Label("Watch quick start",systemImage:"play.rectangle")
       }.accessibilityIdentifier("rewatchQuickStart")
-      Text("Yellow follows the serve through blue. It sits on your baseline for a first serve and one metre inside for a second serve. During a rally, yellow sits 2 metres behind the expected bounce so you can take the ball on the rise. White keeps you a court length plus four feet from your opponent when space permits. Swipe farther to hit deeper, or tap a spot across the net to aim there before contact. Swipe faster to sprint. Watch the energy bars beside the score and run at rally pace to recover. Set your feet early for a stronger drive, or stretch for a shorter block.")
+      Text("Yellow follows the serve through blue. It sits on your baseline for a first serve and one metre inside for a second serve. During a rally, yellow sits 2 metres behind the expected bounce so you can take the ball on the rise. White keeps you a court length plus four feet from your opponent when space permits. Your player runs to receive and waits for your shot swipe. Swipe farther for a deeper, harder return. A short swipe plays a softer ball. Swipe faster to sprint. Watch the energy bars beside the score and run at rally pace to recover. Set your feet early for a stronger drive, or stretch for a shorter block.")
         .font(.subheadline).foregroundStyle(.secondary)
       ForEach(topics.indices, id: \.self) { index in
         Button {

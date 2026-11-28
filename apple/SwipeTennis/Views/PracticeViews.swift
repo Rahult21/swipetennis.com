@@ -89,7 +89,7 @@ struct PracticeSetupView: View {
       } header: { Text("Match") } footer: { Text(settings.scoring.detail) }
       Section {
         Button { showGuide = true } label: { Label("How to play", systemImage: "hand.draw") }
-      } footer: { Text("Swipe toward yellow to receive and white to recover. A short swipe starts the run; use a fresh swipe from your moving player to choose a shot.") }
+      } footer: { Text("Your player moves to receive. Swipe from your player as you approach, or swipe on your half when set. A longer swipe hits deeper and harder.") }
     }.navigationTitle("Play & practice")
       .fullScreenCover(item:$training) { TrainingCourtView($0,surface:settings.surface) }
       .safeAreaInset(edge: .bottom) {
@@ -160,7 +160,7 @@ struct PracticeGameView: View {
   var game: PracticeEngine { session.snapshot }
   private var movementControls: some View {
     LiveCourt(scene:session.scene,paused:session.paused || replayReview != nil,reviewing:replayReview != nil)
-      .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : "On court")
+      .accessibilityValue(session.scene.isIntroducingCourt ? "Court entrance" : game.flight?.waitingForSwipe == true ? "Swipe to hit" : "On court")
       .accessibilityLabel("Practice court. \(game.isResolvingPoint ? game.pointResolution?.reaction?.affirmation?.text ?? game.feedback.title : game.feedback.title)")
       .accessibilityAction(named: "Show point result") { session.scene.dismissAffirmation() }
       .accessibilityAction(named: "Move to contact") {
@@ -169,9 +169,13 @@ struct PracticeGameView: View {
       .accessibilityAction(named: "Recover") { session.scene.engine.recover(0) }
       .accessibilityAction(named: "Approach the net") { session.scene.engine.followShot(0) }
       .accessibilityAction(named: "Split step") { session.scene.engine.beginSplit(0) }
-      .accessibilityAction(named: "Serve") {
+      .accessibilityAction(named: "Set blue target") {
         session.scene.engine.requestServe(session.scene.engine.scoring.server)
         session.snapshot = session.scene.engine
+      }
+      .accessibilityAction(named: "Swing toward blue") {
+        let server = game.scoring.server
+        session.scene.engine.swingServe(Vec(x: 0, y: 82), side: server, tossID: game.servePreparation?.tossID)
       }
       .accessibilityAction(named: "Serve wide") { session.scene.engine.chooseServe(.wide, side: 0) }
       .accessibilityAction(named: "Serve center") { session.scene.engine.chooseServe(.center, side: 0) }
@@ -506,7 +510,7 @@ struct PracticeSessionSheet: View {
           if let encounter = game.settings.clubEncounter, !confirmingExit {
             Label(encounter.cue, systemImage: "figure.tennis").font(.subheadline)
             if encounter == .debut && game.phase == .ready {
-              Text("Swipe toward yellow to run. While moving, swipe diagonally from your player to aim crosscourt.")
+              Text("Your player runs to the ball. Swipe diagonally for a crosscourt return.")
                 .font(.subheadline).foregroundStyle(.secondary)
             }
           }

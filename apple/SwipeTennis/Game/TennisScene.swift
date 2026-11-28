@@ -9,12 +9,13 @@ import SwiftUI
   let scene: TennisScene
   private var inventoryKey: String?
   private var reactionKey: String?
-  init(engine saved: PracticeEngine) {
+  init(engine saved: PracticeEngine, interactiveRally: Bool = true) {
     var engine = saved
     engine.restoreReceiveMark()
     snapshot = engine
     scene = TennisScene(settings: engine.settings)
     scene.engine = engine
+    scene.interactiveRally = interactiveRally
     scene.restorePresentation()
     scene.publish = { [weak self] engine in
       guard let self else { return }
@@ -93,6 +94,7 @@ import SwiftUI
 }
 @MainActor final class TennisScene: SKScene {
   var engine: PracticeEngine
+  var interactiveRally = true
   weak var stadium: CourtReplayView?
   private static let entranceDuration = 1.45
   private var entrance: Double = 0
@@ -137,11 +139,14 @@ import SwiftUI
     let initialTarget: Vec
     let relative: Bool
     var dragging = false
+    var tossID: UUID?
+    var lastAimPoint: CGPoint
   }
   private var serveTouches: [UITouch: ServeTouch] = [:]
   private var affirmationTouches: [UITouch: CGPoint] = [:]
   private let approachPath = SKShapeNode(), openCourt = SKShapeNode()
   private let followLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
+  private let swingLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
   private let openLabel = SKLabelNode(fontNamed: "AvenirNext-DemiBold")
   private var swipeCoach = SwipeCoach()
   private let swipeHand = SKSpriteNode()
@@ -366,11 +371,15 @@ import SwiftUI
     openCourt.zPosition = 1
     dynamic.addChild(approachPath)
     dynamic.addChild(openCourt)
-    for label in [followLabel, openLabel] {
+    for label in [followLabel, openLabel, swingLabel] {
       label.fontSize = 9
       label.zPosition = 6
       dynamic.addChild(label)
     }
+    swingLabel.fontSize = 14
+    swingLabel.zPosition = 140
+    swingLabel.text = "Swipe to hit"
+    swingLabel.fontColor = .white
     followLabel.text = "FOLLOW"
     followLabel.fontColor = .systemYellow
     openLabel.text = "OPEN"
@@ -464,7 +473,7 @@ import SwiftUI
       while accumulator >= 1 / 120 {
         if controlledSide == nil && engine.acceptsCourtMovement && engine.demo?.demonstration != true { applyInputs() }
         let oldContact = engine.contactSerial, previousBounce = engine.bounceSerial
-        engine.step(PointReplay.tick)
+        engine.step(PointReplay.tick, interactiveRally: interactiveRally)
         performance.update(game: engine, dt: PointReplay.tick, reduceMotion: reduceMotion)
         if engine.contactSerial != oldContact {
           Immersion.shared.hit(x: Double(engine.worldBall.x), gain: engine.flight?.power?.contactGain ?? 1, blocked:engine.flight?.contactQuality == .stretched || engine.flight?.contactQuality == .diving)
@@ -632,6 +641,13 @@ import SwiftUI
   }
 
   private func render() {
+    swingLabel.isHidden = true
+    if let flight = engine.flight, flight.waitingForSwipe == true, engine.phase == .live,
+       controlledSide == nil || controlledSide == 1 - flight.hitter {
+      let p = projectWorld(engine.players[1 - flight.hitter].pos.world(height: 2.05))
+      swingLabel.position = CGPoint(x: p.x, y: p.y + 5)
+      swingLabel.isHidden = false
+    }
     guard actors.count == 2 else { return }
     if let stadium, !stadium.isReviewing, let frame = performance.frame {
       let sharedScreen = engine.settings.local && controlledSide == nil
@@ -880,15 +896,20 @@ import SwiftUI
     demoGesturePath.isHidden = true
     guard let demo = engine.demo, demo.result == nil, engine.phase.isPlaying else { return }
     let cycle = demo.stageTime.truncatingRemainder(dividingBy: 1.6) / 1.6
-    let progress = reduceMotion ? 0.55 : StrokeAnimation.ease(clamp((cycle - 0.1) / 0.7, 0, 1))
+    var progress = reduceMotion ? 0.55 : StrokeAnimation.ease(clamp((cycle - 0.1) / 0.7, 0, 1))
     let player = project(engine.players[0].pos)
     var from = player, to = player
     var tap = false, circle = false
     if engine.phase == .serving, let goal = demo.target, let serve = engine.servePreparation {
-      guard !serve.isTossing else { return }
-      if demo.serveAdjusted {
-        from = project(Vec(x: engine.players[0].pos.x + 1.6, y: engine.players[0].pos.y))
-        tap = true
+      if serve.isTossing {
+        guard serve.acceptsSwing || (demo.demonstration && serve.catching != true) else { return }
+        let blue = project(serve.target)
+        let distance = max(1, hypot(blue.x - from.x, blue.y - from.y))
+        to = CGPoint(x: from.x + 56 * (blue.x - from.x) / distance,
+                     y: from.y + 56 * (blue.y - from.y) / distance)
+        progress = reduceMotion ? 0.55 : min(1, (serve.tossProgress ?? 0) * 1.6)
+      } else if serve.pickedBlue {
+        return
       } else {
         from = project(serve.target)
         to = project(goal)
@@ -1006,6 +1027,26 @@ import SwiftUI
     guard engine.acceptsCourtMovement && !suspended && engine.demo?.demonstration != true else { return }
     if var serveTouch = serveTouches[touch] {
       let point = touch.location(in: self)
+      if let serve = engine.servePreparation, serve.isTossing {
+        let id = serveTouch.tossID ?? serve.tossID
+        serveTouch.tossID = id
+        serveTouches[touch] = serveTouch
+        if ended, serve.acceptsSwing, id == serve.tossID {
+          let feet = project(engine.players[serve.server].pos), blue = project(serve.target)
+          let dx = blue.x - feet.x, dy = blue.y - feet.y
+          let length = hypot(dx, dy)
+          if length > 0 {
+            let x = point.x - serveTouch.lastAimPoint.x, y = point.y - serveTouch.lastAimPoint.y
+            let swipe = Vec(x: (x * dy - y * dx) / length, y: (x * dx + y * dy) / length)
+            var input = CupInput(kind: "serveSwing", point: swipe)
+            input.tossID = id
+            cupInput(input, side: serve.server)
+          }
+        }
+        return
+      }
+      guard serveTouch.tossID == nil else { return }
+      serveTouch.lastAimPoint = point
       if hypot(point.x - serveTouch.start.x, point.y - serveTouch.start.y) >= 8 { serveTouch.dragging = true }
       serveTouches[touch] = serveTouch
       if serveTouch.dragging {
@@ -1069,9 +1110,9 @@ import SwiftUI
     guard engine.acceptsCourtMovement else { return }
     for touch in touches {
       let p = unproject(touch.location(in: self))
-      if (controlledSide == nil || controlledSide == engine.scoring.server), engine.canAimServe(engine.scoring.server), let serve = engine.servePreparation,
+      if (controlledSide == nil || controlledSide == engine.scoring.server), engine.humanServing, let serve = engine.servePreparation,
         p.distance(to: serve.target) <= 1.1 || (serve.server == 0 ? p.y > PracticeEngine.net : p.y < PracticeEngine.net) {
-        serveTouches[touch] = ServeTouch(start:touch.location(in:self),startCourt:p,initialTarget:serve.destination,relative:p.distance(to:serve.target)>1.1)
+        serveTouches[touch] = ServeTouch(start:touch.location(in:self),startCourt:p,initialTarget:serve.destination,relative:p.distance(to:serve.target)>1.1, tossID:serve.tossID, lastAimPoint:touch.location(in:self))
         continue
       }
       var side = controlledSide ?? (engine.settings.local && p.y < 11.885 ? 1 : 0)
@@ -1096,11 +1137,12 @@ import SwiftUI
           break
         }
       }
-      let intent: CourtTouchIntent = engine.canChooseShot(side) && (onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
+      let waiting = engine.flight?.waitingForSwipe == true
+      let intent: CourtTouchIntent = engine.canChooseShot(side) && (waiting || onPlayer || engine.canDrawDrop(side)) ? .shot : .movement
       touchGestures[touch] = PracticeGesture(side: side, intent: intent, movementEpoch: engine.contactSerial,
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
         movementGain: engine.quickNetFeet(side) ? 1.8 : 1,
-        targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot),
+        targetGuide: waiting && intent == .shot ? nil : engine.swipeMovementGuide(side, onPlayer: intent == .shot),
         movementOrigin: engine.players[side].pos, allowsApproach: engine.canFollowShot(side))
       applyTouch(touch)
     }

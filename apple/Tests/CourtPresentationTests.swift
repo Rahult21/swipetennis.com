@@ -44,9 +44,10 @@ final class CourtPresentationTests: XCTestCase {
 
   func testServeShowsTrophyThenTucksTossArmAndKeepsImpact() throws {
     var game = TrainingFeed.serve(.wide,surface:.hard)
-    game.servePreparation?.requested = true
+    game.requestServe(0)
     var motion = CourtPerformance(game:game)
     for _ in 0..<900 where game.contactSerial == 0 {
+      game.swingAtTestToss(0)
       game.step(PointReplay.tick,random:{ 0.99 })
       motion.update(game:game,dt:PointReplay.tick)
     }

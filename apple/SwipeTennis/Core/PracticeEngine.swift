@@ -172,6 +172,7 @@ struct CourtPlayer: Codable {
   var energy: Double?
   var runPace: Double?
   var tappedLanding: Vec?
+  var swingStrength: Double?
   var swipeDepth: Double?
   var recoveryFlight: Int?
   var diveDecision: Int?
@@ -191,6 +192,9 @@ struct BallFlight: Codable {
   var acknowledge = false
   var serve = false
   var serveNumber = 1
+  var swipeHoldTime: Double?
+  var waitingForSwipe: Bool?
+  var swingStrength: Double?
   var serveProfile: ServeProfile?
   var contactQuality: RallyContact?
   var receiverWrongFooted: Bool?
@@ -222,7 +226,7 @@ struct PracticeEngine: Codable {
   // The saved match contains simulation state. Guided lessons have a separate progress store.
   private enum CodingKeys: String, CodingKey {
     case settings, players, scoring, phase, flight, pointResolution, servePreparation, serveLanding
-    case landingSerial, ball, rally, bestRally, time, reactAt, approach, balanced, attempts, feedback
+    case serveExplanation, landingSerial, ball, rally, bestRally, time, reactAt, approach, balanced, attempts, feedback
     case history, contactSerial, bounceSerial, attacking, followingApproach, approachAvailable
     case splitStarted, splitTimed, tactics, opponentErrors, coach, dropGestureEpoch, dropReturns
     case scoutedReplies, rivalReads
@@ -243,6 +247,7 @@ struct PracticeEngine: Codable {
   var flight: BallFlight?
   var pointResolution: PointResolution?
   var servePreparation: ServePreparation?
+  var serveExplanation: String?
   var serveLanding: ServeLanding?
   var landingSerial = 0
   var ball = Vec(x: 4.115, y: -0.8)
@@ -361,6 +366,7 @@ struct PracticeEngine: Codable {
     guard phase != .serving || servePreparation?.server != side else { return }
     players[side].tappedLanding = nil
     players[side].swipeDepth = nil
+    players[side].swingStrength = 0.5
     players[side].kind = kind
     players[side].aim = Self.preset(side, kind, players[side].pos)
     if side == 0, demo != nil, canChooseShot(side) {
@@ -407,6 +413,7 @@ struct PracticeEngine: Codable {
       players[i].lastReturn = nil
       players[i].netEffort = nil
       players[i].runPace = nil
+      players[i].swingStrength = nil
       players[i].swipeDepth = nil
       players[i].tappedLanding = nil
       players[i].settled = 0
@@ -414,6 +421,7 @@ struct PracticeEngine: Codable {
       if players[i].kind == .drop || players[i].kind == .slice { players[i].kind = .cross }
     }
     phase = .serving
+    serveExplanation = nil
     coach.startPoint()
     powerEarnedThisPoint = nil
     flight = nil
@@ -449,7 +457,7 @@ struct PracticeEngine: Codable {
     feedback = Coaching(title: "Set up the serve.",
       reason: "Blue is the serve's bounce target. Yellow is the receiver's contact position.",
       tip: bot ? "Read the blue target and move to yellow before the toss."
-        : "Drag on your half to aim blue. Lift, then tap to serve.")
+        : "Set blue, wait for the toss, then swipe toward blue.")
   }
 
   mutating func launch(
@@ -500,7 +508,13 @@ struct PracticeEngine: Codable {
     }
     let profile = serve ? (serveProfile ?? .standard(serveNumber)) : nil
     if let profile {
-      duration = clamp(from.distance(to: landing) / (24 * pace) + 0.35, 0.95, 1.8) / profile.pace
+      if fault != "net" {
+        let netProgress = (Self.net - origin.y) / (landing.y - origin.y)
+        if netProgress > 0 && netProgress < 1 {
+          let clearance = 1.04 - Double(impact.y) * (1 - netProgress)
+          loft = max(loft, clearance / (1.7 * sin(.pi * netProgress)))
+        }
+      }
       loft += 0.18 * Double(profile.spin.rawValue)
     }
     if (stroke == .volley && kind != .lob && kind != .drop && kind != .slice) || stroke == .overhead {
@@ -528,6 +542,7 @@ struct PracticeEngine: Codable {
       serveProfile: profile, receiverWrongFooted: wrongFooted, kind: kind,
       stroke: serve ? .serve : stroke == .groundstroke ? kind.strokeStyle : stroke, trainingApproach: trainingApproach,
       trainingReply: trainingReply, returnedShortBall: returnedShort)
+    if let profile { flight?.setLaunchSpeed(kph: profile.launchSpeedKPH) }
     ball = origin
     players[1 - side].settled = 0
     reactAt = time + (trainingApproach ? 0.08 : settings.botReaction)
@@ -687,6 +702,7 @@ struct PracticeEngine: Codable {
         else if let decision = players[0].lastReturn { explanation += " " + decision.lesson }
       } else if f.hitter == 1 && f.fault == nil { explanation += " Move toward yellow earlier." }
     }
+    if let serveExplanation { explanation += " " + serveExplanation }
     feedback = Coaching(
       title: "\(name(winner)) won the \(scoring.lastAward.rawValue).", reason: explanation,
       tip: phase == .finished
@@ -845,6 +861,7 @@ struct PracticeEngine: Codable {
     players[side].aim = nil
     players[side].tappedLanding = nil
     players[side].swipeDepth = nil
+    players[side].swingStrength = nil
     if !bot { players[side].kind = .cross }
     if overhead { tactics[side].overheads += 1 } else if volley { tactics[side].volleys += 1 }
     if !bot && (volley || overhead)
@@ -883,6 +900,16 @@ struct PracticeEngine: Codable {
     if demo == nil && !lineApproach {
       let forward = kind == .line ? 1.5 : 1
       flight!.duration /= forward * quality.pace
+    }
+    if !bot, f.swipeHoldTime != nil, let strength = p.swingStrength {
+      let pace: Double
+      switch kind {
+      case .drop: pace = 28 + 20 * strength
+      case .lob, .slice: pace = 44 + 32 * strength
+      default: pace = 55 + 55 * strength
+      }
+      flight?.setLaunchSpeed(kph: pace)
+      flight?.swingStrength = strength
     }
     if !bot {
       if volley && !overhead && !miss && abs(p.pos.y - Self.net) <= Self.net - ServeGeometry.serviceLine {
@@ -964,7 +991,7 @@ struct PracticeEngine: Codable {
     }
   }
 
-  mutating func step(_ delta: Double, random: () -> Double = { Double.random(in: 0..<1) }) {
+  mutating func step(_ delta: Double, interactiveRally: Bool = false, random: () -> Double = { Double.random(in: 0..<1) }) {
     if demo != nil { stepShotDemo(delta); return }
     guard needsSimulation else { return }
     let dt = clamp(delta, 0, 0.04)
@@ -982,7 +1009,17 @@ struct PracticeEngine: Codable {
     if flight?.power == nil { prepareOpponentReply(random: random) }
     let current = flight!
     let receiver = 1 - current.hitter
-    if settings.local || receiver == 0 || time >= reactAt {
+    let manualStrike = interactiveRally && (receiver == 0 || settings.local)
+      && current.power == nil && current.fault == nil && queuedPower == nil
+    if manualStrike && current.swipeHoldTime == nil {
+      let target = Self.own(receiver, intercept(receiver))
+      players[receiver].destination = target
+      players[receiver].recoveryFlight = nil
+      let entry = BallContactWindow.next(flight: current, player: target, side: receiver)?.entry ?? 1
+      flight?.swipeHoldTime = max(current.elapsed, current.time(at: entry) - 0.16)
+    }
+    let swingReady = !manualStrike || players[receiver].swingStrength != nil
+    if swingReady && (settings.local || receiver == 0 || time >= reactAt) {
       prepareNetEffort(receiver, flight: current, dt: dt)
       attemptRunningDive(receiver, incoming: current)
     }
@@ -993,11 +1030,21 @@ struct PracticeEngine: Codable {
     updateFootwork(dt)
     updateCoachApproaches()
     updateCoachRecovery()
-    flight!.elapsed += dt
+    var nextTime = current.elapsed + dt
+    if manualStrike, let hold = flight?.swipeHoldTime {
+      let earlyContact = contactWindow(receiver, after: current.progress).map { current.time(at: $0.entry) - 0.16 } ?? hold
+      let stop = max(current.elapsed, min(earlyContact, hold))
+      let stillApproaching = players[receiver].pos.distance(to: players[receiver].destination) > Self.contactRadius
+      if nextTime >= stop && (!swingReady || stillApproaching) {
+        nextTime = stop
+        flight?.waitingForSwipe = !swingReady
+      } else { flight?.waitingForSwipe = false }
+    }
+    flight!.elapsed = nextTime
     let f = flight!
     let progress = f.progress
     // Resolve a swept air contact before counting a bounce in the same display frame.
-    if let window = contactWindow(receiver, after: current.progress), window.netStroke != nil,
+    if swingReady, let window = contactWindow(receiver, after: current.progress), window.netStroke != nil,
       progress + 0.000001 >= window.entry {
       let impact = min(progress, max(window.entry, window.exit))
       flight!.elapsed = f.time(at:impact)
@@ -1038,7 +1085,7 @@ struct PracticeEngine: Codable {
           : "Aim farther inside the lines on your next shot.", random: random)
       return
     }
-    if let window = contactWindow(receiver, after: current.progress), window.netStroke == nil,
+    if swingReady, let window = contactWindow(receiver, after: current.progress), window.netStroke == nil,
       progress + 0.000001 >= window.entry
     {
       returnBall(receiver, volley: window.volley, overhead: window.overhead, random: random)

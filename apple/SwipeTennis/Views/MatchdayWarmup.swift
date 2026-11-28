@@ -7,7 +7,7 @@ private enum WarmupFeed: Int, CaseIterable {
   }
   var cue: String {
     switch self {
-    case .serve: "Drag on your half to aim blue at the wide target, then tap to serve."
+    case .serve: "Drag on your half to aim blue at the wide target, then swipe toward blue during the toss."
     case .forehand: "Swipe toward yellow on your right. As you move, swipe long and diagonally left across the net."
     case .backhand: "Swipe toward yellow on your left. As you move, swipe a short diagonal right across the net."
     }

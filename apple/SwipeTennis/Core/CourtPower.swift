@@ -15,7 +15,7 @@ enum CourtPower: String, Codable, CaseIterable {
     switch self {
     case .overhead: return "Tap once to set up and finish a jumping smash."
     case .rally: return "Tap once to play a power forehand or backhand on the next return."
-    case .ace: return "Tap once to serve an ace at the blue target on your next serve."
+    case .ace: return "Arm the ace, then swipe toward blue during your toss."
     }
   }
   var contactGain: Double { self == .overhead ? 2 : self == .rally ? 1.5 : 1 }
@@ -153,7 +153,7 @@ extension PracticeEngine {
   mutating func commitPowerFlight(_ power: CourtPower, random: () -> Double) {
     guard var shot = flight else { return }
     shot.power = power
-    shot.duration /= 1.5
+    if power != .ace { shot.duration /= 1.5 }
     if power == .overhead {
       // The rebound clears the receiver before continuing behind the baseline.
       shot.contact = shot.landing.projected(from:shot.launchPosition,toDepth:-3)

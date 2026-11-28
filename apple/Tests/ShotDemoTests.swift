@@ -38,7 +38,7 @@ final class ShotDemoTests: XCTestCase {
       inactive.beginShotDemo(lesson, attempt: 0, demonstration: false)
       if lesson.placement != nil {
         for _ in 0..<100 { inactive.step(1/120) }
-        inactive.requestServe(0)
+        inactive.setUpTestServe(0)
       } else if inactive.contactGuide(0) != nil { inactive.apply(.guidedMove(.receive), side: 0) }
       finish(&inactive)
       XCTAssertFalse(try XCTUnwrap(inactive.demo?.result).success, "Automatic \(lesson) must not pass")
@@ -108,7 +108,7 @@ final class ShotDemoTests: XCTestCase {
     serve.beginShotDemo(.serveWide, attempt: 0, demonstration: false)
     let wrongTarget = try XCTUnwrap(serve.demo?.initialBlue)
     serve.aimServe(at: Vec(x: wrongTarget.x + 0.2, y: wrongTarget.y + 0.2), side: 0)
-    serve.requestServe(0)
+    serve.setUpTestServe(0)
     finish(&serve)
     XCTAssertTrue(serve.demo?.serveAdjusted == true)
     XCTAssertFalse(try XCTUnwrap(serve.demo?.result).success)
@@ -345,7 +345,7 @@ final class ShotDemoTests: XCTestCase {
       engine.beginShotDemo(lesson, attempt: 0, demonstration: false)
       if let target = engine.demo?.target {
         engine.aimServe(at: target, side: 0)
-        engine.requestServe(0)
+        engine.setUpTestServe(0)
       }
       for _ in 0..<1_200 where engine.phase == .serving { engine.step(1/120) }
       let flight = try XCTUnwrap(engine.flight)

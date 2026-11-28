@@ -279,7 +279,12 @@ struct CupMatchView: View {
         .accessibilityAction(named: "Move to contact") { session.input(CupInput(kind: "receive")) }
         .accessibilityAction(named: "Recover") { session.input(CupInput(kind: "recover")) }
         .accessibilityAction(named: "Split step") { session.input(CupInput(kind: "split")) }
-        .accessibilityAction(named: "Serve") { session.input(CupInput(kind: "serve")) }
+        .accessibilityAction(named: "Set blue target") { session.input(CupInput(kind: "serve")) }
+        .accessibilityAction(named: "Swing toward blue") {
+          var swing = CupInput(kind: "serveSwing", point: Vec(x: 0, y: 82))
+          swing.tossID = game.servePreparation?.tossID
+          session.input(swing)
+        }
         .accessibilityAction(named: "Crosscourt") { session.input(CupInput(kind: "shot", shot: .cross)) }
         .accessibilityAction(named: "Down the line") { session.input(CupInput(kind: "shot", shot: .line)) }
         .accessibilityAction(named: "Lob") { session.input(CupInput(kind: "shot", shot: .lob)) }

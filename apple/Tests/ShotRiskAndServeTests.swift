@@ -128,41 +128,128 @@ final class ShotRiskAndServeTests: XCTestCase {
     XCTAssertTrue(farther.lesson.contains("lower-percentage"))
   }
 
-  func testOneSecondStartsOnReleaseAndFirstChangeKeepsBothMetersOpen() throws {
+  func testAimAndMeterChangesRestartHalfSecondClockEvenWithFingerHeld() throws {
     var game = serving()
-    XCTAssertFalse(game.servePreparation!.canTune)
-    let blue = game.servePreparation!.target
+    let blue = try XCTUnwrap(game.servePreparation?.target)
     game.aimServe(at: blue, side: 0, finished: false)
-    for _ in 0..<240 { game.step(1 / 120) }
+    for _ in 0..<48 { game.step(1/120) }
+    game.aimServe(at: Vec(x: blue.x, y: 8.4), side: 0, finished: false)
+    for _ in 0..<48 { game.step(1/120) }
+    game.adjustServe(speed: .low, spin: .high, side: 0)
+    for _ in 0..<59 { game.step(1/120) }
+    XCTAssertFalse(game.servePreparation!.isTossing)
+    game.step(1/120)
+    XCTAssertTrue(game.servePreparation!.isTossing)
     XCTAssertFalse(game.servePreparation!.canTune)
-    game.aimServe(at: blue, side: 0)
-    for _ in 0..<119 { game.step(1 / 120) }
-    game.adjustServe(speed: .medium, side: 0)
-    for _ in 0..<240 { game.step(1 / 120) }
-    game.adjustServe(spin: .high, side: 0)
-    XCTAssertEqual(game.servePreparation!.profile, ServeProfile(speed: .medium, spin: .high))
-    let restored = try JSONDecoder().decode(PracticeEngine.self, from: JSONEncoder().encode(game))
-    XCTAssertEqual(restored.servePreparation!.profile, game.servePreparation!.profile)
-    XCTAssertTrue(restored.servePreparation!.canTune)
-    game.requestServe(0)
-    game.adjustServe(spin: .low, side: 0)
-    XCTAssertEqual(game.servePreparation!.profile.spin, .high)
+    let copy = try JSONDecoder().decode(PracticeEngine.self, from: JSONEncoder().encode(game))
+    XCTAssertEqual(copy.servePreparation?.tossID, game.servePreparation?.tossID)
   }
 
-  func testExpiredWindowUsesDefaultsUntilANewPlacement() {
-    for number in 1...2 {
-      var game = serving(number: number)
-      let target = game.servePreparation!.target
-      game.aimServe(at: target, side: 0)
-      for _ in 0..<121 { game.step(1 / 120) }
-      game.aimServe(at: target, side: 0)
-      game.adjustServe(speed: .medium, spin: .medium, side: 0)
-      XCTAssertFalse(game.servePreparation!.canTune)
-      XCTAssertNil(game.servePreparation!.customProfile)
-      XCTAssertEqual(game.servePreparation!.profile, .standard(number))
-      XCTAssertFalse(game.servePreparation!.isTossing)
-      game.chooseServe(.wide, side: 0)
-      XCTAssertTrue(game.servePreparation!.canTune)
+  func testServeRiskExtremesOnBothEndsAndActualPointExplanation() throws {
+    for side in 0...1 {
+      for safe in [true, false] {
+        var setup = PracticeEngine(settings: .init(local: true))
+        setup.scoring = PracticeScore(format: .tennis, firstServer: side)
+        setup.start()
+        let depth = safe ? 4.0 : 5.8
+        setup.aimServe(at: Vec(x: 3, y: PracticeEngine.net + (side == 0 ? -depth : depth)), side: side)
+        setup.adjustServe(speed: safe ? .low : .high, spin: safe ? .high : .low, side: side)
+        for _ in 0..<60 { setup.step(1/120) }
+        let id = try XCTUnwrap(setup.servePreparation?.tossID)
+        var swiped = setup
+        swiped.swingServe(Vec(x: 130, y: 1), side: side, tossID: id)
+        swiped.swingServe(Vec(x: 0, y: -130), side: side, tossID: id)
+        swiped.swingServe(Vec(x: 0, y: 12), side: side, tossID: id)
+        swiped.swingServe(Vec(x: 0, y: 120), side: 1-side, tossID: id)
+        XCTAssertNil(swiped.servePreparation?.swingCommitted)
+        for _ in 0..<310 { swiped.step(1/120) }
+        XCTAssertNil(swiped.flight)
+        XCTAssertEqual(swiped.contactSerial, 0)
+        swiped.swingServe(Vec(x: 0, y: 120), side: side, tossID: id)
+        XCTAssertNil(swiped.servePreparation?.swingCommitted)
+
+        var faults = 0
+        for bin in 0..<30 {
+          var game = setup
+          var swing = CupInput(kind: "serveSwing", point: Vec(x: 0, y: safe ? 82 : 148))
+          swing.tossID = id
+          swing.apply(to: &game, side: side)
+          for _ in 0..<115 where game.phase == .serving { game.step(1/120, random: { (Double(bin)+0.5)/30 }) }
+          let flight = try XCTUnwrap(game.flight)
+          if flight.fault != nil { faults += 1 }
+          if bin == 29 {
+            game.launch(1-side, aim: setup.players[side].pos, kind: .cross)
+            game.end(side, reason: "Won the rally.", tip: "")
+            XCTAssertTrue(game.feedback.reason.contains(safe ? "9 in 10 land in" : "2 in 3 fault risk"))
+          }
+        }
+        XCTAssertEqual(faults, safe ? 3 : 20)
+        func flight(_ length: Double) throws -> BallFlight {
+          var game = setup
+          game.swingAtTestToss(side, length: length)
+          for _ in 0..<115 where game.phase == .serving { game.step(1/120,random:{0.99}) }
+          return try XCTUnwrap(game.flight)
+        }
+        let short = try flight(16), middle = try flight(82), long = try flight(148)
+        XCTAssertLessThan(abs(short.landing.y - PracticeEngine.net), abs(middle.landing.y - PracticeEngine.net))
+        XCTAssertLessThan(abs(middle.landing.y - PracticeEngine.net), abs(long.landing.y - PracticeEngine.net))
+        XCTAssertEqual(short.launchSpeedKPH, middle.launchSpeedKPH)
+        XCTAssertEqual(long.launchSpeedKPH, middle.launchSpeedKPH)
+        XCTAssertEqual(short.contact.x, long.contact.x, accuracy: 0.00001)
+        for serve in [short, middle, long] {
+          let from = serve.launchPosition.y
+          let net = 0.8 * (PracticeEngine.net - from) / (serve.landing.y - from)
+          XCTAssertGreaterThan(serve.altitude(at: net), 1.0)
+        }
+      }
+    }
+  }
+
+  func testInteractiveRallyMovesWaitsAndHitsOnceWithSwipeDepthAndPace() throws {
+    for side in 0...1 {
+      var game = PracticeEngine(settings: .init(local: true, allCourtTraining: false))
+      game.phase = .live
+      game.players[side].pos = Vec(x: 1, y: side == 0 ? 22 : 2)
+      game.players[side].destination = game.players[side].pos
+      game.players[1-side].pos = Vec(x: 4, y: side == 0 ? 1 : 23)
+      game.launch(1-side, aim: Vec(x: 6, y: side == 0 ? 20 : 3.77), kind: .cross)
+      let initial = game.players[side].pos
+      for _ in 0..<500 { game.step(1/120, interactiveRally: true, random: { 0.99 }) }
+      XCTAssertGreaterThan(game.players[side].pos.distance(to: initial), 3)
+      XCTAssertLessThan(game.players[side].pos.distance(to: game.players[side].destination), 0.1)
+      XCTAssertEqual(game.flight?.waitingForSwipe, true)
+      let held = try XCTUnwrap(game.flight).elapsed
+      game.tapCourt(side, at: Vec(x: 4, y: side == 0 ? 2 : 22))
+      for _ in 0..<120 { game.step(1/120, interactiveRally: true, random: { 0.99 }) }
+      XCTAssertEqual(game.phase, .live)
+      XCTAssertEqual(game.flight?.elapsed, held)
+      XCTAssertEqual(game.contactSerial, 1)
+      let saved = try JSONEncoder().encode(game)
+      var strikes: [BallFlight] = []
+      for length in [16.0, 82, 148] {
+        var resumed = try JSONDecoder().decode(PracticeEngine.self, from: saved)
+        let epoch = try XCTUnwrap(resumed.shotGestureEpoch(side))
+        let swipe = Vec(x: 0, y: -length)
+        let expected = try XCTUnwrap(resumed.swipeLanding(swipe, side: side))
+        resumed.apply(.shotSwipe(swipe), side: side, shotEpoch: epoch)
+        for _ in 0..<300 where resumed.contactSerial == 1 {
+          resumed.step(1/120, interactiveRally: true, random: { 0.99 })
+        }
+        let outgoing = try XCTUnwrap(resumed.flight)
+        XCTAssertEqual(outgoing.hitter, side)
+        XCTAssertEqual(outgoing.landing, expected)
+        XCTAssertEqual(outgoing.swingStrength, ShotSwipe.strength(length))
+        strikes.append(outgoing)
+        resumed.apply(.shotSwipe(swipe), side: side, shotEpoch: epoch)
+        for _ in 0..<400 { resumed.step(1/120, interactiveRally: true, random: { 0.99 }) }
+        XCTAssertEqual(resumed.contactSerial, 2)
+        XCTAssertEqual(resumed.flight?.waitingForSwipe, true)
+      }
+      for (flight, expected) in zip(strikes, [55.0, 82.5, 110]) {
+        XCTAssertEqual(Double(flight.launchSpeedKPH), expected, accuracy: 0.5)
+      }
+      let depths = strikes.map { abs($0.landing.y - PracticeEngine.net) }
+      XCTAssertTrue(depths[0] < depths[1] && depths[1] < depths[2])
     }
   }
 
@@ -175,8 +262,9 @@ final class ShotRiskAndServeTests: XCTestCase {
         XCTAssertEqual(game.displayedServeGauges?.server, server)
         if game.humanServing {
           game.requestServe(server)
-          XCTAssertEqual(game.servePreparation?.isTossing, false)
-          if server == 0 { XCTAssertEqual(game.coachCue, .watch) }
+          for _ in 0..<60 { game.step(1/120) }
+          XCTAssertEqual(game.servePreparation?.isTossing, true)
+          if server == 0 { XCTAssertEqual(game.coachCue, .hitServe) }
         } else {
           for _ in 0..<600 where game.servePreparation?.isTossing == false {
             game.step(1 / 120)
@@ -195,26 +283,25 @@ final class ShotRiskAndServeTests: XCTestCase {
     var game = serving()
     let blue = game.servePreparation!.target
     for speed in ServeLevel.allCases {
-      var durations: [Double] = [], kicks: [Double] = [], risks: [Double] = []
+      var speeds: [Int] = [], kicks: [Double] = [], risks: [Double] = []
       for spin in ServeLevel.allCases {
         let profile = ServeProfile(speed: speed, spin: spin)
         game.launch(0, aim: blue, kind: .cross, serve: true, serveProfile: profile)
         var flight = game.flight!
         flight.elapsed = flight.duration * 0.94
-        durations.append(flight.duration)
+        speeds.append(flight.launchSpeedKPH)
         kicks.append(flight.height)
-        risks.append(profile.faultChance(number: 2))
+        risks.append(ServeDepth.moderate.faultChance(profile: profile))
       }
-      XCTAssertTrue(durations[0] < durations[1] && durations[1] < durations[2])
+      XCTAssertEqual(speeds, Array(repeating: Int(ServeProfile(speed: speed, spin: .low).launchSpeedKPH), count: 3))
       XCTAssertTrue(kicks[0] < kicks[1] && kicks[1] < kicks[2])
       XCTAssertTrue(risks[0] > risks[1] && risks[1] > risks[2])
     }
     for spin in ServeLevel.allCases {
       let profiles = ServeLevel.allCases.map { ServeProfile(speed: $0, spin: spin) }
-      XCTAssertGreaterThan(profiles[2].pace, profiles[1].pace)
-      XCTAssertGreaterThan(profiles[1].pace, profiles[0].pace)
-      XCTAssertGreaterThan(profiles[2].faultChance(number: 2), profiles[1].faultChance(number: 2))
-      XCTAssertGreaterThan(profiles[2].faultChance(number: 2), profiles[2].faultChance(number: 1))
+      XCTAssertGreaterThan(profiles[2].launchSpeedKPH, profiles[1].launchSpeedKPH)
+      XCTAssertGreaterThan(profiles[1].launchSpeedKPH, profiles[0].launchSpeedKPH)
+      XCTAssertGreaterThan(ServeDepth.moderate.faultChance(profile: profiles[2]), ServeDepth.moderate.faultChance(profile: profiles[1]))
     }
   }
 
@@ -224,7 +311,7 @@ final class ShotRiskAndServeTests: XCTestCase {
       XCTAssertEqual(game.servePreparation?.profile, .standard(number))
       game.chooseServe(.wide, side: 0)
       game.adjustServe(speed: .high, spin: .low, side: 0)
-      game.requestServe(0)
+      game.setUpTestServe(0)
       for _ in 0..<1000 {
         game.step(1 / 120, random: { 0.1 })
         if number == 1 && game.servePreparation?.number == 2 || game.phase == .point { break }

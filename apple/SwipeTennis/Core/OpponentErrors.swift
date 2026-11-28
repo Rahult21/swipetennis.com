@@ -49,7 +49,9 @@ extension PracticeEngine {
       let travel = CourtTactics.travelTime(distance: players[1].pos.distance(to: incoming.contact), speed: speed)
       let succeeds = !isDrop || dropReturns.next(difficulty: settings.difficulty, random: random)
       let reaction = isDrop ? 0.06 : settings.botReaction
-      flight!.duration = max(incoming.duration, (travel + reaction + 0.2) / 0.86)
+      if incoming.swingStrength == nil {
+        flight!.duration = max(incoming.duration, (travel + reaction + 0.2) / 0.86)
+      }
       if isDrop {
         flight!.dropReachable = succeeds
         // Every drop is chased. A missed read begins late and arrives after the low second bounce.

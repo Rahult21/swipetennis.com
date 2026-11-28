@@ -175,7 +175,13 @@ final class TennisCoreTests: XCTestCase {
     var clay = PracticeEngine(settings: PracticeSettings(surface: .clay))
     grass.startRally()
     clay.startRally()
-    XCTAssertLessThan(grass.flight!.duration, clay.flight!.duration)
+    XCTAssertEqual(grass.flight!.launchSpeedKPH, clay.flight!.launchSpeedKPH)
+    for side in 0...1 {
+      let mark = Vec(x: 4, y: side == 0 ? 3 : 20)
+      grass.launch(side, aim: mark, kind: .cross)
+      clay.launch(side, aim: mark, kind: .cross)
+      XCTAssertLessThan(grass.flight!.duration, clay.flight!.duration)
+    }
     XCTAssertLessThan(CourtSurface.grass.bounce, CourtSurface.clay.bounce)
   }
 }

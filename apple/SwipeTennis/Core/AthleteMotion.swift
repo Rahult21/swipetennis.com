@@ -89,6 +89,7 @@ struct AthleteMotion {
   private var lastVelocity: CourtPoint3D?
   private var acceleration = CourtPoint3D.zero
   private var swing = StrokeAnimation()
+  private var swingDrive: Float = 1
   private var stanceOffset = CourtPoint3D.zero, plantedOffset = CourtPoint3D.zero
   private var hitPoint = CourtPoint3D.zero
   private var previousStrings: CourtPoint3D?
@@ -322,6 +323,9 @@ struct AthleteMotion {
         : ramp(time,-0.14+0.055*lowDrive,0.055+0.102*lowDrive)
       depth = swing.style == .drop || swing.style == .slice ? 0.065 + 0.145 * lowBall : 0.155 + 0.085 * lowBall
     }
+    let strokeStrength = elapsed != nil && game.flight?.hitter == side ? game.flight?.swingStrength : player.swingStrength
+    let desiredDrive = swing.style == .serve ? 1 : strokeStrength.map { Float(0.76 + 0.48 * $0) } ?? 1
+    swingDrive += (desiredDrive - swingDrive) * (1 - exp(-Float(dt) * 24))
     let kneeLoad = readiness * gather * (1 - extend)
     let pushOff = readiness * gather * extend * (1 - ramp(time, 0.06, 0.22))
     // The lead knee softens as the server touches down, then returns to standing height.
@@ -330,7 +334,7 @@ struct AthleteMotion {
     let splitLanding = readiness * ramp(sinceSplit, 0.125, 0.204) * (1 - ramp(sinceSplit, 0.204, 0.34))
     // Absorb the last adjustment step, then drive off that leg before contact.
     let plantFlex: Float = fullForehand ? 0.025*(1-ramp(time,-0.15,-0.035)) : 0
-    let bend = (depth + plantFlex) * kneeLoad + 0.016 * rush + 0.105 * landingLoad + 0.075 * splitLanding
+    let bend = (depth + plantFlex) * kneeLoad * swingDrive + 0.016 * rush + 0.105 * landingLoad + 0.075 * splitLanding
     let volleyStep = volley ? drive : 0
     let step = (forward * 0.36 + right * (sideOfBall * 0.15)) * volleyStep
     let stance = max(rush, kneeLoad)
@@ -440,6 +444,8 @@ struct AthleteMotion {
       hipTurn = handed*set*(belt-(belt+0.65)*beltRelease-0.085*plantDrive)*reset
       chestTurn = handed*set*(ribs-(ribs+1.20)*ribRelease-(backhand ? 0.065*plantDrive : 0))*reset
     }
+    hipTurn *= swingDrive
+    chestTurn *= swingDrive
     let running = reduceMotion ? 0 : feet.runBlend
     let shuffleTurn = min(0.28,abs(Float(player.velocity.x))*0.065)*(player.velocity.x*Double(sign) >= 0 ? Float(-1) : 1)
     let moveTurn = shuffleTurn+(feet.runYaw-shuffleTurn)*running
@@ -483,7 +489,7 @@ struct AthleteMotion {
       pelvis.y += 0.032*(1-lowBall)*pushOff*grounded
     }
     if !reduceMotion { pelvis.y += max(-0.07,min(0.06,captured.pelvis)) }
-    pelvis += relative(receiver.hips) + forward*0.065*transfer*driveSet
+    pelvis += relative(receiver.hips) + forward*0.065*transfer*driveSet*swingDrive
     pelvis.y += (runner?.trunk.z ?? 0)*runWeight
     pelvis += (reachDirection * 0.16 - up * 0.47) * dive
     // Lead the drive with the hips. On the serve, hold the tossing shoulder up until release.

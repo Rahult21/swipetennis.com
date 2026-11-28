@@ -199,7 +199,7 @@ final class CoachabilityTests: XCTestCase {
     var engine = PracticeEngine(settings: .init(local: true))
     engine.start(random: { 0.5 })
     for _ in 0..<120 { engine.step(1 / 120, random: { 0.5 }) }
-    engine.requestServe(1)
+    engine.setUpTestServe(1)
     for _ in 0..<120 where engine.phase == .serving { engine.step(1 / 120, random: { 0 }) }
     XCTAssertEqual(engine.flight?.fault, "net")
     for _ in 0..<500 where engine.phase != .serveFault { engine.step(1 / 120, random: { 0.5 }) }

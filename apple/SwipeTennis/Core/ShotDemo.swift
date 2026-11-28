@@ -56,7 +56,7 @@ enum DemoLesson: String, Codable, CaseIterable, Identifiable {
     case .overhead: return "Swipe a little toward yellow to get under the lob. Once there, tap to prepare the overhead smash."
     case .firstReturn: return "Swipe toward yellow early. Swipe up from your player to return straight back at the server."
     case .secondReturn: return "Take two steps in to yellow, one metre inside your baseline. Swipe diagonally from your player and meet the second serve early."
-    default: return "Drag blue into the mint target, then tap your half of the court to serve."
+    default: return "Drag blue into the mint target, then swipe toward blue during the toss."
     }
   }
   var shot: ShotKind {
@@ -443,7 +443,10 @@ extension PracticeEngine {
     guard let run = demo, run.result == nil else { return }
     if phase == .serving, let target = run.target {
       if run.stageTime >= 0.4 && !run.scriptTap { aimServe(at: target, side: 0); demo?.scriptTap = true }
-      if run.stageTime >= 1.8 && !run.scriptShot { requestServe(0); demo?.scriptShot = true }
+      if let serve = servePreparation, serve.acceptsSwing, !run.scriptShot {
+        swingServe(Vec(x: 0, y: 82), side: 0, tossID: serve.tossID)
+        demo?.scriptShot = true
+      }
       return
     }
     if run.stage == .approachFlight {

@@ -84,7 +84,7 @@ final class CourtOnlyControlsTests: XCTestCase {
     var engine = PracticeEngine(settings: .init())
     engine.start(random: { 0.5 })
     let epoch = engine.shotGestureEpoch(0)
-    for _ in 0..<500 where engine.phase == .serving { engine.step(1 / 120, random: { 0.5 }) }
+    for _ in 0..<500 where engine.phase == .serving { engine.step(1 / 120, random: { 0.9 }) }
     XCTAssertEqual(engine.phase, .live)
     XCTAssertEqual(engine.shotGestureEpoch(0), epoch)
     engine.apply(.shotSwipe(Vec(x: 0, y: -40)), side: 0, shotEpoch: epoch)
@@ -101,14 +101,17 @@ final class CourtOnlyControlsTests: XCTestCase {
     XCTAssertTrue(engine.followingApproach[0])
   }
 
-  func testTapQueuesServeUntilTargetSettlesWithoutRepeatedTaps() {
+  func testTapConfirmsAimAndNeedsASwipeToStrike() {
     var engine = PracticeEngine(settings: .init(local: true))
     engine.start()
     engine.chooseServe(.wide, side: 1)
     engine.tapCourt(1, at: engine.players[1].pos)
-    XCTAssertTrue(engine.servePreparation!.requested)
+    XCTAssertTrue(engine.servePreparation!.pickedBlue)
     XCTAssertFalse(engine.servePreparation!.isTossing)
-    for _ in 0..<400 where engine.phase == .serving { engine.step(1 / 120) }
+    for _ in 0..<120 { engine.step(1 / 120) }
+    XCTAssertNil(engine.flight)
+    engine.setUpTestServe(1)
+    for _ in 0..<120 where engine.phase == .serving { engine.step(1 / 120) }
     XCTAssertEqual(engine.phase, .live)
     XCTAssertEqual(engine.contactSerial, 1)
     XCTAssertEqual(engine.flight?.hitter, 1)
@@ -123,6 +126,6 @@ final class CourtOnlyControlsTests: XCTestCase {
     engine.tapCourt(0, at: Vec(x: 1, y: 22))
     for _ in 0..<600 { engine.step(1 / 120) }
     XCTAssertEqual(engine.phase, .serving)
-    XCTAssertFalse(engine.servePreparation!.isTossing)
+    XCTAssertNil(engine.flight)
   }
 }

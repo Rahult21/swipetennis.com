@@ -100,6 +100,7 @@ final class CourtPowerTests: XCTestCase {
       let selection = try XCTUnwrap(game.servePreparation?.destination)
       game.usePower()
       game.aimServe(at: .zero, side: 0)
+      game.setUpTestServe(0)
       nextFrames(&game) { $0.flight?.power == .ace }
       let shot = try XCTUnwrap(game.flight)
       XCTAssertEqual(shot.landing.distance(to: selection), 0, accuracy: 0.002)
@@ -107,7 +108,7 @@ final class CourtPowerTests: XCTestCase {
       XCTAssertNil(shot.fault)
       var plain = game
       plain.launch(0, aim: shot.landing, kind: .cross, serve: true)
-      XCTAssertEqual(shot.duration * 1.5, plain.flight!.duration, accuracy: 0.00001)
+      XCTAssertEqual(shot.launchSpeedKPH, plain.flight!.launchSpeedKPH)
       var rebound = shot
       rebound.elapsed = shot.time(at:0.92)
       plain.flight!.elapsed = plain.flight!.time(at:0.92)
@@ -136,6 +137,7 @@ final class CourtPowerTests: XCTestCase {
       game.usePower()
       game.usePower()
       for _ in 0..<2400 {
+        game.swingAtTestToss(0)
         game.step(PointReplay.tick, random: { 0.5 })
         performance.update(game: game, dt: PointReplay.tick)
         if game.showsPointResult { break }
@@ -171,6 +173,7 @@ final class CourtPowerTests: XCTestCase {
     XCTAssertNil(game.queuedPower)
     finish(1, in: &game)
     game.start()
+    game.setUpTestServe(0)
     nextFrames(&game) { $0.flight?.power == .ace }
     XCTAssertNil(game.inventory.held)
   }
