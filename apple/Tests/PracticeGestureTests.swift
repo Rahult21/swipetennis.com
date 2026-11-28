@@ -113,14 +113,24 @@ final class PracticeGestureTests: XCTestCase {
     XCTAssertNil(wrong.update(at: Vec(x: -0.2, y: 0), screenPoint: Vec(x: -12, y: 0)))
   }
 
-  func testTappingYellowOrWhiteNeverChangesDestination() {
+  func testSlowDragNearYellowStaysLockedThroughFingerLift() {
+    let feet = Vec(x: 2, y: 21)
+    let guide = MovementGuide(kind: .receive, from: feet, to: Vec(x: 4, y: 21))
+    var drag = PracticeGesture(side: 0, intent: .rally, targetGuide: guide, movementOrigin: feet)
+    _ = drag.update(at: feet, screenPoint: .zero, timestamp: 0)
+    XCTAssertEqual(drag.update(at: Vec(x: 3.4, y: 21), screenPoint: Vec(x: 18, y: 0),
+                               timestamp: 0.2), .guidedMove(.receive))
+    XCTAssertNil(drag.update(at: feet, screenPoint: .zero, ended: true, timestamp: 0.28))
+  }
+
+  func testTappingYellowRunsToContactAndWhiteStillSplits() {
     for side in 0...1 {
       var engine = PracticeEngine(settings: .init(local: true))
       engine.phase = .live
       engine.launch(1 - side, aim: Vec(x: 1, y: side == 0 ? 22 : 2), kind: .cross)
-      let stopped = engine.players[side].destination
-      engine.tapCourt(side, at: engine.contactGuide(side)!)
-      XCTAssertEqual(engine.players[side].destination, stopped)
+      let yellow = engine.contactGuide(side)!
+      engine.tapCourt(side, at: yellow)
+      XCTAssertEqual(engine.players[side].destination, yellow)
       engine.launch(side, aim: Vec(x: 2, y: side == 0 ? 2 : 22), kind: .cross)
       engine.tapCourt(side, at: engine.recoveryGuide(side)!)
       XCTAssertEqual(engine.players[side].destination, engine.players[side].pos)

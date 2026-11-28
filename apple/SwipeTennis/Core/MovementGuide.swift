@@ -94,6 +94,7 @@ extension PracticeEngine {
     guard phase == .live, let flight, flight.hitter != side,
       side == 0 || settings.local else { return proposed }
     let feet = players[side].pos.y
+    if players[side].receiveFlight == contactSerial { return proposed }
     let ring = showsGoldenContact(side) ? intercept(side).y : feet
     return side == 0 ? max(proposed, min(feet, ring)) : min(proposed, max(feet, ring))
   }
@@ -132,7 +133,9 @@ extension PracticeEngine {
     case .shot(let kind):
       if kind == .drop || kind == .slice { selectTouchShot(kind, side: side, epoch: shotEpoch, distance: shotDistance, displayedLanding: displayedLanding) }
       else if canChooseShot(side) { choose(side, kind) }
-    case .courtTap(let point): tapCourt(side, at: point)
+    case .courtTap(let point):
+      guard movementEpoch == nil || movementEpoch == contactSerial else { return }
+      tapCourt(side, at: point)
     case .run(let delta):
       guard committedRun(side) == nil else { return }
       guard movementEpoch == nil || movementEpoch == contactSerial else { return }

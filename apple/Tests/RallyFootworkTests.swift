@@ -61,6 +61,67 @@ final class RallyFootworkTests: XCTestCase {
     return game
   }
 
+  func testLiveFlickAndTapRunToExactlyTheSameSpot() throws {
+    for side in 0...1 {
+      for hz in [30.0, 60, 120] {
+        var tap = incoming(side: side)
+        let yellow = try XCTUnwrap(tap.contactGuide(side))
+        tap.players[side].pos.x -= 2
+        tap.players[side].destination = tap.players[side].pos
+        tap.flight!.duration = 4
+        var swipe = tap
+        let guide = try XCTUnwrap(swipe.swipeMovementGuide(side))
+        var gesture = PracticeGesture(side: side, intent: .rally, shotEpoch: swipe.shotGestureEpoch(side),
+          targetGuide: guide, movementOrigin: guide.from)
+        _ = gesture.update(at: guide.from, screenPoint: .zero, timestamp: 0)
+        let command = try XCTUnwrap(gesture.update(at: Vec(x: guide.from.x + 0.5, y: guide.from.y),
+          screenPoint: Vec(x: 24, y: 0), ended: true, timestamp: 0.06))
+        XCTAssertEqual(command, .guidedMove(.receive))
+        swipe.apply(command, side: side, movementEpoch: swipe.contactSerial, runPace: 1.5)
+        tap.apply(.courtTap(Vec(x: yellow.x + 0.2, y: yellow.y)), side: side)
+        for _ in 0..<Int(hz * 1.6) {
+          tap.step(1/hz, interactiveRally: true, random: { 0.5 })
+          swipe.step(1/hz, interactiveRally: true, random: { 0.5 })
+          XCTAssertEqual(swipe.players[side].pos, tap.players[side].pos)
+          XCTAssertLessThanOrEqual(tap.players[side].velocity.length, 6.000001)
+        }
+        XCTAssertEqual(tap.players[side].pos, tap.contactGuide(side))
+        XCTAssertEqual(tap.players[side].velocity, .zero)
+        XCTAssertNil(swipe.swipeMovementGuide(side))
+      }
+    }
+  }
+
+  func testLateGuidedChaseDivesAndLobsOnlyWithinReach() throws {
+    for side in 0...1 {
+      for gap in [1.65, 4.0] {
+        for hz in [30.0, 120] {
+          var game = incoming(side: side)
+          let yellow = try XCTUnwrap(game.contactGuide(side))
+          game.players[side].pos = Vec(x: yellow.x - gap, y: yellow.y)
+          game.players[side].destination = game.players[side].pos
+          game.flight!.opponentReplyPrepared = true
+          game.flight!.elapsed = game.flight!.duration - 0.15
+          game.flight!.bounceDestinations = game.players.map(\.pos)
+          game.tapCourt(side, at: yellow)
+          var sawDive = false
+          for _ in 0..<Int(hz) where game.phase == .live && game.flight?.hitter != side {
+            game.step(1/hz, interactiveRally: true, random: { 0.5 })
+            sawDive = sawDive || game.players[side].netEffort?.stroke == .dive
+          }
+          XCTAssertEqual(sawDive, gap < 2)
+          if gap < 2 {
+            XCTAssertEqual(game.flight?.hitter, side)
+            XCTAssertTrue(game.flight?.isDefensiveLob == true)
+            XCTAssertNil(game.flight?.fault)
+          } else {
+            XCTAssertNotEqual(game.flight?.hitter, side)
+          }
+        }
+      }
+    }
+  }
+
   func testDepthAndPaceForBothEndsOfCourt() throws {
     for side in 0...1 {
       for length in [20.0, 145.0] {
@@ -202,7 +263,7 @@ final class RallyFootworkTests: XCTestCase {
 
   func testLateSwipeProducesARealLobAndOpponentRunsUnderIt() throws {
     for (aim,delay) in [(Vec(x:0.865,y:21.37),0.675),(Vec(x:7.365,y:21.37),0.675),
-                        (Vec(x:4.5,y:16.17),0.525)] {
+                        (Vec(x:4.5,y:16.17),0.395)] {
       var game = PracticeEngine(settings:.init(difficulty:.medium,style:.allcourt,surface:.hard,allCourtTraining:false))
       game.phase = .live
       game.players[0].pos = Vec(x:4.115,y:23.1)
@@ -243,7 +304,7 @@ final class RallyFootworkTests: XCTestCase {
           closestRacketToHead = min(closestRacketToHead,simd_distance(nearest,pose[.head]))
         }
       }
-      XCTAssertTrue(sawLob && sawOverhead)
+      XCTAssertTrue(sawLob && sawOverhead, "aim=\(aim), lob=\(sawLob), overhead=\(sawOverhead), player=\(game.players[0].pos), ball=\(String(describing: game.flight?.contact))")
       XCTAssertTrue(closestRacketToHead.isFinite)
       XCTAssertGreaterThan(closestRacketToHead,0.15, "Keep the racket clear of the face during landing")
     }

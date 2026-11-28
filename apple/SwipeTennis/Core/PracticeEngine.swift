@@ -178,6 +178,7 @@ struct CourtPlayer: Codable {
   var tappedLanding: Vec?
   var swingStrength: Double?
   var swipeDepth: Double?
+  var receiveFlight: Int?
   var recoveryFlight: Int?
   var diveDecision: Int?
 }
@@ -422,6 +423,7 @@ struct PracticeEngine: Codable {
       let dx = player.destination.x - player.pos.x, dy = player.destination.y - player.pos.y
       let distance = hypot(dx, dy), speed = player.velocity.length
       if let effort = player.netEffort, effort.serial == contactSerial { return effort.landing }
+      if player.receiveFlight == contactSerial { return player.destination }
       guard distance > 0.02, speed > 0.05,
         player.velocity.x * dx + player.velocity.y * dy >= 0.7 * speed * distance else { return player.pos }
       return player.destination
@@ -439,6 +441,7 @@ struct PracticeEngine: Codable {
     attacking[side] = false
     followingApproach[side] = false
     approachAvailable[side] = false
+    players[side].receiveFlight = nil
     players[side].recoveryFlight = contactSerial
     players[side].destination = Self.recovery(side, players[1-side].pos)
   }
@@ -447,6 +450,7 @@ struct PracticeEngine: Codable {
     guard side != 0 || queuedPower == nil else { return }
     guard phase != .serving || servePreparation?.server != side else { return }
     followingApproach[side] = false
+    players[side].receiveFlight = nil
     players[side].recoveryFlight = nil
     players[side].destination = Self.own(side, point)
   }
@@ -892,7 +896,7 @@ struct PracticeEngine: Codable {
       let short = max(5.3, depth)
       aim.y = side == 0 ? short : Self.length - short
     }
-    if let swipeLanding { aim = swipeLanding }
+    if let swipeLanding, quality != .diving { aim = swipeLanding }
     if jumpLob {
       kind = .lob
       aim = Vec(x: Self.width/2, y: side == 0 ? 2.2 : Self.length-2.2)
@@ -1009,7 +1013,7 @@ struct PracticeEngine: Codable {
       let forward = kind == .line ? 1.5 : 1
       flight!.duration /= forward * quality.pace
     }
-    if !bot, !jumpLob, f.expectedContactTime != nil, let strength = p.swingStrength {
+    if !bot, !jumpLob, quality != .diving, f.expectedContactTime != nil, let strength = p.swingStrength {
       let pace: Double
       switch kind {
       case .drop: pace = 28 + 20 * strength
@@ -1052,7 +1056,11 @@ struct PracticeEngine: Codable {
         continue
       }
       let route = (i == 0 || settings.local) ? committedRun(i) : nil
-      if let route {
+      let guided = players[i].receiveFlight == contactSerial
+      if guided, players[i].netEffort == nil, let yellow = contactGuide(i) {
+        players[i].destination = Self.own(i, yellow)
+        if route != nil { flight?.bounceDestinations?[i] = players[i].destination }
+      } else if let route {
         players[i].destination = route
       } else if players[i].recoveryFlight == contactSerial, let white = recoveryGuide(i) {
         players[i].destination = white
@@ -1078,7 +1086,7 @@ struct PracticeEngine: Codable {
       let d = p.pos.distance(to: p.destination)
       let (maxSpeed,acceleration,effort) = runningLimits(i,toward:p.destination,distance:d)
       // A tap can split and queue a run together; the hop must not stall that run.
-      let splitting = d <= Self.contactRadius && time >= splitStarted[i] && time < splitStarted[i] + 0.18
+      let splitting = (!guided || d == 0) && d <= Self.contactRadius && time >= splitStarted[i] && time < splitStarted[i] + 0.18
       let speed = splitting ? 0 : min(maxSpeed, sqrt(2 * acceleration * d))
       let desired =
         d > 0.02
@@ -1089,7 +1097,7 @@ struct PracticeEngine: Codable {
       let fraction = change > 0 ? min(1, acceleration * dt / change) : 1
       p.velocity.x += (desired.x - p.velocity.x) * fraction
       p.velocity.y += (desired.y - p.velocity.y) * fraction
-      if route != nil && (d <= 0.02 || dt * (p.velocity.x * (p.destination.x - p.pos.x) + p.velocity.y * (p.destination.y - p.pos.y)) >= d * d) {
+      if (guided || route != nil) && (d <= 0.02 || dt * (p.velocity.x * (p.destination.x - p.pos.x) + p.velocity.y * (p.destination.y - p.pos.y)) >= d * d) {
         p.pos = p.destination
         p.velocity = .zero
       } else {
@@ -1156,10 +1164,15 @@ struct PracticeEngine: Codable {
       flight?.expectedContactTime = shot.time(at: entry)
     }
     let current = flight!
-    if interactiveRally {
+    let guidedChase = manualStrike && players[receiver].receiveFlight == contactSerial
+    if guidedChase {
+      attemptRunningDive(receiver, incoming: current, guided: true)
+    } else if interactiveRally {
       prepareJumpLob(receiver, incoming: current, dt: dt)
     }
-    let saving = players[receiver].netEffort.map { $0.serial == contactSerial && $0.stroke == .jumpLob } ?? false
+    let saving = players[receiver].netEffort.map {
+      $0.serial == contactSerial && ($0.stroke == .jumpLob || (guidedChase && $0.stroke == .dive && $0.afterBounce == true))
+    } ?? false
     let timing = manualStrike && !saving && players[receiver].swingStrength != nil ? current.returnSwipeTiming : nil
     let swingReady = saving || !manualStrike || timing != nil
     if current.bounceDestinations == nil && swingReady && (settings.local || receiver == 0 || time >= reactAt) {

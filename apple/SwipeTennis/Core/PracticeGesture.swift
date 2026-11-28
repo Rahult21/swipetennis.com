@@ -41,15 +41,16 @@ struct PracticeGesture {
   private var pathLength = 0.0
   private var lastMotionAt: Double?
   private var positioning = false
+  private var lockedOnYellow = false
   private static let flickDuration = 0.26
 
   func needsHoldSample(at time: Double) -> Bool {
-    guard intent == .rally, !positioning, screenTravelled >= 6, let startedAt, let lastMotionAt else { return false }
+    guard intent == .rally, !lockedOnYellow, !positioning, screenTravelled >= 6, let startedAt, let lastMotionAt else { return false }
     return time - startedAt >= Self.flickDuration && time - lastMotionAt >= 0.09
   }
 
   private mutating func rallyAction(at point: Vec, screen: Vec, time: Double, ended: Bool) -> PracticeGestureAction? {
-    guard let start, let screenStart, let startedAt, let movementOrigin else { return nil }
+    guard !lockedOnYellow, let start, let screenStart, let startedAt, let movementOrigin else { return nil }
     let elapsed = max(0, time - startedAt)
     if let previousScreen {
       let step = previousScreen.distance(to: screen)
@@ -79,6 +80,12 @@ struct PracticeGesture {
       let gain = 1.5 * movementGain * 0.8
       let target = PracticeEngine.own(side, Vec(x: movementOrigin.x + gain * (point.x - start.x),
                                                y: movementOrigin.y + gain * (point.y - start.y)))
+      if let guide = targetGuide, guide.kind == .receive,
+         target.distance(to: guide.to) < movementOrigin.distance(to: guide.to),
+         target.distance(to: guide.to) <= PracticeEngine.contactRadius {
+        lockedOnYellow = true
+        return .guidedMove(.receive)
+      }
       if let lastTarget, lastTarget.distance(to: target) < (ended ? 0.001 : 0.04) { return nil }
       if !ended, let lastSent, time - lastSent < 1 / 30.0 { return nil }
       lastSent = time
@@ -87,6 +94,15 @@ struct PracticeGesture {
       return .position(target)
     }
     if ended, screenTravelled < 6 { return elapsed < Self.flickDuration ? .courtTap(point) : nil }
+    if elapsed < Self.flickDuration, distance >= 8, speed >= 160, distance >= pathLength * 0.9,
+       let guide = targetGuide, guide.kind == .receive {
+      let dx = point.x - start.x, dy = point.y - start.y
+      let tx = guide.to.x - guide.from.x, ty = guide.to.y - guide.from.y
+      if dx * tx + dy * ty >= 0.65 * hypot(dx, dy) * hypot(tx, ty) {
+        previewDelta = nil
+        return ended ? .guidedMove(.receive) : nil
+      }
+    }
     let flick = shotEpoch != nil && elapsed < Self.flickDuration && distance >= 16 &&
       speed >= 160 && distance >= pathLength * 0.94
     let facing = side == 0 ? 1.0 : -1.0
@@ -339,6 +355,12 @@ extension PracticeEngine {
     if dismissAffirmation() { return }
     guard side != 0 || queuedPower == nil else { return }
     guard acceptsCourtMovement else { return }
+    let readyAtNet = canTapNetShot(side)
+    if !readyAtNet, let yellow = contactGuide(side), point.distance(to: yellow) <= Self.contactRadius {
+      if outBallChaseTarget(side) == nil { beginSplit(side) }
+      receiveAtGuide(side)
+      return
+    }
     if outBallChaseTarget(side) != nil { return }
     guard phase.isPlaying else { return }
     if phase == .serving && servePreparation?.server == side {
@@ -357,14 +379,13 @@ extension PracticeEngine {
       players[side].tappedLanding = target
       return
     }
-    if canTapNetShot(side) {
+    if readyAtNet {
       choose(side, .line)
       players[side].swingStrength = nil
       players[side].aim = CourtTactics.openCourt(side: side, opponent: players[1 - side].pos,
         overhead: contactWindow(side)?.overhead == true)
       return
     }
-    // A tap never starts or redirects a run, even when it lands on a guide.
     beginSplit(side)
   }
 
@@ -377,10 +398,14 @@ extension PracticeEngine {
 
   mutating func receiveAtGuide(_ side: Int) {
     guard let yellow = contactGuide(side) else { return }
-    if players[side].pos.distance(to: yellow) > Self.contactRadius
-      || players[side].destination.distance(to: yellow) > Self.contactRadius {
-      move(side, to: yellow)
-    }
+    guard players[side].netEffort?.serial != contactSerial else { return }
+    let target = Self.own(side, yellow)
+    followingApproach[side] = false
+    players[side].recoveryFlight = nil
+    players[side].receiveFlight = contactSerial
+    players[side].runPace = 1
+    players[side].destination = target
+    if flight?.bounceDestinations != nil { flight?.bounceDestinations?[side] = target }
     dropGestureEpoch[side] = shotGestureEpoch(side)
   }
 
@@ -390,6 +415,7 @@ extension PracticeEngine {
     else if let white = recoveryGuide(side) { kind = .recover; target = white }
     else { return nil }
     let player = players[side]
+    if kind == .receive && player.receiveFlight == contactSerial { return nil }
     if onPlayer && player.destination.distance(to: target) <= Self.contactRadius { return nil }
     guard player.pos.distance(to: target) > 0.15 else { return nil }
     return MovementGuide(kind: kind, from: player.pos, to: target)
