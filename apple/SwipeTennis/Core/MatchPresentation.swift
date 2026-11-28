@@ -12,7 +12,7 @@ enum TennisVenue: String, Codable, CaseIterable {
 
 enum AthleteModel: String, CaseIterable { case man = "Man", woman = "Woman" }
 enum TennisKit: String, CaseIterable { case crew = "Crew neck", polo = "Polo", sleeveless = "Sleeveless" }
-enum KitColor: String, CaseIterable { case tide = "Lagoon", ember = "Ember", violet = "Iris", white = "Chalk" }
+enum KitColor: String, CaseIterable { case tide = "Lagoon", navy = "Midnight", ember = "Ember", violet = "Iris", white = "Chalk" }
 enum KitProp: String, CaseIterable { case band = "Headband", visor = "Visor", plain = "None" }
 
 extension PracticeSettings {

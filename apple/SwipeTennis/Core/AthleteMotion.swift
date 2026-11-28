@@ -14,6 +14,7 @@ struct AthletePose {
   var fingerCurl = SIMD2<Float>(0.30,0.92)
   var airborneReach: Float = 0
   var reactionFist: Float = 0
+  var focus: Float = 0
   var blink: Float = 0
   var jawOpen: Float = 0
   var lipRound: Float = 0
@@ -30,6 +31,7 @@ struct AthletePose {
     var result = self
     result.airborneReach += (other.airborneReach-airborneReach)*fraction
     result.reactionFist += (other.reactionFist-reactionFist)*fraction
+    result.focus += (other.focus-focus)*fraction
     result.blink += (other.blink-blink)*fraction
     result.jawOpen += (other.jawOpen-jawOpen)*fraction
     result.lipRound += (other.lipRound-lipRound)*fraction
@@ -613,6 +615,14 @@ struct AthleteMotion {
     let rate: Float = reduceMotion ? 6 : 14
     gaze += (wanted - gaze) * (1 - exp(-rate * Float(max(dt,0))))
     pose.gaze = gaze
+    // Concentration builds through preparation. Exhale through the strike,
+    // then release the brow and blink between strokes, clear of contact.
+    pose.focus = 0.18*readiness + 0.80*drive
+    let exhale = ramp(time,-0.075,0.055)*(1-ramp(time,0.11,0.44))
+    let breath = 0.5+0.5*sin(Float(game.time)*3.8+Float(side)*1.7)
+    pose.jawOpen = 0.32*exhale + 0.12*rush*breath
+    let lidTime = Float((game.time+Double(side)*1.33).truncatingRemainder(dividingBy:3.87))
+    pose.blink = ramp(lidTime,2.71,2.77)*(1-ramp(lidTime,2.79,2.89))*(1-drive)
 
     let ready = local(0.16, atNet ? 1.48 : 1.29, 0.43)
     var strings: CourtPoint3D

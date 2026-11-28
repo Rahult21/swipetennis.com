@@ -13,6 +13,11 @@ import UIKit
     case lidTopL, lidTopR, lidBottomL, lidBottomR
     case eyeL, eyeR, toeL, toeR, heelL, heelR
     case deltoidL, deltoidR, elbowCapL, elbowCapR, hipCapL, hipCapR, kneeCapL, kneeCapR
+    case deltoidInnerL, deltoidOuterL, deltoidInnerR, deltoidOuterR
+    case elbowCapInnerL, elbowCapOuterL, elbowCapInnerR, elbowCapOuterR
+    case hipCapInnerL, hipCapOuterL, hipCapInnerR, hipCapOuterR
+    case kneeCapInnerL, kneeCapOuterL, kneeCapInnerR, kneeCapOuterR
+    case browL, browR, cheekL, cheekR
     case waist, clavL, clavR, twistL, twistR, tailBase, tailTip
   }
   struct SoleContact {
@@ -145,9 +150,10 @@ import UIKit
     var color = UIColor.white
     var image: String?
     var hidden = false
-    switch name {
-    case "Skin","SleeveSkin":
-      hidden = name == "SleeveSkin" && kit.shirt != .sleeveless
+    let surface = name == "Wristband" && kit.wristband == .none ? "Skin" : name
+    switch surface {
+    case "Skin","TankSkin","CrewSkin":
+      hidden = (name == "TankSkin" && kit.shirt != .sleeveless) || (name == "CrewSkin" && kit.shirt == .sleeveless)
       let tones: [SkinTone:UIColor] = [.porcelain:.white,
         .honey:UIColor(red:0.91,green:0.81,blue:0.72,alpha:1),
         .bronze:UIColor(red:0.79,green:0.64,blue:0.54,alpha:1),
@@ -165,27 +171,36 @@ import UIKit
       mat.opacityThreshold = 0.37
     case "Wristband":
       color = kit.wristband == .match ? kit.color.tint : .white
-      hidden = kit.wristband == .none; image = "CourtKit.jpg"
+      mat.roughness = .init(floatLiteral:0.95)
     case "Teeth": image = "CourtTeeth.jpg"; mat.roughness = .init(floatLiteral:0.46)
     case "Eyes":
       image = "AthleteEyes.jpg"; mat.roughness = .init(floatLiteral:0.27)
     case "Shoe": image = "CourtShoes.jpg"
     case "Sock":
       color = UIColor(white:0.90,alpha:1)
-    case "Shorts","Skort":
+    case "Shorts","Liner","Skort":
       switch kit.bottomColor {
       case .graphite: color = UIColor(red:0.22,green:0.26,blue:0.31,alpha:1)
       case .white: color = UIColor(white:0.97,alpha:1)
       case .match: color = kit.color.tint
       }
-      image = "CourtKit.jpg"; hidden = name == "Skort" && !kit.skort
+      image = "CourtKit.jpg"
+      hidden = name == "Shorts" ? kit.skort : !kit.skort
+    case "Tank","TankBinding":
+      hidden = kit.shirt != .sleeveless
+      color = name == "TankBinding" ? kit.color.tint.sidePanelTint : kit.color.tint
+      mat.roughness = .init(floatLiteral:0.88)
     case "SidePanel":
+      hidden = kit.shirt == .sleeveless
       color = kit.color.tint.sidePanelTint
       image = "CourtKit.jpg"
     case "Shirt","Sleeves":
       color = kit.color.tint; image = "CourtKit.jpg"
-      hidden = name == "Sleeves" && kit.shirt == .sleeveless
-    case "Collar","CollarEdge","SleeveEdge":
+      hidden = kit.shirt == .sleeveless
+    case "Collar":
+      color = kit.color.tint.sidePanelTint
+      hidden = kit.shirt != .polo
+    case "CollarEdge","SleeveEdge":
       color = kit.color == .white ? UIColor(red:0.12,green:0.30,blue:0.25,alpha:1) : UIColor(white:0.92,alpha:1)
       hidden = kit.shirt != .polo
     case "Headband": hidden = kit.prop == .plain
@@ -193,8 +208,8 @@ import UIKit
     default: break
     }
     mat.baseColor = .init(tint:color,texture:image.flatMap(texture))
-    if ["Shirt","SidePanel","Sleeves","Shorts","Skort","Sock","Collar","CollarEdge"].contains(name) { mat.faceCulling = .none }
-    if ["Shirt","SidePanel","Sleeves","Shorts"].contains(name), let normal = texture("CourtKitNormal.jpg") {
+    if ["Tank","TankBinding","Shirt","SidePanel","Sleeves","Shorts","Liner","Skort","Sock","Collar","CollarEdge"].contains(name) { mat.faceCulling = .none }
+    if ["Shirt","SidePanel","Sleeves","Shorts","Liner"].contains(name), let normal = texture("CourtKitNormal.jpg") {
       mat.normal = .init(texture:normal)
     }
     if hidden {
@@ -209,6 +224,15 @@ import UIKit
     let i = index[joint]!
     transforms[i].rotation = rotation * bindRotation[i]
     transforms[i].translation = point/modelScale
+  }
+
+  /// The mesh bake weights each vertex between adjacent frames on this arc.
+  /// All frames rotate rigidly around the same anatomical joint centre.
+  private func setBendArc(_ joints: (Joint,Joint,Joint), at pivot: SIMD3<Float>, from a: simd_quatf, to b: simd_quatf) {
+    let half = simd_slerp(a,b,0.5)
+    set(joints.0,at:pivot,rotation:simd_slerp(a,half,0.5))
+    set(joints.1,at:pivot,rotation:half)
+    set(joints.2,at:pivot,rotation:simd_slerp(half,b,0.5))
   }
 
   private func align(_ joint: Joint, end: Joint, from a: SIMD3<Float>, to b: SIMD3<Float>, base: simd_quatf, pole: (rest:SIMD3<Float>,pose:SIMD3<Float>)? = nil) -> simd_quatf {
@@ -285,6 +309,15 @@ import UIKit
     for (lid,angle) in [(Joint.lidTopL,-0.46),(.lidTopR,-0.46),(.lidBottomL,0.10),(.lidBottomR,0.10)] {
       set(lid,at:headCenter+head.act(anchor(lid)-anchor(.head)),
           rotation:head*simd_quatf(angle:Float(angle)*p.blink,axis:[1,0,0]))
+    }
+    for right in [false,true] {
+      let sign: Float = right ? 1 : -1
+      let brow: Joint = right ? .browR : .browL
+      let cheek: Joint = right ? .cheekR : .cheekL
+      let gather = SIMD3<Float>(-sign*0.002,-0.003,0)*p.focus
+      let lift = SIMD3<Float>(sign*0.0035,0.004,-0.0015)*p.reactionFist
+      set(brow,at:headCenter+head.act(anchor(brow)-anchor(.head)+gather),rotation:head)
+      set(cheek,at:headCenter+head.act(anchor(cheek)-anchor(.head)+lift),rotation:head)
     }
     let base = headCenter+head.act(anchor(.tailBase)-anchor(.head))
     let sway = head * simd_quatf(angle:p.hairSway.x,axis:[0,0,1]) * simd_quatf(angle:p.hairSway.y,axis:[1,0,0])
@@ -405,8 +438,10 @@ import UIKit
       let upperRotation = align(upper,end:fore,from:s,to:e,base:chest,
                 pole:(anchor(hand)-anchor(fore),wristPoint-e))
       let proximal = align(fore,end:hand,from:e,to:wristPoint,base:upperRotation)
-      set(right ? .deltoidR : .deltoidL,at:s,rotation:simd_slerp(clavRotation,upperRotation,0.5))
-      set(right ? .elbowCapR : .elbowCapL,at:e,rotation:simd_slerp(upperRotation,proximal,0.5))
+      setBendArc(right ? (.deltoidInnerR,.deltoidR,.deltoidOuterR) : (.deltoidInnerL,.deltoidL,.deltoidOuterL),
+           at:s,from:clavRotation,to:upperRotation)
+      setBendArc(right ? (.elbowCapInnerR,.elbowCapR,.elbowCapOuterR) : (.elbowCapInnerL,.elbowCapL,.elbowCapOuterL),
+           at:e,from:upperRotation,to:proximal)
       let twist: Joint = right ? .twistR : .twistL
       let t = min(1,simd_distance(anchor(twist),anchor(fore))/simd_distance(anchor(hand),anchor(fore)))
       let axis = simd_normalize(wristPoint-e)
@@ -434,8 +469,10 @@ import UIKit
                                 fallback: feet.act([right ? 0.12 : -0.12,0,-1]))
       let femur = align(thigh,end:shin,from:h,to:k,base:hips,pole:(anchor(foot)-anchor(shin),ankle-k))
       let tibia = align(shin,end:foot,from:k,to:ankle,base:femur)
-      set(right ? .hipCapR : .hipCapL,at:h,rotation:simd_slerp(hips,femur,0.5))
-      set(right ? .kneeCapR : .kneeCapL,at:k,rotation:simd_slerp(femur,tibia,0.5))
+      setBendArc(right ? (.hipCapInnerR,.hipCapR,.hipCapOuterR) : (.hipCapInnerL,.hipCapL,.hipCapOuterL),
+           at:h,from:hips,to:femur)
+      setBendArc(right ? (.kneeCapInnerR,.kneeCapR,.kneeCapOuterR) : (.kneeCapInnerL,.kneeCapL,.kneeCapOuterL),
+           at:k,from:femur,to:tibia)
       set(foot,at:ankle,rotation:feet)
       soles[index] = SoleContact(toe: ankle+feet.act(toe), heel: ankle+feet.act(heel))
     }

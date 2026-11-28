@@ -4,6 +4,7 @@ extension KitColor {
   var tint: UIColor {
     switch self {
     case .tide: return UIColor(red:0.16, green:0.65, blue:0.70, alpha:1)
+    case .navy: return UIColor(red:0.19, green:0.27, blue:0.39, alpha:1)
     case .ember: return UIColor(red:0.91, green:0.34, blue:0.15, alpha:1)
     case .violet: return UIColor(red:0.52, green:0.36, blue:0.78, alpha:1)
     case .white: return UIColor(white:0.92, alpha:1)
@@ -46,29 +47,58 @@ struct AthleteKit {
   static func current(side: Int, localSide: Int) -> Self {
     let d = UserDefaults.standard
     let selfModel = AthleteModel(rawValue: d.string(forKey:"athleteModel") ?? "") ?? .woman
-    if side != localSide {
-      return Self(skort:selfModel == .man,skinTone:.umber,model:selfModel == .man ? .woman : .man, shirt:.polo,
-        color:d.string(forKey:"kitColor") == KitColor.ember.rawValue ? .tide : .ember, prop:.band)
+    let local = side == localSide
+    let model: AthleteModel = local ? selfModel : (selfModel == .man ? .woman : .man)
+    let kit = Self.tour(model)
+    if !local {
+      let playerColor = KitColor(rawValue:d.string(forKey:"kitColor") ?? "") ?? Self.tour(selfModel).color
+      let otherColor: KitColor = playerColor == kit.color ? .ember : kit.color
+      return Self(bottomColor:kit.bottomColor,skort:kit.skort,skinTone:.umber,model:model,
+                  shirt:kit.shirt,color:otherColor,prop:kit.prop)
     }
-    return Self(bottomColor:KitBottomColor(rawValue:d.string(forKey:"kitBottomColor") ?? "") ?? .graphite,wristband:Wristband(rawValue:d.string(forKey:"kitWrist") ?? "") ?? .chalk,skort:d.bool(forKey:"kitSkort"),skinTone:SkinTone(rawValue:d.string(forKey:"kitSkin") ?? "") ?? .bronze,model:selfModel, shirt:TennisKit(rawValue:d.string(forKey:"kitShirt") ?? "") ?? .crew,
-      color:KitColor(rawValue:d.string(forKey:"kitColor") ?? "") ?? .tide,
-      prop:KitProp(rawValue:d.string(forKey:"kitProp") ?? "") ?? .visor)
+    return Self(bottomColor:KitBottomColor(rawValue:d.string(forKey:"kitBottomColor") ?? "") ?? kit.bottomColor,
+                wristband:Wristband(rawValue:d.string(forKey:"kitWrist") ?? "") ?? kit.wristband,
+                skort:d.object(forKey:"kitSkort") == nil ? kit.skort : d.bool(forKey:"kitSkort"),
+                skinTone:SkinTone(rawValue:d.string(forKey:"kitSkin") ?? "") ?? kit.skinTone,model:model,
+                shirt:TennisKit(rawValue:d.string(forKey:"kitShirt") ?? "") ?? kit.shirt,
+                color:KitColor(rawValue:d.string(forKey:"kitColor") ?? "") ?? kit.color,
+                prop:KitProp(rawValue:d.string(forKey:"kitProp") ?? "") ?? kit.prop)
+  }
+
+  static func tour(_ model: AthleteModel) -> Self {
+    let dress = model == .woman
+    return Self(bottomColor:dress ? .match : .graphite,skort:dress,model:model,
+                shirt:dress ? .sleeveless : .polo,color:dress ? .tide : .navy,prop:.plain)
+  }
+}
+// Key-path bindings retain identity across navigation and preview updates.
+// A stored choice takes precedence over the active athlete's tour outfit.
+private extension Optional where Wrapped: Hashable {
+  subscript(tourDefault fallback: Wrapped) -> Wrapped {
+    get { self ?? fallback }
+    set { self = newValue }
   }
 }
 struct LockerRoom: View {
   @AppStorage("athleteModel") private var model = AthleteModel.woman.rawValue
-  @AppStorage("kitSkort") private var skort = false
-  @AppStorage("kitShirt") private var shirt = TennisKit.crew.rawValue
-  @AppStorage("kitColor") private var color = KitColor.tide.rawValue
-  @AppStorage("kitProp") private var prop = KitProp.visor.rawValue
+  @AppStorage("kitSkort") private var savedSkort: Bool?
+  @AppStorage("kitShirt") private var savedShirt: String?
+  @AppStorage("kitColor") private var savedColor: String?
+  @AppStorage("kitProp") private var prop = KitProp.plain.rawValue
   @AppStorage("kitSkin") private var skin = SkinTone.bronze.rawValue
-  @AppStorage("kitBottomColor") private var bottoms = KitBottomColor.graphite.rawValue
+  @AppStorage("kitBottomColor") private var savedBottoms: String?
   @AppStorage("kitWrist") private var wristband = Wristband.chalk.rawValue
   @State private var angle = LockerAngle.front
   @State private var orbit: Float = 0
   @GestureState private var drag: CGFloat = 0
   @State private var previewReady = false
   @State private var visible = true
+  @State private var showingStudio = false
+  private var tour: AthleteKit { .tour(AthleteModel(rawValue:model) ?? .woman) }
+  private var color: String { savedColor ?? tour.color.rawValue }
+  private var skort: Bool { savedSkort ?? tour.skort }
+  private var shirt: String { savedShirt ?? tour.shirt.rawValue }
+  private var bottoms: String { savedBottoms ?? tour.bottomColor.rawValue }
   private var appearance: [String] { [model, shirt, color, prop, skin, wristband, bottoms, String(skort)] }
   var body: some View {
     Form {
@@ -105,11 +135,11 @@ struct LockerRoom: View {
           }
         }
         .accessibilityIdentifier("kitSkinTone")
-        Picker("Shirt", selection:$shirt) { ForEach(TennisKit.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
-        Picker("Bottoms",selection:$skort) { Text("Shorts").tag(false); Text("Skort").tag(true) }
+        Picker("Shirt", selection:$savedShirt[tourDefault:tour.shirt.rawValue]) { ForEach(TennisKit.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
+        Picker("Bottoms",selection:$savedSkort[tourDefault:tour.skort]) { Text("Shorts").tag(false); Text("Skort").tag(true) }
           .accessibilityIdentifier("kitBottoms")
-        Picker("Color", selection:$color) { ForEach(KitColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
-        Picker("Bottoms color",selection:$bottoms) { ForEach(KitBottomColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
+        Picker("Color", selection:$savedColor[tourDefault:tour.color.rawValue]) { ForEach(KitColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
+        Picker("Bottoms color",selection:$savedBottoms[tourDefault:tour.bottomColor.rawValue]) { ForEach(KitBottomColor.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Wristbands", selection:$wristband) { ForEach(Wristband.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
         Picker("Headwear", selection:$prop) { ForEach(KitProp.allCases,id:\.rawValue) { Text($0.rawValue).tag($0.rawValue) } }
       }
@@ -119,10 +149,11 @@ struct LockerRoom: View {
     }.navigationTitle("Player & outfits")
       .toolbar {
         ToolbarItem(placement:.topBarTrailing) {
-          NavigationLink { StrokeStudioView() } label: { Label("Stroke studio",systemImage:"figure.tennis") }
+          Button { showingStudio = true } label: { Label("Stroke studio",systemImage:"figure.tennis") }
             .accessibilityIdentifier("strokeStudio")
         }
       }
+      .navigationDestination(isPresented:$showingStudio) { StrokeStudioView() }
       .onAppear { visible = true }
       .onDisappear { visible = false; previewReady = false }
   }

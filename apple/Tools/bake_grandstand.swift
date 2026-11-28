@@ -56,8 +56,15 @@ for number in 0..<people {
    guard let n=joints[id],let rest=rotation[id] else{return}
    n.simdPosition=p; n.simdOrientation=q*rest
  }
- func bone(_ id:String,_ end:String,_ p:SIMD3<Float>,_ next:SIMD3<Float>) {
-   set(id,p,simd_quatf(from:simd_normalize(bind[end]!-bind[id]!),to:simd_normalize(next-p)))
+ func bone(_ id:String,_ end:String,_ p:SIMD3<Float>,_ next:SIMD3<Float>) -> simd_quatf {
+   let q = simd_quatf(from:simd_normalize(bind[end]!-bind[id]!),to:simd_normalize(next-p))
+   set(id,p,q)
+   return q
+ }
+ func bend(_ name:String,_ side:String,_ pivot:SIMD3<Float>,_ a:simd_quatf,_ b:simd_quatf) {
+   for (suffix,t): (String,Float) in [("Inner",0.25),("",0.5),("Outer",0.75)] {
+     set(name+suffix+side,pivot,simd_slerp(a,b,t))
+   }
  }
  let yaw=Float(number%5-2)*0.095, lean=Float(number%3)*0.075
  let identity=simd_quatf(angle:0,axis:[0,1,0])
@@ -68,13 +75,17 @@ for number in 0..<people {
  func torso(_ joint:String)->SIMD3<Float> {hipTarget+chest.act(bind[joint]!-hip)}
  for joint in ["pelvis","waist","chest","neck","clavL","clavR"] {set(joint,torso(joint),chest)}
  let headAt=torso("head")
- for joint in ["head","eyeL","eyeR","tailBase","tailTip"] { set(joint,headAt+head.act(bind[joint]!-bind["head"]!),head) }
+ for joint in ["head","eyeL","eyeR","browL","browR","cheekL","cheekR","jaw","upperLip","lidTopL","lidTopR","lidBottomL","lidBottomR","tailBase","tailTip"] { set(joint,headAt+head.act(bind[joint]!-bind["head"]!),head) }
  for side in ["L","R"]{
    let dir:Float=side=="L" ? -1:1
    let thigh=torso("thigh"+side)
    let k=standing ? thigh+[dir*0.025,-0.41,-0.07] : SIMD3<Float>(dir*(0.132+Float(number%3)*0.022),0.45,-0.36)
    let ankle=k+[dir*0.008,standing ? -0.43 : -0.39,0.045+0.017*Float(number%3)]
-   bone("thigh"+side,"shin"+side,thigh,k);bone("shin"+side,"foot"+side,k,ankle);set("foot"+side,ankle,identity)
+   let femur=bone("thigh"+side,"shin"+side,thigh,k)
+   let tibia=bone("shin"+side,"foot"+side,k,ankle)
+   bend("hipCap",side,thigh,chest,femur)
+   bend("kneeCap",side,k,femur,tibia)
+   set("foot"+side,ankle,identity)
    let shoulder=torso("upperArm"+side)
    var elbow=shoulder+[dir*0.062,-0.22,-0.086]
    var hand=k+[0,0.07,0.092]
@@ -85,8 +96,10 @@ for number in 0..<people {
      elbow = shoulder+[dir*(0.035 + Float(beat)*0.055),-0.18+lift,-0.21]
      hand = SIMD3<Float>(dir*(beat == 0 ? 0.022 : 0.175),shoulder.y-0.005+lift,-0.34)
    }
-   bone("upperArm"+side,"forearm"+side,shoulder,elbow)
-   bone("forearm"+side,"hand"+side,elbow,hand)
+   let upper=bone("upperArm"+side,"forearm"+side,shoulder,elbow)
+   let fore=bone("forearm"+side,"hand"+side,elbow,hand)
+   bend("deltoid",side,shoulder,chest,upper)
+   bend("elbowCap",side,elbow,upper,fore)
    let t=simd_distance(bind["twist"+side]!,bind["forearm"+side]!)/simd_distance(bind["hand"+side]!,bind["forearm"+side]!)
    set("twist"+side,elbow+(hand-elbow)*t,simd_quatf(from:simd_normalize(bind["hand"+side]!-bind["forearm"+side]!),to:simd_normalize(hand-elbow)))
    set("hand"+side,hand,simd_quatf(from:simd_normalize(bind["palm"+side]!-bind["hand"+side]!),to:simd_normalize(hand-elbow)))
@@ -96,16 +109,18 @@ for number in 0..<people {
    guard let geometry=n.geometry,let id=n.name else{return}
    let material=SCNMaterial();material.lightingModel = .lambert; material.isDoubleSided=true
    switch id {
-   case "Skin","SleeveSkin":
+   case "Skin","CrewSkin","TankSkin","Wristband":
      material.diffuse.contents=tinted(name+"Skin.jpg",NSColor(srgbRed:tone,green:tone*0.91,blue:tone*0.82,alpha:1))
-     n.isHidden=id=="SleeveSkin" && number%4 != 3
+     n.isHidden=(id=="TankSkin" && number%4 != 3) || (id=="CrewSkin" && number%4 == 3)
    case "Hair":material.diffuse.contents=input.appendingPathComponent(name+"Hair.png");material.transparencyMode = .aOne
-   case "Shirt","Sleeves":material.diffuse.contents=tinted("CourtKit.jpg",palette[(number*5)%palette.count]);n.isHidden=(id=="Sleeves" && number%4==3)
+   case "Shirt","SidePanel","Sleeves":
+     material.diffuse.contents=tinted("CourtKit.jpg",palette[(number*5)%palette.count]);n.isHidden=number%4==3
+   case "Tank","TankBinding":material.diffuse.contents=palette[(number*5)%palette.count];n.isHidden=number%4 != 3
    case "Shorts":material.diffuse.contents=NSColor(srgbRed:0.22,green:0.24,blue:0.27,alpha:1)
    case "Eyes":material.diffuse.contents=input.appendingPathComponent("AthleteEyes.jpg")
    case "Shoe":material.diffuse.contents=input.appendingPathComponent("CourtShoes.jpg")
    case "Sock":material.diffuse.contents=NSColor(white:0.79,alpha:1)
-   case "Collar","SleeveEdge","CollarEdge","Headband","Wristband":material.diffuse.contents=NSColor(white:0.83,alpha:1); n.isHidden=number%4 != 0
+   case "Collar","SleeveEdge","CollarEdge","Headband":material.diffuse.contents=NSColor(white:0.83,alpha:1); n.isHidden=number%4 != 0
    case "Visor":material.diffuse.contents=palette[number%8];n.isHidden=number%4 != 0
    default:n.isHidden=true
    }

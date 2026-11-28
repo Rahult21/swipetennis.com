@@ -92,6 +92,8 @@ def source_bone(name):
         return "neck"
     if stem.startswith(("spine","pelvis","root")):
         return "pelvis"
+    if stem == "oculi01": return "brow"+side
+    if stem in ("risorius03", "levator05"): return "cheek"+side
     if stem == "orbicularis03": return "lidTop"+side
     if stem == "orbicularis04": return "lidBottom"+side
     if stem.startswith("tongue") or stem in ("jaw", "special04", "oris01", "oris02", "oris07") or (stem == "oris06" and side):
@@ -112,10 +114,8 @@ def combined(terms):
 
 
 def joint_volume_weights(weights):
-    """At a bent seam, weight the common part to the halfway rotation.
-    Linear skinning otherwise pulls a cuff, shoulder or shorts crotch inward
-    along a chord. Both the kit and the underlying skin get identical seams.
-    """
+    """Use adjacent quarter-turn frames on the articulation arc. With linear
+    GPU skinning this bounds the chord error even at a deeply bent knee."""
     values = dict(weights)
     for side in "LR":
         seams = [("deltoid", ("clav"+side, "chest"), "upperArm"+side),
@@ -124,14 +124,18 @@ def joint_volume_weights(weights):
                  ("kneeCap", ("thigh"+side,), "shin"+side)]
         for joint, proximal, distal in seams:
             upstream = sum(values.get(key, 0) for key in proximal)
-            common = min(upstream, values.get(distal, 0))*0.85
-            if common < 0.001:
+            downstream = values.get(distal, 0)
+            if min(upstream, downstream) < 0.0001:
                 continue
+            total = upstream + downstream
+            step = 4 * downstream / total
             for key in proximal:
                 if key in values:
-                    values[key] -= common*values[key]/upstream
-            values[distal] -= common
-            values[joint+side] = common*2
+                    values[key] *= total * max(0, 1-step) / upstream
+            values[distal] = total * max(0, step-3)
+            for n, suffix in enumerate(("Inner", "", "Outer"), start=1):
+                values[joint+suffix+side] = total * max(0, 1-abs(step-n))
+
     return combined([(1,values)])
 
 
@@ -225,8 +229,8 @@ def athlete_targets(model):
     woman = model == "female"
     targets = [(f"macrodetails/{origin}-{model}-young", 1/3) for origin in ("african", "asian", "caucasian")]
     targets += [
-        (f"macrodetails/universal-{model}-young-maxmuscle-averageweight", 0.76 if woman else 0.83),
-        ("torso/torso-muscle-dorsi-incr", 0.24 if woman else 0.38),
+        (f"macrodetails/universal-{model}-young-maxmuscle-averageweight", 0.70 if woman else 0.96),
+        ("torso/torso-muscle-dorsi-incr", 0.21 if woman else 0.52),
         ("pelvis/pelvis-tone-incr", 0.32),
         ("hip/hip-scale-horiz-incr", 0.16 if woman else 0.06),
         ("chin/chin-width-decr", 0.30 if woman else 0.05),
@@ -286,13 +290,16 @@ class Athlete:
             self.anchors["gripAxis"+side] = tuple(p+a-b for p,a,b in zip(palm,*knuckles))
         self.points = open_hand
         for side in "LR":
+            self.anchors["brow"+side] = pivot("oculi01."+side)
+            self.anchors["cheek"+side] = pivot("risorius03."+side)
             self.anchors["lidTop"+side] = pivot("orbicularis03."+side)
             self.anchors["lidBottom"+side] = pivot("orbicularis04."+side)
             for seam, joint in [("deltoid","upperArm"),("elbowCap","forearm"),("hipCap","thigh"),("kneeCap","shin")]:
-                self.anchors[seam+side] = self.anchors[joint+side]
+                for suffix in ("Inner", "", "Outer"):
+                    self.anchors[seam+suffix+side] = self.anchors[joint+side]
         self.anchors.update(digit_anchors)
         self.shorts_length = .185 if model == "female" else .215
-        self.hair = "braid01" if model == "female" else "short01"
+        self.hair = "ponytail01" if model == "female" else "short01"
         self.brow = "eyebrow005" if model == "female" else "eyebrow009"
         self.parts = {}
         self.archive = archive
@@ -354,7 +361,7 @@ class Athlete:
                 if asset==skin:
                     mask = tmp/"skin-uv.json"
                     mask.write_text(json.dumps([[part.vertices[i].uv for i in face]
-                        for name,part in self.parts.items() if name in ("Skin","SleeveSkin") for face in part.faces]))
+                        for name,part in self.parts.items() if name in ("Skin","TankSkin","CrewSkin","Wristband") for face in part.faces]))
                     args.append(str(mask))
                 subprocess.run(args,check=True)
 
@@ -400,19 +407,12 @@ class Athlete:
             skinning = []
             for i, point in enumerate(mapped):
                 x,y,z = world(point)
-                # Sweep the front lock over the brow so the player can see
-                # the ball. The nape and the tied length keep their own motion.
-                fringe = 0.
-                if self.model == "female":
-                    front = min(1,max(0,(head[2]-.040-z)/.026))
-                    across_face = min(1,max(0,(.080-abs(x))/.028))
-                    fringe = front*across_face*max(0.,head[1]+.067-y)*.88
                 hangs = min(1,max(0,(head[1]-.047-y)/.054)) if self.model=="female" else 0.
                 rear = min(1,max(0,(z-head[2]-.025)/.030))
                 hangs *= rear
                 tip = min(1,max(0,(head[1]-.105-y)/.160))
                 clearance = hangs*(.020+.044*tip)
-                mapped[i] = (point[0],point[1]+fringe*10,point[2]-(clearance+fringe*.20)*10)
+                mapped[i] = (point[0],point[1],point[2]-clearance*10)
                 skinning.append({"head":1-hangs,"tailBase":hangs*(1-tip),
                                  "tailTip":hangs*tip*.55,"chest":hangs*tip*.45})
         if kind == "Teeth":
@@ -483,6 +483,12 @@ class Athlete:
             else:
                 hem = (self.anchors["thighL"][1]-self.shorts_length-0.88)*10
                 self.emit("Shorts",clip_height(vs,hem))
+                liner = clip_height(vs,hem+.42)
+                if not liner:
+                    continue
+                liner, _ = self.split_face(liner, lambda v: world(v.position)[1]-self.anchors["thighR"][1]-.032)
+                self.emit("Liner",[Vertex((v.position[0]*.96,v.position[1],v.position[2]*.94),
+                                          v.uv,v.weights) for v in liner])
 
     def split_side_panel(self, face):
         """Cut the inset along a curved seam shared by all shirt styles."""
@@ -491,21 +497,60 @@ class Athlete:
             rise = min(1,max(0,(y-self.anchors["waist"][1])/.29))
             edge = .122 if self.model=="female" else .141
             return abs(x) - (edge + .028*rise - .015*math.sin(math.pi*rise))
-        shirt, insert = [], []
+        return self.split_face(face, distance)
+
+    @staticmethod
+    def split_face(face, distance):
+        inside, outside = [], []
         prev = face[-1]
         a = distance(prev)
         for curr in face:
             b = distance(curr)
             if (a>0) != (b>0):
                 edge = prev.between(curr,a/(a-b))
-                shirt.append(edge)
-                insert.append(edge)
-            if b > 0:
-                insert.append(curr)
-            else:
-                shirt.append(curr)
+                inside.append(edge)
+                outside.append(edge)
+            (outside if b > 0 else inside).append(curr)
             prev, a = curr, b
-        return shirt, insert
+        return inside, outside
+
+    def tank_face(self, face):
+        # Skin and bodice are cut from one surface. Their cut vertices carry
+        # identical weights, so an exposed shoulder cannot separate from a strap.
+        shoulder = self.anchors["upperArmR"]
+        neck = self.anchors["neck"]
+        hip = self.anchors["thighR"][1]
+        def edge(v):
+            x,y,z = world(v.position)
+            back = min(1,max(0,(z-neck[2]+.027)/.060))
+            rise = min(1,max(0,(y-shoulder[1]+.137)/.15))
+            outer = shoulder[0]+.055-(.086+.034*back)*math.sin(rise*math.pi/2)
+            neck_height = neck[1]+.034-(.096-.020*back)*math.exp(-(x/.078)**2)
+            arm = sum(w for b,w in v.weights.items() if b.startswith(("upperArm","forearm","twist")))
+            return max(abs(x)-outer, y-neck_height, (arm-.27)*.11)
+        panel, skin = self.split_face(face, edge)
+        self.emit("TankSkin",skin)
+        if not panel:
+            return
+        field, binding = self.split_face(panel, lambda v: edge(v)+.005)
+        # Stretch the knit across the chest. Round out local detail with a
+        # smooth elliptical section, feathering to the untouched bound edges.
+        def fabric(v):
+            x,y,z = world(v.position)
+            t = min(1,max(0,(shoulder[1]-y)/.26))
+            bust = math.sin(math.pi*t)
+            radius = shoulder[0]*(.91+.08*bust)
+            depth = .095+.023*bust
+            mid = -.031 if self.model == "female" else -.014
+            front = mid-depth*math.sqrt(max(0,1-(x/radius)**2))
+            ease = min(1,max(0,-edge(v)/.034))
+            blend = ease*ease*(3-2*ease)
+            if z < mid:
+                z = z + (min(z-.002,front)-z)*blend
+            u = math.atan2(x,mid-z)/math.tau+.5
+            return Vertex((-10*x,10*(y-.88),-10*z),(u,(y-hip)*2),v.weights)
+        self.emit("Tank",[fabric(v) for v in field])
+        self.emit("TankBinding",[fabric(v) for v in binding])
 
     def accessories(self):
         """Build optional, weighted kit pieces after fitting the common sportswear."""
@@ -516,6 +561,9 @@ class Athlete:
                 for i in range(len(a) if wrap else len(a)-1):
                     j=(i+1)%len(a)
                     self.emit(name,[a[i],b[i],b[j],a[j]])
+        def normalize(q):
+            length = math.sqrt(sum(v*v for v in q))
+            return tuple(v/length for v in q)
         for side in "LR":
             foot = self.anchors["foot"+side]
             shoe = [world(v.position) for v in self.parts["Shoe"].vertices if (world(v.position)[0]<0)==(side=="L")]
@@ -523,36 +571,6 @@ class Athlete:
             sole = [p for p in shoe if p[1]<floor+0.008]
             self.anchors["toe"+side] = (foot[0],floor,min(p[2] for p in sole))
             self.anchors["heel"+side] = (foot[0],floor,max(p[2] for p in sole))
-            wrist = self.anchors["hand"+side]
-            elbow = self.anchors["forearm"+side]
-            def normalize(q):
-                length = math.sqrt(sum(v*v for v in q))
-                return tuple(v/length for v in q)
-            axis = normalize([e-w for e,w in zip(elbow,wrist)])
-            x = normalize((axis[2],0,-axis[0]))
-            z = (axis[1]*x[2]-axis[2]*x[1],axis[2]*x[0]-axis[0]*x[2],axis[0]*x[1]-axis[1]*x[0])
-            skin = [world(v.position) for v in self.parts["Skin"].vertices if sum(v.weights.get(b+side,0) for b in ["hand","forearm","twist"])>0.82]
-            wrist_skin = [(world(v.position),v.weights) for v in self.parts["Skin"].vertices
-                          if math.dist(world(v.position),wrist) < 0.13]
-            rows = []
-            for distance,extra in [(0.034,.0007),(.037,.003),(.043,.003),(.048,.0024),(.066,.0024),(.073,.003),(.078,.0007)]:
-                section = []
-                for pos in skin:
-                    delta = [p-w for p,w in zip(pos,wrist)]
-                    dot = lambda vec:sum(a*b for a,b in zip(delta,vec))
-                    if abs(dot(axis)-distance)<.013: section.append((dot(x),dot(z)))
-                axes = list(zip(*section))
-                if len(axes)!=2: axes = [[-.033,.033],[-.029,.029]]
-                cx,cz = [(max(q)+min(q))/2 for q in axes]
-                rx,rz = [(max(q)-min(q))/2+extra+.0025 for q in axes]
-                ring = []
-                for i in range(40):
-                    t = i*math.tau/40
-                    p = tuple(w+d*distance+a*(cx+rx*math.cos(t))+b*(cz+rz*math.sin(t)) for w,d,a,b in zip(wrist,axis,x,z))
-                    nearest = min(wrist_skin,key=lambda v:math.dist(v[0],p))
-                    ring.append(vertex(p,(i/40,distance),nearest[1]))
-                rows.append(ring)
-            strip("Wristband",rows)
         head = self.anchors["head"]
         skin = [world(v.position) for v in self.parts["Skin"].vertices]
         h = head[1]+0.073
@@ -578,21 +596,51 @@ class Athlete:
                                   (i/32,v),{"head":1}))
             rows.append(row)
         strip("Visor",rows,False)
-        waist = self.anchors["thighR"][1] + .062
+        # Follow the actual bodice at the waist. Cross-sections taken from
+        # the shorts include open space above the hips when the trunk turns.
+        waist = self.anchors["thighR"][1] + .107
         pants = [world(v.position) for v in self.parts["Shorts"].vertices]
+        torso = self.parts["Tank"]
+        section = []
+        for face in torso.faces:
+            vs = [torso.vertices[n] for n in face]
+            for a,b in zip(vs,vs[1:]+vs[:1]):
+                ay,by = world(a.position)[1],world(b.position)[1]
+                if (ay < waist) != (by < waist):
+                    section.append(a.between(b,(waist-ay)/(by-ay)))
+        center_z = (min(world(v.position)[2] for v in section)+max(world(v.position)[2] for v in section))/2
+        def bearing(v):
+            x,_,z = world(v.position)
+            return math.atan2(x,center_z-z)%math.tau
+        rim = sorted(section,key=bearing)
+        def waistband(t):
+            hi = next((i for i,v in enumerate(rim) if bearing(v)>t),0)
+            a,b = rim[hi-1],rim[hi]
+            span = (bearing(b)-bearing(a))%math.tau
+            return a.between(b,((t-bearing(a))%math.tau)/max(.000001,span))
+        ring = [waistband(i*math.tau/64) for i in range(64)]
         rows = []
-        for depth in [0,.017,.061,.12,.195,.239,.244]:
+        for depth in [0,.002,.009,.023,.046,.083,.13,.185,.255,.291,.297]:
             row = []
             section = [p for p in pants if abs(p[1]-(waist-depth))<.037] or pants
-            width = max(abs(p[0]) for p in section)+.010
-            front,back = min(p[2] for p in section)-.017,max(p[2] for p in section)+.017
+            width = max(abs(p[0]) for p in section)+.016
+            front,back = min(p[2] for p in section)-.025,max(p[2] for p in section)+.023
             cz,rz = (front+back)/2,(back-front)/2
-            for i in range(64):
-                t = i*math.tau/64; left = math.sin(t)<0
-                flare = max(0.,depth-.052)*(.089+.032*math.cos(t*16))
-                thigh = min(.56,depth*2.25)*abs(math.sin(t))
-                weights = {"pelvis":1-thigh,("thighL" if left else "thighR"):thigh}
-                row.append(vertex(((width+flare)*math.sin(t),waist-depth,cz-(rz+flare)*math.cos(t)),(i/64,depth),weights))
+            drape = min(1,depth/.10)
+            drape *= drape*(3-2*drape)
+            for i,seam in enumerate(ring):
+                t = i*math.tau/64
+                flare = max(0.,depth-.096)*(.17+.042*math.cos(t*12))
+                thigh = max(0,min(.97,(depth-.043)*4.7))
+                blend = .5+.5*math.tanh(4.0*math.sin(t))
+                leg = combined([(mix,joint_volume_weights({"pelvis":1-thigh,"thigh"+side:thigh}))
+                                for side,mix in (("R",blend),("L",1-blend))])
+                x,_,z = world(seam.position)
+                lip = -.003 if depth == 0 else .003
+                x = (x+lip*math.sin(t))*(1-drape) + (width+flare)*math.sin(t)*drape
+                z = (z-lip*math.cos(t))*(1-drape) + (cz-(rz+flare)*math.cos(t))*drape
+                weights = combined([(1-drape,seam.weights),(drape,leg)])
+                row.append(vertex((x,waist-depth,z),(i/64,depth),weights))
             rows.append(row)
         strip("Skort",rows)
         # Bind the piping directly to the actual open sleeve hem. Ignore UV
@@ -633,6 +681,22 @@ class Athlete:
             points = [(0.008,-.009,-.072),(.058,-.007,-.027),(.073,-.024,-.050),(.037,-.046,-.079)]
             self.emit("Collar",[vertex((x*sign,neck[1]+y,neck[2]+z),(x,y),{"chest":.65,"neck":.35}) for x,y,z in points])
 
+    def wristband(self, face, side):
+        # Cut the sweatband into the forearm surface so the skin and band
+        # share the same silhouette as the wrist pronates around the handle.
+        wrist = self.anchors["hand"+side]
+        elbow = self.anchors["forearm"+side]
+        length = math.dist(wrist,elbow)
+        axis = [(a-b)/length for a,b in zip(elbow,wrist)]
+        def along(v):
+            return sum((p-b)*d for p,b,d in zip(world(v.position),wrist,axis))
+        hand, above = self.split_face(face,lambda v: along(v)-.031)
+        self.emit("Skin",hand)
+        if above:
+            band, arm = self.split_face(above,lambda v: along(v)-.073)
+            self.emit("Wristband",band)
+            self.emit("Skin",arm)
+
     def build(self):
         self.proxy("clothes","male_casualsuit06","Kit")
         self.proxy("clothes","shoes05","Shoe")
@@ -648,54 +712,64 @@ class Athlete:
             length = math.sqrt(sum(d*d for d in direction))
             arm_axes[side] = [d/length for d in direction]
         for group, face in self.base.faces:
-            if group != "body" or all(i in self.hidden for i,_ in face):
+            if group != "body":
                 continue
             ids = [i for i,_ in face]
             center = average([self.points[i] for i in ids])
-            # Only skin exposed by the shortest kit is retained. This also prevents
-            # buried body faces from emerging through the waistband while running.
-            if -1.2 < center[1] < 4.7 and abs(center[0]) < 1.55:
-                continue
-            if -1.1 < center[1] < 0.7 and abs(center[0]) < 1.9:
-                continue
-            name = "Skin"
-            if all(i in self.under_kit for i in ids):
-                heights = [world(self.points[i])[1] for i in ids]
-                if min(heights) > self.anchors["thighL"][1]-self.shorts_length+.01:
-                    if max(heights) < self.anchors["thighL"][1]+0.13:
-                        continue
-                    # Sleeveless kit reveals the same continuous arm surface.
-                    name = "SleeveSkin"
-            # The supplied clothing mask omits a strip of upper-arm skin. During
-            # rotation that strip pokes through the sleeve. End the extra mask
-            # before the shortest fitted cuff (0.129 m from the shoulder).
             position = world(center)
-            side = "L" if position[0] < 0 else "R"
-            if sum(self.weights[i].get("upperArm"+side,0) for i in ids) > 0.5*len(ids):
-                along = sum((p-s)*d for p,s,d in zip(position,self.anchors["upperArm"+side],arm_axes[side]))
-                if 0 < along < 0.115:
-                    name = "SleeveSkin"
-            self.emit(name,[Vertex(self.points[i],self.base.uv[t],self.weights[i]) for i,t in face])
+            x,y,_ = position
+            hip = self.anchors["thighR"][1]
+            shoulder = self.anchors["upperArmR"][1]
+            # Leave a generous continuous underlap at the neckline, armholes
+            # and shorts. Only the centre, enclosed by *every* kit, is omitted.
+            vs = [Vertex(self.points[i],self.base.uv[t],self.weights[i]) for i,t in face]
+            upper_kit = hip < y < self.anchors["neck"][1]+.05 and abs(x)<.33
+            if upper_kit:
+                self.tank_face(vs)
+            if y < .228 and all(i in self.hidden for i in ids):
+                continue
+            if hip-self.shorts_length+.065 < y < shoulder-.163 and abs(x)<.205:
+                continue
+            side = "L" if x < 0 else "R"
+            socket = self.anchors["upperArm"+side]
+            along = sum((p-s)*d for p,s,d in zip(position,socket,arm_axes[side]))
+            covered = all(i in self.under_kit for i in ids)
+            name = "CrewSkin" if upper_kit else "Skin"
+            if y > shoulder-.18 and y < self.anchors["neck"][1]+.025 and along < .080 and covered:
+                continue
+            # Taper hidden thigh skin into the leg opening to give the cloth
+            # room on a planted bend without shortening the exposed thigh.
+            if y < hip and abs(x) < .28:
+                def tuck(v):
+                    px,py,pz = world(v.position)
+                    inset = .22*max(0,min(1,(py-hip+self.shorts_length+.012)/.055))
+                    joint = self.anchors["thigh"+side]
+                    return Vertex((-(px+(joint[0]-px)*inset)*10,v.position[1],
+                                   -(pz+(joint[2]-pz)*inset)*10),v.uv,v.weights)
+                vs = [tuck(v) for v in vs]
+            if name == "Skin" and math.dist(position,self.anchors["hand"+side]) < .14:
+                self.wristband(vs,side)
+            else:
+                self.emit(name,vs)
 
         self.accessories()
         # Sock and shorts enclose these faces for every selectable outfit. Cut
-        # the underlying leg back a few millimetres inside the finished hems.
+        # the underlying leg inside the overlapping cloth.
         skin = self.parts["Skin"]
         hem = self.anchors["thighL"][1] - self.shorts_length
         def visible(triangle):
             vertices = [skin.vertices[i] for i in triangle]
             heights = [world(v.position)[1] for v in vertices]
-            if max(heights) < 0.258:
+            if max(heights) < 0.22:
                 return False
             thigh = min(sum(w for bone,w in v.weights.items() if bone.startswith("thigh")) for v in vertices)
-            return thigh < 0.65 or min(heights) <= hem+0.015
+            return thigh < 0.65 or min(heights) <= hem+0.065
         skin.faces = [tri for tri in skin.faces if visible(tri)]
 
     def save(self, output):
         bones = list(self.anchors)
         def bind(name,p):
-            # Align local +Y along each limb. At runtime the long axis alone
-            # can adapt to the target reach without inflating arms or legs.
+            # Align local +Y with the limb in its rigid bind frame.
             segments = {"upperArm":"forearm","forearm":"hand","thigh":"shin","shin":"foot"}
             side = name[-1:]
             child = segments.get(name[:-1]) if side in ("L","R") else None
