@@ -25,6 +25,7 @@ struct PracticeGesture {
   var targetGuide: MovementGuide?
   var movementOrigin: Vec?
   var allowsApproach = false
+  var incomingShortBall = false
   private var guidedHeading: Vec?
   private var guideSample: Vec?
   private var lastTarget: Vec?
@@ -75,14 +76,23 @@ struct PracticeGesture {
     if screenTravelled >= 6 && (slowDrag || heldDrag) {
       positioning = true
     }
+    // A forward movement cue on a short ball commits the whole diagonal run.
+    // Its distance on screen determines neither the destination nor the shot.
+    let courtDelta = Vec(x:point.x-start.x,y:point.y-start.y)
+    let sign = side == 0 ? -1.0 : 1.0
+    let forward = courtDelta.y*sign
+    let forwardApproach = incomingShortBall && targetGuide?.kind == .receive &&
+      targetGuide.map { ($0.to.y-$0.from.y)*sign > PracticeEngine.contactRadius } == true &&
+      forward > 0 && abs(courtDelta.x) <= forward*0.75
     if positioning {
       previewDelta = nil
       let gain = 1.5 * movementGain * 0.8
       let target = PracticeEngine.own(side, Vec(x: movementOrigin.x + gain * (point.x - start.x),
                                                y: movementOrigin.y + gain * (point.y - start.y)))
       if let guide = targetGuide, guide.kind == .receive,
-         target.distance(to: guide.to) < movementOrigin.distance(to: guide.to),
-         target.distance(to: guide.to) <= PracticeEngine.contactRadius {
+         (forwardApproach && distance >= 8) ||
+         (target.distance(to:guide.to) < movementOrigin.distance(to:guide.to) &&
+          target.distance(to:guide.to) <= PracticeEngine.contactRadius) {
         lockedOnYellow = true
         return .guidedMove(.receive)
       }
@@ -98,7 +108,7 @@ struct PracticeGesture {
        let guide = targetGuide, guide.kind == .receive {
       let dx = point.x - start.x, dy = point.y - start.y
       let tx = guide.to.x - guide.from.x, ty = guide.to.y - guide.from.y
-      if dx * tx + dy * ty >= 0.65 * hypot(dx, dy) * hypot(tx, ty) {
+      if forwardApproach || (hypot(dx,dy) > 0 && dx * tx + dy * ty >= 0.65 * hypot(dx, dy) * hypot(tx, ty)) {
         previewDelta = nil
         return ended ? .guidedMove(.receive) : nil
       }
@@ -415,7 +425,10 @@ extension PracticeEngine {
     else if let white = recoveryGuide(side) { kind = .recover; target = white }
     else { return nil }
     let player = players[side]
-    if kind == .receive && player.receiveFlight == contactSerial { return nil }
+    if kind == .receive && (player.receiveFlight == contactSerial ||
+        (player.pos.distance(to:target) <= Self.contactRadius && player.destination.distance(to:target) <= Self.contactRadius)) {
+      return nil
+    }
     if onPlayer && player.destination.distance(to: target) <= Self.contactRadius { return nil }
     guard player.pos.distance(to: target) > 0.15 else { return nil }
     return MovementGuide(kind: kind, from: player.pos, to: target)

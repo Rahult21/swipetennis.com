@@ -12,6 +12,67 @@ final class ShortBallFootworkTests: XCTestCase {
     return engine
   }
 
+  func testForwardGestureCommitsTheDiagonalApproachAndTheNextFlickCanHit() throws {
+    for side in 0...1 {
+      for duration in [0.055,0.20] {
+        var game = incoming(side:side, local:true, depth:5.1)
+        game.players[side].pos.x = 0.1
+        let feet = game.players[side].pos
+        let forward = side == 0 ? -1.0 : 1.0
+        game.step(1/120, interactiveRally:true,random:{0.99})
+        let guide = try XCTUnwrap(game.swipeMovementGuide(side))
+        XCTAssertLessThan(abs(guide.to.y-guide.from.y)/guide.from.distance(to:guide.to),0.65)
+        XCTAssertEqual(game.players[side].destination,PracticeEngine.own(side,guide.to))
+        var gesture = PracticeGesture(side:side,intent:.rally,movementEpoch:game.contactSerial,
+          shotEpoch:game.shotGestureEpoch(side),targetGuide:guide,movementOrigin:feet,
+          incomingShortBall:game.showsGoldenContact(side))
+        _ = gesture.update(at:feet,screenPoint:.zero,timestamp:0)
+        let end = Vec(x:feet.x,y:feet.y+forward*0.35)
+        let stroke = try XCTUnwrap(gesture.update(at:end,screenPoint:Vec(x:0,y:forward*18),
+          ended:true,timestamp:duration))
+        XCTAssertEqual(stroke,.guidedMove(.receive))
+        game.apply(stroke,side:side,shotEpoch:gesture.shotEpoch,movementEpoch:gesture.movementEpoch)
+        XCTAssertEqual(game.players[side].destination,PracticeEngine.own(side,guide.to))
+        XCTAssertNil(game.players[side].swingStrength)
+        XCTAssertNil(game.swipeMovementGuide(side))
+        var swing = PracticeGesture(side:side,intent:.rally,shotEpoch:game.shotGestureEpoch(side),
+          targetGuide:game.swipeMovementGuide(side),movementOrigin:feet,incomingShortBall:true)
+        _ = swing.update(at:feet,screenPoint:.zero,timestamp:0.4)
+        let shot = try XCTUnwrap(swing.update(at:end,screenPoint:Vec(x:0,y:forward*70),ended:true,timestamp:0.47))
+        XCTAssertEqual(shot,.shotSwipe(Vec(x:0,y:-70)))
+        game.apply(shot,side:side,shotEpoch:swing.shotEpoch)
+        XCTAssertNotNil(game.players[side].swingStrength)
+      }
+    }
+  }
+
+  func testCourtVisualAidsCanBeHiddenIndependentlyAndRememberPreviousChoice() throws {
+    let suite = "court-aids-" + UUID().uuidString
+    let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+    defer { defaults.removePersistentDomain(forName:suite) }
+    CourtVisualAids.register(in:defaults)
+    for mask in 0..<8 {
+      for (bit,key) in [CourtVisualAids.yellowKey,CourtVisualAids.whiteKey,CourtVisualAids.blueKey].enumerated() {
+        if mask != 0 { defaults.set(mask & (1 << bit) == 0,forKey:key) }
+      }
+      let aids = CourtVisualAids(defaults)
+      XCTAssertEqual(aids.shows(.receive),mask & 1 == 0)
+      XCTAssertEqual(aids.shows(.approach),mask & 1 == 0)
+      XCTAssertEqual(aids.shows(.recover),mask & 2 == 0)
+      XCTAssertEqual(aids.blue,mask & 4 == 0)
+    }
+    defaults.removePersistentDomain(forName:suite)
+    defaults.set(false,forKey:"guides")
+    CourtVisualAids.register(in:defaults)
+    XCTAssertFalse(CourtVisualAids(defaults).yellow)
+    XCTAssertFalse(CourtVisualAids(defaults).white)
+    XCTAssertTrue(CourtVisualAids(defaults).blue)
+    defaults.set(true,forKey:CourtVisualAids.yellowKey)
+    CourtVisualAids.register(in:defaults)
+    XCTAssertTrue(CourtVisualAids(defaults).yellow)
+    XCTAssertFalse(CourtVisualAids(defaults).white)
+  }
+
   func testDeepIncomingBallStopsForwardMomentumAndCanBeReturnedFromHeldDepth() throws {
     for side in 0...1 {
       var game = incoming(side: side, local: true, depth: 4.99)

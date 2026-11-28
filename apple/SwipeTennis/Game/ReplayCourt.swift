@@ -223,7 +223,7 @@ enum ReplayAngle: String, CaseIterable {
     } else {
       audience = GrandstandAudience(night:selected == .night)
       if let audience { court.addChild(audience.root) }
-      let guides = UserDefaults.standard.object(forKey: "guides") as? Bool ?? true
+      let guides = CourtVisualAids().yellow
       if selected == .night {
         environment.background = .color(UIColor(red: 0.055, green: 0.075, blue: 0.16, alpha: 1))
       }

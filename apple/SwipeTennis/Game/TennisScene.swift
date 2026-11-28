@@ -100,6 +100,7 @@ import SwiftUI
   private var entrance: Double = 0
   var isIntroducingCourt: Bool { !reduceMotion && entrance < Self.entranceDuration }
   private var cameraPlayerX: Float = 4.115
+  private var visualAids = CourtVisualAids()
   private let matchCamera = MatchViewpoint(rawValue:UserDefaults.standard.string(forKey:"matchViewpoint") ?? "") ?? .baseline
   private var aimPreview: (cue: ShotDirection, epoch: Int?)?
   var controlledSide: Int?
@@ -278,7 +279,7 @@ import SwiftUI
     for y in [0.0, 23.77] {
       marks.addChild(line(Vec(x: 4.115, y: y), Vec(x: 4.115, y: y + (y == 0 ? 0.35 : -0.35))))
     }
-    if UserDefaults.standard.object(forKey: "guides") as? Bool ?? true {
+    if visualAids.yellow {
       for x in [0.0, 7.38] {
         marks.addChild(
           polygon(
@@ -496,8 +497,9 @@ import SwiftUI
     let oldMiss = missPresentation.current
     missPresentation.update(coach: engine.coach, delta: dt)
     if oldMiss != missPresentation.current { publishCoachMiss?(missPresentation.current) }
-    let showGuides = engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
-    swipeCoach.update(guide: showGuides && controlledSide == nil ? engine.movementGuide(0) : nil, delta: dt)
+    visualAids = CourtVisualAids()
+    let hint = controlledSide == nil ? engine.movementGuide(0) : nil
+    swipeCoach.update(guide:hint.flatMap { visualAids.shows($0.kind) ? $0 : nil }, delta:dt)
     if engine.bounceSerial != oldBounce { Immersion.shared.hit(bounce: true, x: engine.ball.x) }
     if oldPhase == .live && (engine.phase == .point || engine.phase == .finished) && engine.demo == nil {
       Immersion.shared.applaudPoint()
@@ -729,12 +731,11 @@ import SwiftUI
     if let impact = engine.pointResolution?.impact {
       faultRing.position = projectWorld(impact.point.world(height: Float(impact.height)))
     }
-    let guides = engine.settings.tournament || engine.demo != nil || (UserDefaults.standard.object(forKey: "guides") as? Bool ?? true)
     for side in 0...1 {
       // Each human sees one next-action guide: receive, then recover after contact.
       let golden = engine.showsGoldenContact(side)
       let visible = (controlledSide == nil || controlledSide == side) && (engine.phase == .serving
-        || ((guides || golden) && engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local)))
+        || (engine.acceptsCourtMovement && engine.flight != nil && (side == 0 || engine.settings.local)))
       let contact = engine.contactGuide(side)
       let chasingOut = engine.outBallChaseTarget(side) != nil
       contactRings[side].strokeColor = golden
@@ -743,8 +744,8 @@ import SwiftUI
       contactRings[side].glowWidth = golden ? 2 : 0
       contactRings[side].alpha = chasingOut ? 0.3
         : golden && !reduceMotion ? 0.6 + 0.4 * (0.5 + 0.5 * sin(animationTime * 2 * .pi)) : 1
-      contactRings[side].isHidden = !visible || contact == nil
-      recoveryRings[side].isHidden = !visible || engine.recoveryGuide(side) == nil
+      contactRings[side].isHidden = !visualAids.yellow || !visible || contact == nil
+      recoveryRings[side].isHidden = !visualAids.white || !visible || engine.recoveryGuide(side) == nil
       if let contact, visible { placeRing(contactRings[side], at: contact, radius: PracticeEngine.contactRadius) }
       if let recovery = engine.recoveryGuide(side), visible { placeRing(recoveryRings[side], at: recovery, radius: 0.7) }
     }
@@ -768,9 +769,9 @@ import SwiftUI
       if let aim { targetRing.setScale(1); placeRing(targetRing, at: aim, radius: 0.60) }
     }
     let serveInFlight = engine.phase == .live && engine.flight?.serve == true && (engine.flight?.progress ?? 1) < 0.8
-    serveRing.isHidden = engine.phase != .serving && !serveInFlight
+    serveRing.isHidden = !visualAids.blue || (engine.phase != .serving && !serveInFlight)
     if serveInFlight, let flight = engine.flight { placeRing(serveRing, at: flight.serveAim ?? flight.landing, radius: 0.58) }
-    servePath.isHidden = engine.phase != .serving || engine.servePreparation?.swingCommitted != true
+    servePath.isHidden = !visualAids.blue || !visualAids.yellow || engine.phase != .serving || engine.servePreparation?.swingCommitted != true
     if engine.phase == .serving, let serve = engine.servePreparation {
       placeRing(serveRing, at: serve.target, radius: 0.58)
       serveRing.alpha = serve.isTossing ? 1 : 0.85
@@ -796,8 +797,8 @@ import SwiftUI
         halo.path = ring.path; halo.strokeColor = ring.strokeColor
       }
     }
-    drawTacticalGuides(enabled: guides)
-    drawSwipeCoach(enabled: guides)
+    drawTacticalGuides()
+    drawSwipeCoach()
   }
 
   /// Project two ground-plane radii so every ring lies flat even as the camera follows a rally.
@@ -817,9 +818,9 @@ import SwiftUI
     ring.path = CGPath(ellipseIn: CGRect(x: -1, y: -1, width: 2, height: 2), transform: &axes)
   }
 
-  private func drawTacticalGuides(enabled: Bool) {
+  private func drawTacticalGuides() {
     let active =
-      enabled && engine.settings.allCourtTraining && !engine.settings.local
+      visualAids.yellow && engine.settings.allCourtTraining && !engine.settings.local
       && engine.phase == .live && engine.attacking[0] && engine.flight?.fault == nil
     openCourt.isHidden = !active
     openLabel.isHidden = !active
@@ -827,6 +828,7 @@ import SwiftUI
     let guide = engine.movementGuide(0) ?? (following
       ? MovementGuide(kind: .approach, from: engine.players[0].pos, to: engine.players[0].destination)
       : nil)
+    let enabled = guide.map { visualAids.shows($0.kind) } ?? false
     let forwardLine = guide.map { $0.to.y < $0.from.y - 0.15 } ?? false
     // Keep the contact and recovery circles visible. Reserve a netward arrow in matches for a short ball.
     let showLine = !forwardLine || engine.demo != nil || guide?.kind == .approach || engine.showsGoldenContact(0)
@@ -873,10 +875,10 @@ import SwiftUI
     }
   }
 
-  private func drawSwipeCoach(enabled: Bool) {
+  private func drawSwipeCoach() {
     if engine.demo != nil { drawDemoGesture(); return }
     demoGesturePath.isHidden = true
-    guard enabled, engine.phase.isPlaying, let guide = swipeCoach.active else {
+    guard engine.phase.isPlaying, let guide = swipeCoach.active, visualAids.shows(guide.kind) else {
       swipeHand.isHidden = true
       swipeTouch.isHidden = true
       return
@@ -909,6 +911,7 @@ import SwiftUI
     var from = player, to = player
     var tap = false, circle = false
     if engine.phase == .serving, let goal = demo.target, let serve = engine.servePreparation {
+      guard visualAids.blue else { return }
       if serve.isTossing {
         guard serve.acceptsSwing || (demo.demonstration && serve.catching != true) else { return }
         let blue = project(serve.target)
@@ -923,6 +926,7 @@ import SwiftUI
         to = project(goal)
       }
     } else if demo.stage == .rallyRecovery, let white = demo.recoveryTarget {
+      guard visualAids.white else { return }
       guard demo.recoveredAt == nil || (demo.lesson == .recoverySplit && demo.bounceWindowOpen && !demo.splitAfterRecovery) else { return }
       if demo.recoveredAt == nil {
         to = project(white)
@@ -931,7 +935,7 @@ import SwiftUI
           y: from.y + (to.y - from.y) / distance * min(48, distance))
       } else { from = project(white); tap = true }
     } else if demo.stage == .approachFlight {
-      guard !demo.approached, engine.canFollowShot(0) else { return }
+      guard visualAids.yellow, !demo.approached, engine.canFollowShot(0) else { return }
       from = CGPoint(x: player.x + 44, y: player.y - 5)
       to = CGPoint(x: from.x, y: from.y + 65)
     } else if demo.stage == .receive || demo.stage == .volleyReceive {
@@ -940,6 +944,7 @@ import SwiftUI
       let movingToYellow = yellow.map { engine.players[0].destination.distance(to: $0) <= 0.3 } ?? false
       if demo.lesson.isFootwork && movingToYellow { return }
       if !movingToYellow, let yellow {
+        guard visualAids.yellow else { return }
         to = project(yellow)
         let distance = max(1, hypot(to.x - from.x, to.y - from.y))
         to = CGPoint(x: from.x + (to.x - from.x) / distance * min(48, distance),
@@ -1017,7 +1022,7 @@ import SwiftUI
       let committed = shotDirection, engine.phase == .live {
       cue = committed
       opacity = alpha
-    } else if var serve = engine.serveDirection(viewer: controlledSide) {
+    } else if visualAids.blue, var serve = engine.serveDirection(viewer: controlledSide) {
       opacity = serve.opacity(at: engine.time, serial: engine.contactSerial, hitter: engine.flight?.hitter)
       guard opacity > 0 else { shotLine.isHidden = true; return }
       cue = serve
@@ -1169,7 +1174,8 @@ import SwiftUI
         shotEpoch: engine.shotGestureEpoch(side), allowsDrop: engine.canDrawDrop(side),
         movementGain: engine.quickNetFeet(side) ? 1.8 : 1,
         targetGuide: engine.swipeMovementGuide(side, onPlayer: intent == .shot),
-        movementOrigin: engine.players[side].pos, allowsApproach: engine.canFollowShot(side))
+        movementOrigin: engine.players[side].pos, allowsApproach: engine.canFollowShot(side),
+        incomingShortBall: engine.showsGoldenContact(side))
       applyTouch(touch)
     }
   }

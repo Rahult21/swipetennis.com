@@ -2,6 +2,27 @@ import Foundation
 
 enum MovementGuideKind: Hashable { case receive, approach, recover }
 
+/// Local display preferences. Court targets and gesture recognition never depend on these.
+struct CourtVisualAids {
+  static let yellowKey = "showHittingZone"
+  static let whiteKey = "showRecoveryPosition"
+  static let blueKey = "showServePosition"
+  let yellow, white, blue: Bool
+
+  static func register(in defaults: UserDefaults = .standard) {
+    let previous = defaults.object(forKey:"guides") as? Bool ?? true
+    defaults.register(defaults:[yellowKey:previous, whiteKey:previous, blueKey:true])
+  }
+
+  init(_ defaults: UserDefaults = .standard) {
+    yellow = defaults.object(forKey:Self.yellowKey) as? Bool ?? true
+    white = defaults.object(forKey:Self.whiteKey) as? Bool ?? true
+    blue = defaults.object(forKey:Self.blueKey) as? Bool ?? true
+  }
+
+  func shows(_ kind: MovementGuideKind) -> Bool { kind == .recover ? white : yellow }
+}
+
 struct MovementGuide: Equatable {
   let kind: MovementGuideKind
   let from: Vec

@@ -7,6 +7,7 @@ import SwiftUI
   @StateObject private var career = SoloCareerStore()
   @StateObject private var practiceSlot = PracticeMatchSlot()
   @StateObject private var cups = CupStore()
+  init() { CourtVisualAids.register() }
   var body: some Scene {
     WindowGroup {
       RootView().environmentObject(store).environmentObject(coachAccount).environmentObject(demos)
@@ -57,7 +58,9 @@ struct SettingsView: View {
   @AppStorage("courtVolume") var courtVolume = 0.3
   @AppStorage("voice") var voice = false
   @AppStorage("tilt") var tilt = false
-  @AppStorage("guides") var guides = true
+  @AppStorage(CourtVisualAids.yellowKey) private var showHittingZone = true
+  @AppStorage(CourtVisualAids.whiteKey) private var showRecovery = true
+  @AppStorage(CourtVisualAids.blueKey) private var showServePosition = true
   @AppStorage("matchViewpoint") private var matchViewpoint = MatchViewpoint.baseline.rawValue
   @EnvironmentObject var store: AppStore
   var body: some View {
@@ -73,7 +76,9 @@ struct SettingsView: View {
       }
       Section {
         Toggle("Tilt to move", isOn: $tilt).disabled(!Immersion.shared.motionAvailable)
-        Toggle("Contact & recovery guides", isOn: $guides)
+        Toggle("Yellow hitting zone", isOn: $showHittingZone)
+        Toggle("White recovery position", isOn: $showRecovery)
+        Toggle("Blue serve position", isOn: $showServePosition)
         Picker("Match camera",selection:$matchViewpoint) {
           ForEach(MatchViewpoint.allCases,id:\.self) { Text($0.rawValue).tag($0.rawValue) }
         }.accessibilityIdentifier("matchViewpoint")
@@ -81,7 +86,7 @@ struct SettingsView: View {
         Text("Controls")
       } footer: {
         Text(
-          "Tilt is optional. Hold your phone comfortably when a rally starts to calibrate. Touch controls remain available. A connected controller uses its left stick to move and A/B/X/Y for crosscourt, line, angle, and lob."
+          "Hiding a guide keeps automatic footwork and touch controls active. Tilt is optional. Hold your phone comfortably when a rally starts to calibrate. Touch controls remain available. A connected controller uses its left stick to move and A/B/X/Y for crosscourt, line, angle, and lob."
         )
       }
       Section("Coachability account") {
