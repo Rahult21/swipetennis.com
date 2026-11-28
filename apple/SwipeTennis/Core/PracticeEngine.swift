@@ -356,7 +356,7 @@ struct PracticeEngine: Codable {
 
   static let bounceSpacing = 2.0
   static let recoveryDistance = length + 4 * 0.3048
-  static let maxRecoveryBehindBaseline = 8.0
+  static let maxRecoveryBehindBaseline = 4.0
 
   static func receiveMark(landing: Vec, receiver: Int) -> Vec {
     Vec(x: landing.x, y: landing.y + (receiver == 0 ? bounceSpacing : -bounceSpacing))

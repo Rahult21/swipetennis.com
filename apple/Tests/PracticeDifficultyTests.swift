@@ -58,7 +58,7 @@ final class PracticeDifficultyTests: XCTestCase {
       game.players[1-side].pos = atDepth(0)
       game.launch(side, aim: atDepth(2), kind: .cross)
       game.recover(side)
-      for depth in [-3.5, -1.2192, 0, 4.0] {
+      for depth in [-3.5, -1.2192, 0, 2.77] {
         game.players[1-side].pos = atDepth(depth)
         game.players[1-side].destination = atDepth(depth)
         game.updateFootwork(1/120)
@@ -77,20 +77,21 @@ final class PracticeDifficultyTests: XCTestCase {
       XCTAssertEqual(game.players[side].destination, manual)
 
       game.recover(side)
-      for depth in [6.77, 6.79, 10, PracticeEngine.net, 4] {
+      // Track an approach through the 4 m cap, then follow the opponent back.
+      for depth in [2.77, 2.79, 4, 10, PracticeEngine.net, 2] {
         let opponent = atDepth(depth)
         game.players[1-side].pos = opponent
         game.players[1-side].destination = opponent
         game.updateFootwork(1/120)
         let white = try XCTUnwrap(game.recoveryGuide(side))
-        let expected = atDepth(PracticeEngine.length + min(depth + 1.2192, 8))
+        let expected = atDepth(PracticeEngine.length + min(depth + 1.2192, 4))
         XCTAssertEqual(white.y, expected.y, accuracy: 0.000001)
         XCTAssertEqual(game.players[side].destination, white)
       }
       let wideAtNet = Vec(x: 0, y: PracticeEngine.net)
       let wideRecovery = PracticeEngine.recovery(side, wideAtNet)
       XCTAssertEqual(wideRecovery.x, center + 0.9144, accuracy: 0.000001)
-      XCTAssertEqual(wideRecovery.y, atDepth(PracticeEngine.length + 8).y, accuracy: 0.000001)
+      XCTAssertEqual(wideRecovery.y, atDepth(PracticeEngine.length + 4).y, accuracy: 0.000001)
     }
   }
 
